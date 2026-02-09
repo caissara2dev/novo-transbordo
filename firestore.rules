@@ -1,0 +1,50 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function myUserDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function hasProfile() {
+      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function isApproved() {
+      return hasProfile() && myUserDoc().data.approved == true && myUserDoc().data.active == true;
+    }
+
+    function isAdmin() {
+      return hasProfile() && myUserDoc().data.role == 'ADMIN';
+    }
+
+    match /users/{uid} {
+      allow read: if isSignedIn() && (uid == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && uid == request.auth.uid;
+      allow update: if isSignedIn() && (uid == request.auth.uid || isAdmin());
+      allow delete: if false;
+    }
+
+    match /clients/{clientId} {
+      allow read: if isApproved();
+      allow write: if false;
+    }
+
+    match /events/{eventId} {
+      allow read: if isApproved();
+      allow write: if false;
+
+      match /revisions/{revisionId} {
+        allow read: if isApproved();
+        allow write: if false;
+      }
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

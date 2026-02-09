@@ -1,0 +1,26 @@
+# dependencies
+/node_modules
+
+# next
+/.next/
+/out/
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+firebase-debug.log*
+firestore-debug.log
+ui-debug.log
+
+# env
+.env*
+!.env.example
+
+# coverage
+/coverage
+
+# misc
+.DS_Store
+.firebase/
