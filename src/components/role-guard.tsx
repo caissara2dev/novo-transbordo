@@ -12,7 +12,7 @@ export function RoleGuard({
   const { profile } = useAuthSession();
 
   if (!profile || !allowed.includes(profile.role)) {
-    return <div className="notice error">Permissao insuficiente para esta area.</div>;
+    return <div className="notice error">Permissão insuficiente para esta área.</div>;
   }
 
   return <>{children}</>;

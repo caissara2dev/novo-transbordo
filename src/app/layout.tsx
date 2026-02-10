@@ -4,7 +4,7 @@ import { SessionProvider } from "@/lib/auth/use-auth-session";
 
 export const metadata: Metadata = {
   title: "Controle-Transbordo",
-  description: "Operacao de transbordo de glicerina"
+  description: "Operação de transbordo de glicerina"
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -17,7 +17,7 @@ export async function createClient(name: string, actorUid: string) {
   const trimmed = name.trim();
 
   if (!trimmed) {
-    throw new HttpError(400, "Nome do cliente e obrigatorio.");
+    throw new HttpError(400, "Nome do cliente é obrigatório.");
   }
 
   const nameUpper = trimmed.toUpperCase();
@@ -29,7 +29,7 @@ export async function createClient(name: string, actorUid: string) {
     .get();
 
   if (!duplicated.empty) {
-    throw new HttpError(409, "Cliente ja cadastrado.");
+    throw new HttpError(409, "Cliente já cadastrado.");
   }
 
   const ref = await adminDb.collection("clients").add({
@@ -55,7 +55,7 @@ export async function updateClient(
   const snap = await ref.get();
 
   if (!snap.exists) {
-    throw new HttpError(404, "Cliente nao encontrado.");
+    throw new HttpError(404, "Cliente não encontrado.");
   }
 
   const updates: Record<string, unknown> = {
@@ -66,7 +66,7 @@ export async function updateClient(
   if (typeof payload.name === "string") {
     const trimmed = payload.name.trim();
     if (!trimmed) {
-      throw new HttpError(400, "Nome do cliente invalido.");
+      throw new HttpError(400, "Nome do cliente inválido.");
     }
 
     updates.name = trimmed;

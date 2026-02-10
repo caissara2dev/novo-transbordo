@@ -6,17 +6,17 @@ export const pumpOptions: Array<{ value: Pump; label: string }> = [
 ];
 
 export const shiftOptions: Array<{ value: ShiftType; label: string }> = [
-  { value: "MANHA", label: "MANHA" },
+  { value: "MANHA", label: "MANHÃ" },
   { value: "NOITE", label: "NOITE" }
 ];
 
 export const categoryOptions: Array<{ value: Category; label: string }> = [
   { value: "PRODUTIVO", label: "Produtivo" },
-  { value: "EM_TRANSITO", label: "Em Transito" },
-  { value: "AGUARDANDO_LABORATORIO", label: "Aguardando Laboratorio" },
-  { value: "SEM_CAMINHAO", label: "Sem Caminhao" },
+  { value: "EM_TRANSITO", label: "Em Trânsito" },
+  { value: "AGUARDANDO_LABORATORIO", label: "Aguardando Laboratório" },
+  { value: "SEM_CAMINHAO", label: "Sem Caminhão" },
   { value: "SEM_CONTAINER", label: "Sem Container" },
-  { value: "MANUTENCAO", label: "Manutencao" },
+  { value: "MANUTENCAO", label: "Manutenção" },
   { value: "OUTROS", label: "Outros" }
 ];
 

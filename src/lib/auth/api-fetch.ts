@@ -6,7 +6,7 @@ export async function apiFetch<T>(input: RequestInfo | URL, init?: RequestInit):
   const user = auth.currentUser;
 
   if (!user) {
-    throw new Error("Usuario nao autenticado.");
+    throw new Error("Usuário não autenticado.");
   }
 
   const token = await user.getIdToken();
@@ -23,7 +23,7 @@ export async function apiFetch<T>(input: RequestInfo | URL, init?: RequestInit):
   const payload = await response.json().catch(() => null);
 
   if (!response.ok) {
-    throw new Error(payload?.error || "Erro de requisicao.");
+    throw new Error(payload?.error || "Erro de requisição.");
   }
 
   return payload as T;

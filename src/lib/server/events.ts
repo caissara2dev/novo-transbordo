@@ -13,13 +13,13 @@ async function assertClientIfRequired(clientId: string | null): Promise<string |
   const snap = await clientRef.get();
 
   if (!snap.exists) {
-    throw new HttpError(400, "Cliente informado nao existe.");
+    throw new HttpError(400, "Cliente informado não existe.");
   }
 
   const client = snap.data() as { active: boolean; name: string };
 
   if (!client.active) {
-    throw new HttpError(400, "Cliente informado esta inativo.");
+    throw new HttpError(400, "Cliente informado está inativo.");
   }
 
   return client.name;
@@ -51,7 +51,7 @@ async function assertNoOverlap(params: {
   });
 
   if (hasOverlap) {
-    throw new HttpError(409, "Existe sobreposicao de horario em lancamentos desta bomba.");
+    throw new HttpError(409, "Existe sobreposição de horário em lançamentos desta bomba.");
   }
 }
 
@@ -112,13 +112,13 @@ export async function updateEvent(
   const snap = await ref.get();
 
   if (!snap.exists) {
-    throw new HttpError(404, "Lancamento nao encontrado.");
+    throw new HttpError(404, "Lançamento não encontrado.");
   }
 
   const existing = snap.data() as EventDoc;
 
   if (existing.deleted) {
-    throw new HttpError(400, "Nao e permitido editar lancamento excluido.");
+    throw new HttpError(400, "Não é permitido editar lançamento excluído.");
   }
 
   const validated = validateEventInput(raw);
@@ -195,13 +195,13 @@ export async function softDeleteEvent(
   const snap = await ref.get();
 
   if (!snap.exists) {
-    throw new HttpError(404, "Lancamento nao encontrado.");
+    throw new HttpError(404, "Lançamento não encontrado.");
   }
 
   const trimmedReason = reason.trim();
 
   if (!trimmedReason) {
-    throw new HttpError(400, "Motivo da exclusao e obrigatorio.");
+    throw new HttpError(400, "Motivo da exclusão é obrigatório.");
   }
 
   await ref.update({
@@ -223,7 +223,7 @@ export async function restoreEvent(eventId: string, actor: { uid: string; email:
   const snap = await ref.get();
 
   if (!snap.exists) {
-    throw new HttpError(404, "Lancamento nao encontrado.");
+    throw new HttpError(404, "Lançamento não encontrado.");
   }
 
   await ref.update({

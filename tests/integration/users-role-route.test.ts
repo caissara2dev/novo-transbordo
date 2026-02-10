@@ -42,6 +42,6 @@ describe("users role route", () => {
     const body = await res.json();
 
     expect(res.status).toBe(400);
-    expect(body.error).toContain("Role invalido");
+    expect(body.error).toContain("Role inválido");
   });
 });

@@ -93,7 +93,7 @@ export default function LoginPage() {
         </button>
       </form>
       <p className="mt-5 text-sm muted">
-        Nao tem conta?{" "}
+        Não tem conta?{" "}
         <Link className="font-semibold underline" href="/register">
           Criar cadastro
         </Link>

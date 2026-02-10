@@ -50,7 +50,7 @@ export async function setApproval(params: {
   const snap = await ref.get();
 
   if (!snap.exists) {
-    throw new HttpError(404, "Usuario nao encontrado.");
+    throw new HttpError(404, "Usuário não encontrado.");
   }
 
   await ref.update({
@@ -74,7 +74,7 @@ export async function setRole(params: {
   const snap = await ref.get();
 
   if (!snap.exists) {
-    throw new HttpError(404, "Usuario nao encontrado.");
+    throw new HttpError(404, "Usuário não encontrado.");
   }
 
   await ref.update({

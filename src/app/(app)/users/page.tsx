@@ -26,7 +26,7 @@ export default function UsersPage() {
       });
       await loadUsers();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Falha ao atualizar aprovacao.");
+      setError(err instanceof Error ? err.message : "Falha ao atualizar aprovação.");
     }
   };
 
@@ -47,8 +47,8 @@ export default function UsersPage() {
       <section className="space-y-5">
         <header>
           <p className="pill">Admin</p>
-          <h1 className="panel-title mt-2 text-3xl">Usuarios</h1>
-          <p className="text-sm muted">Aprovacao manual e gestao de papeis.</p>
+          <h1 className="panel-title mt-2 text-3xl">Usuários</h1>
+          <p className="text-sm muted">Aprovação manual e gestão de papéis.</p>
         </header>
 
         {error ? <div className="notice error">{error}</div> : null}
@@ -87,7 +87,7 @@ export default function UsersPage() {
             </article>
           ))}
 
-          {!users.length ? <p className="text-sm muted">Nenhum usuario encontrado.</p> : null}
+          {!users.length ? <p className="text-sm muted">Nenhum usuário encontrado.</p> : null}
         </div>
       </section>
     </RoleGuard>

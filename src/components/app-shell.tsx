@@ -10,11 +10,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { profile, logout } = useAuthSession();
   const [menuOpen, setMenuOpen] = useState(false);
 
-  const nav = [
-    { href: "/dashboard", label: "Dashboard" },
-    { href: "/events", label: "Lancamentos" },
-    ...(profile?.role === "ADMIN" ? [{ href: "/clients", label: "Clientes" }] : []),
-    ...(profile?.role === "ADMIN" ? [{ href: "/users", label: "Usuarios" }] : [])
+  const nav: Array<{
+    href: "/dashboard" | "/events" | "/reports" | "/clients" | "/users";
+    label: string;
+  }> = [
+    { href: "/dashboard" as const, label: "Dashboard" },
+    { href: "/events" as const, label: "Lançamentos" },
+    ...(profile?.role === "SUPERVISOR" || profile?.role === "ADMIN"
+      ? [{ href: "/reports" as const, label: "Relatórios" }]
+      : []),
+    ...(profile?.role === "ADMIN" ? [{ href: "/clients" as const, label: "Clientes" }] : []),
+    ...(profile?.role === "ADMIN" ? [{ href: "/users" as const, label: "Usuários" }] : [])
   ];
 
   useEffect(() => {
@@ -40,7 +46,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </button>
           <div>
             <p className="brand-title">Controle Transbordo</p>
-            <p className="brand-subtitle">Operacao auditavel de patio | Santos-SP</p>
+            <p className="brand-subtitle">Operação auditável de pátio | Santos-SP</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -52,7 +58,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </header>
       {menuOpen ? <button className="nav-backdrop" onClick={() => setMenuOpen(false)} type="button" /> : null}
       <aside className={`nav-drawer ${menuOpen ? "open" : ""}`}>
-        <p className="rail-caption">Navegacao</p>
+        <p className="rail-caption">Navegação</p>
         <ul>
           {nav.map((item) => (
             <li key={item.href}>

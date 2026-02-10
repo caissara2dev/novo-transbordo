@@ -47,7 +47,7 @@ export function validateEventInput(raw: unknown): EventValidationResult {
   const parsed = baseSchema.parse(raw);
 
   if (!isValidHHMM(parsed.startTime) || !isValidHHMM(parsed.endTime)) {
-    throw new Error("Horario deve estar no formato HH:MM.");
+    throw new Error("Horário deve estar no formato HH:MM.");
   }
 
   const normalized: EventInput = {
@@ -60,19 +60,19 @@ export function validateEventInput(raw: unknown): EventValidationResult {
   const rules = categoryRules[normalized.category];
 
   if (rules.requiresClient && !normalized.clientId) {
-    throw new Error("Cliente obrigatorio para esta categoria.");
+    throw new Error("Cliente obrigatório para esta categoria.");
   }
 
   if (rules.requiresPlate && !normalized.plate) {
-    throw new Error("Placa obrigatoria para esta categoria.");
+    throw new Error("Placa obrigatória para esta categoria.");
   }
 
   if (rules.requiresContainer && !normalized.container) {
-    throw new Error("Container obrigatorio para esta categoria.");
+    throw new Error("Container obrigatório para esta categoria.");
   }
 
   if (rules.requiresNotes && !normalized.notes) {
-    throw new Error("Observacao obrigatoria para esta categoria.");
+    throw new Error("Observação obrigatória para esta categoria.");
   }
 
   const startDt = resolveTimelineDate(
@@ -90,28 +90,28 @@ export function validateEventInput(raw: unknown): EventValidationResult {
     if (normalized.shiftType === "NOITE") {
       endDt = endDt.plus({ days: 1 });
     } else {
-      throw new Error("Horario de inicio deve ser menor que horario de fim.");
+      throw new Error("Horário de início deve ser menor que horário de fim.");
     }
   }
 
   const durationMinutes = calculateDurationMinutes(startDt.toISO() ?? "", endDt.toISO() ?? "");
 
   if (durationMinutes < 1) {
-    throw new Error("Duracao minima de 1 minuto.");
+    throw new Error("Duração mínima de 1 minuto.");
   }
 
   if (durationMinutes > 540) {
-    throw new Error("Duracao maxima de 9 horas.");
+    throw new Error("Duração máxima de 9 horas.");
   }
 
   const warnings: string[] = [];
 
   if (!computeWindowCheck(normalized.shiftType, normalized.startTime)) {
-    warnings.push("Horario de inicio fora da janela do turno selecionado.");
+    warnings.push("Horário de início fora da janela do turno selecionado.");
   }
 
   if (!computeWindowCheck(normalized.shiftType, normalized.endTime)) {
-    warnings.push("Horario de fim fora da janela do turno selecionado.");
+    warnings.push("Horário de fim fora da janela do turno selecionado.");
   }
 
   return {
@@ -163,5 +163,5 @@ export function ensureShiftType(input: string): ShiftType {
     return input;
   }
 
-  throw new Error("Turno invalido.");
+  throw new Error("Turno inválido.");
 }
