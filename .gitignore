@@ -24,3 +24,5 @@ ui-debug.log
 # misc
 .DS_Store
 .firebase/
+output/
+tmp/
