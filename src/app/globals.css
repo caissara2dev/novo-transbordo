@@ -76,6 +76,32 @@ body {
   background: var(--bg);
 }
 
+.site-root {
+  min-height: 100vh;
+}
+
+.site-frame {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.site-content {
+  flex: 1;
+}
+
+.site-footer {
+  padding: 0.65rem 1rem 0.95rem;
+  text-align: center;
+}
+
+.site-footer p {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
 h1,
 h2,
 h3,
@@ -685,5 +711,13 @@ a {
 
   .reports-chart-wrap {
     height: 220px;
+  }
+
+  .site-footer {
+    padding: 0.55rem 0.75rem 0.8rem;
+  }
+
+  .site-footer p {
+    font-size: 0.69rem;
   }
 }
