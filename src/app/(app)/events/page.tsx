@@ -607,10 +607,15 @@ export default function EventsPage() {
           {events.map((item) => (
             <article className={`history-item ${item.deleted ? "is-deleted" : ""}`} key={item.id}>
               <div className="history-head">
-                <p className="history-title">
-                  {item.shiftDate} • {item.shiftType} • {pumpShortLabel(item.pump)} •{" "}
-                  {categoryLabelMap[item.category]}
-                </p>
+                <div>
+                  <p className="history-title">
+                    {item.shiftDate} • {item.shiftType} • {pumpShortLabel(item.pump)} •{" "}
+                    {categoryLabelMap[item.category]}
+                  </p>
+                  <p className="history-time">
+                    {toClockLabel(item.startTime)} → {toClockLabel(item.endTime)}
+                  </p>
+                </div>
                 <div className="history-top-right">
                   <p className="history-duration">{formatDuration(item.durationMinutes)}</p>
                   {isManager && !item.deleted ? (
@@ -625,13 +630,13 @@ export default function EventsPage() {
                   ) : null}
                 </div>
               </div>
-
-              <p className="history-time">
-                {toClockLabel(item.startTime)} → {toClockLabel(item.endTime)}
-              </p>
               <p className="history-mainline">
                 <strong>Cliente:</strong> {item.clientNameSnapshot || "-"} • <strong>Obs:</strong>{" "}
                 {item.notes || "-"}
+              </p>
+              <p className="history-meta">
+                <strong>Placa:</strong> {item.plate || "-"} • <strong>Container:</strong>{" "}
+                {item.container || "-"}
               </p>
               <p className="history-meta">Criado por: {item.createdByEmail}</p>
               {wasEdited(item) ? (
