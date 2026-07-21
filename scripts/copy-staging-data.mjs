@@ -78,19 +78,13 @@ async function countCollection(collectionRef) {
 }
 
 async function inspectSource(sourceDb) {
-  const summary = { clients: 0, events: 0, revisions: 0 };
+  const [clients, events, revisions] = await Promise.all([
+    countCollection(sourceDb.collection("clients")),
+    countCollection(sourceDb.collection("events")),
+    countCollection(sourceDb.collectionGroup("revisions"))
+  ]);
 
-  for await (const client of readCollection(sourceDb.collection("clients"))) {
-    void client;
-    summary.clients += 1;
-  }
-
-  for await (const event of readCollection(sourceDb.collection("events"))) {
-    summary.events += 1;
-    summary.revisions += await countCollection(event.ref.collection("revisions"));
-  }
-
-  return summary;
+  return { clients, events, revisions };
 }
 
 async function inspectTarget(targetDb) {
@@ -133,6 +127,12 @@ async function copyData(sourceDb, targetDb) {
 
     for await (const revision of readCollection(event.ref.collection("revisions"))) {
       await enqueue(targetEvent.collection("revisions").doc(revision.id), revision.data(), "revisions");
+    }
+
+    if (copied.events % 100 === 0) {
+      console.log(
+        `Progresso: ${copied.clients} clients, ${copied.events} events, ${copied.revisions} revisions.`
+      );
     }
   }
 
