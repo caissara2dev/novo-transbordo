@@ -135,9 +135,16 @@ tests                    # unitarios e integracao
 ## Qualidade e seguranca
 
 - Escritas de dominio passam por rotas server-side
+- Perfis de usuario nao aceitam criacao ou alteracao direta pelo cliente
 - Firestore Rules restritivas para proteger colecoes sensiveis
 - Revisoes de lancamentos com diff de campos alterados
 - Soft delete/restauracao (sem hard delete operacional)
+
+Validacao das regras no Firestore Emulator:
+
+```bash
+npm run test:rules
+```
 
 ## Deploy (Firebase)
 
