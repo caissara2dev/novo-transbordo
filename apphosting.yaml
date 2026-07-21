@@ -1,4 +1,10 @@
 env:
+  - variable: NEXT_PUBLIC_APP_ENV
+    value: "production"
+    availability:
+      - BUILD
+      - RUNTIME
+
   - variable: NEXT_PUBLIC_FIREBASE_API_KEY
     value: "AIzaSyArVRUCA7aKarpd70yqkz7NGOl3ja0f3_o"
     availability:

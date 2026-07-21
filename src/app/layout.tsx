@@ -9,11 +9,18 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
+  const isStaging = process.env.NEXT_PUBLIC_APP_ENV === "staging";
+
   return (
     <html lang="pt-BR">
       <body className="site-root">
         <SessionProvider>
           <div className="site-frame">
+            {isStaging ? (
+              <div className="environment-banner" role="status">
+                AMBIENTE DE TESTE — dados separados da produção
+              </div>
+            ) : null}
             <div className="site-content">{children}</div>
             <SiteFooter />
           </div>

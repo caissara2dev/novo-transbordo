@@ -26,3 +26,4 @@ ui-debug.log
 .firebase/
 output/
 tmp/
+.vercel

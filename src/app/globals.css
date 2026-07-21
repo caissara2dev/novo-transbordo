@@ -686,6 +686,21 @@ a {
   text-transform: uppercase;
 }
 
+.environment-banner {
+  position: sticky;
+  top: 0;
+  z-index: 60;
+  border-bottom: 1px solid #92400e;
+  padding: 0.45rem 1rem;
+  background: #fef3c7;
+  color: #78350f;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
 @media (max-width: 900px) {
   .app-stage {
     width: calc(100% - 0.8rem);

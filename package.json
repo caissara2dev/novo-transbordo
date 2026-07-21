@@ -1,6 +1,6 @@
 {
   "name": "controle-transbordo",
-  "version": "0.1.0",
+  "version": "2.0.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -11,6 +11,7 @@
     "test:watch": "vitest",
     "test:integration": "vitest run tests/integration",
     "test:rules": "firebase emulators:exec --project demo-transbordo --only firestore \"vitest run --config vitest.rules.config.ts\"",
+    "copy:staging": "node scripts/copy-staging-data.mjs",
     "promote-admin": "node scripts/promote-admin.mjs"
   },
   "dependencies": {

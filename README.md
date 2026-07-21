@@ -155,7 +155,30 @@ npx firebase deploy --only firestore:rules,firestore:indexes --project line-tran
 ```
 
 - App Hosting:
-  - Build/deploy disparado por push no branch conectado ao backend no Firebase.
+  - Produção em `linebot.com.br`.
+  - Build/deploy disparado por merge na branch `main` conectada ao backend no Firebase.
+
+## Previews (Vercel + Firebase staging)
+
+- A Vercel publica somente branches de trabalho (`feat/*`, `fix/*` e `chore/*`).
+- A branch `main` não é publicada pela Vercel; ela pertence ao Firebase App Hosting.
+- Todos os previews usam exclusivamente o projeto `line-transbordo-staging-382612`.
+- Variáveis `FIREBASE_CLIENT_EMAIL` e `FIREBASE_PRIVATE_KEY` ficam somente nos segredos da Vercel.
+- `NEXT_PUBLIC_APP_ENV=staging` exibe um aviso visível no topo da aplicação.
+
+Para conferir a cópia inicial sem alterar dados:
+
+```bash
+npm run copy:staging -- --dry-run
+```
+
+Para executar, é exigida confirmação explícita do destino:
+
+```bash
+npm run copy:staging -- --execute --confirm-target=line-transbordo-staging-382612
+```
+
+O utilitário copia `clients`, `events` e revisões. Perfis em `users` e contas do Firebase Auth nunca são copiados.
 
 ## Documentacao complementar
 
