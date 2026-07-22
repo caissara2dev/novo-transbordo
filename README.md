@@ -1,29 +1,35 @@
-# Controle Transbordo - V1 (Nucleo Operacional)
+# Controle Transbordo (V1 + V2)
 
-Aplicacao web para operacao de transbordo com foco em controle operacional, governanca de acesso e rastreabilidade de alteracoes.
+Aplicacao web para controle operacional de transbordo, com governanca de acesso, trilha de auditoria e analise operacional.
 
-Stack principal:
+## Stack
+
 - Next.js (App Router) + TypeScript
 - Firebase Auth (email/senha)
 - Firestore
-- Firebase Emulator Suite para ambiente local
+- Firebase Emulator Suite (desenvolvimento local)
+- Recharts (dashboard de relatorios)
 
-## Objetivo da V1
+## Escopo entregue
 
-Entregar o nucleo operacional completo:
-- cadastro e login
-- aprovacao manual de usuarios
-- controle de papeis (`OPERATOR`, `SUPERVISOR`, `ADMIN`)
-- lancamentos com validacoes de negocio
-- auditoria de edicao
-- exclusao logica com restauracao
-- gestao de clientes e usuarios por Admin
+### V1 - Nucleo operacional
 
-Fora de escopo da V1:
-- exportacao CSV
-- relatorios/graficos
-- integracoes externas
-- modo offline
+- Cadastro/login e aprovacao manual de usuarios
+- Perfis: `OPERATOR`, `SUPERVISOR`, `ADMIN`
+- Lancamentos com validacoes de negocio
+- Bloqueio de sobreposicao por bomba
+- Edicao com auditoria e revisoes
+- Soft delete com motivo e restauracao (Admin)
+- Gestao de clientes e usuarios (Admin)
+
+### V2 - Relatorios profissionais
+
+- Tela `/reports` para `SUPERVISOR` e `ADMIN`
+- Filtros globais com presets de periodo
+- KPIs com comparacao vs periodo anterior
+- Graficos operacionais (produtivo/ocioso, tendencia, turno, ranking)
+- Drilldown em tabela na mesma pagina
+- Exportacao CSV detalhado e agregado
 
 ## Requisitos
 
@@ -31,88 +37,88 @@ Fora de escopo da V1:
 - npm 10+
 - Java (necessario para Firestore Emulator)
 
-## Setup rapido
+## Setup local rapido
 
-1. Instalar dependencias:
+1. Instale dependencias:
 
 ```bash
 npm install
 ```
 
-2. Criar arquivo de ambiente:
+2. Crie o arquivo de ambiente:
 
 ```bash
 cp .env.example .env.local
 ```
 
-3. Preencher as variaveis do Firebase em `.env.local`.
+3. Preencha variaveis do Firebase em `.env.local`.
 
-4. Subir emuladores:
+4. Suba os emuladores (terminal 1):
 
 ```bash
-npx firebase emulators:start
+npx firebase emulators:start --project demo-transbordo
 ```
 
-5. Em outro terminal, subir app:
+5. Suba o app (terminal 2):
 
 ```bash
 npm run dev
 ```
 
-App local: `http://localhost:3000`  
-Emulator UI: `http://localhost:4000`
+URLs locais:
+- App: `http://localhost:3000`
+- Emulator UI: `http://localhost:4000`
 
 ## Variaveis de ambiente
 
 Veja `.env.example`.
 
 Grupos principais:
-- `NEXT_PUBLIC_FIREBASE_*`: SDK web (cliente)
-- `FIREBASE_*`: Admin SDK (server-side)
-- `APPROVAL_CONTACT_PHONE`: contato exibido para usuario pendente
+- `NEXT_PUBLIC_FIREBASE_*`: SDK cliente
+- `FIREBASE_*`: Admin SDK no server
+- `APPROVAL_CONTACT_PHONE`: contato exibido em conta pendente
 - `*_EMULATOR_HOST`: roteamento para emuladores locais
 
-Observacao importante para cloud:
-- `FIREBASE_PRIVATE_KEY` deve manter `\n` escapado no `.env.local`.
+Observacao:
+- Em cloud, manter `FIREBASE_PRIVATE_KEY` com `\n` escapado.
 
-## Fluxo inicial de acesso (primeiro admin)
+## Primeiro admin (bootstrap)
 
-1. Registrar usuario em `/register`.
-2. Usuario entra como `approved=false`.
-3. Promover primeiro admin:
+1. Registre um usuario em `/register`
+2. Pegue o `uid`
+3. Promova para admin:
 
 ```bash
 npm run promote-admin -- <uid>
 ```
 
-4. Entrar com esse admin e aprovar/promover usuarios em `/users`.
+4. Entre com esse usuario e aprove/promova os demais em `/users`.
 
 ## Scripts
 
-- `npm run dev`: ambiente de desenvolvimento
+- `npm run dev`: desenvolvimento
 - `npm run build`: build de producao
-- `npm run start`: executa build em producao
+- `npm run start`: start em producao
 - `npm run lint`: lint
-- `npm test`: suite completa (Vitest)
+- `npm test`: testes unitarios
 - `npm run test:integration`: testes de integracao
-- `npm run promote-admin -- <uid>`: bootstrap do primeiro admin
+- `npm run promote-admin -- <uid>`: promover admin no ambiente local
 
 ## Estrutura principal
 
 ```text
 src/app/(auth)           # login/registro
-src/app/(app)            # dashboard, lancamentos, clientes, usuarios
+src/app/(app)            # dashboard, events, reports, clients, users
 src/app/api              # APIs server-side
-src/lib/domain           # regras de negocio e validacoes
-src/lib/server           # camada server de auth, filtros, servicos
+src/lib/domain           # validacoes e regras de negocio
+src/lib/server           # servicos de dominio (events, reports, etc)
 src/lib/firebase         # inicializacao Firebase client/admin
 src/types                # contratos TypeScript
 tests                    # unitarios e integracao
 ```
 
-## APIs da V1
+## APIs principais
 
-Resumo:
 - `GET /api/me`
 - `GET/POST /api/events`
 - `PATCH/DELETE /api/events/:id`
@@ -122,28 +128,60 @@ Resumo:
 - `GET /api/users`
 - `POST /api/users/:uid/approve`
 - `POST /api/users/:uid/role`
-
-Detalhes completos em `docs/API.md`.
+- `GET /api/reports/overview`
+- `GET /api/reports/drilldown`
+- `GET /api/reports/export`
 
 ## Qualidade e seguranca
 
-- Escritas de dominio passam por rotas server-side.
-- Firestore Rules bloqueiam escrita direta do cliente em `events`, `clients` e `revisions`.
-- Edicoes de lancamento geram trilha de revisao com diff de campos alterados.
-- Exclusao e restauracao sao logicas (sem hard delete).
+- Escritas de dominio passam por rotas server-side
+- Perfis de usuario nao aceitam criacao ou alteracao direta pelo cliente
+- Firestore Rules restritivas para proteger colecoes sensiveis
+- Revisoes de lancamentos com diff de campos alterados
+- Soft delete/restauracao (sem hard delete operacional)
 
-## Operacao local e troubleshooting
+Validacao das regras no Firestore Emulator:
 
-Guia operacional:
+```bash
+npm run test:rules
+```
+
+## Deploy (Firebase)
+
+- Firestore rules/indexes:
+
+```bash
+npx firebase deploy --only firestore:rules,firestore:indexes --project line-transbordo
+```
+
+- App Hosting:
+  - Produção em `linebot.com.br`.
+  - Build/deploy disparado por merge na branch `main` conectada ao backend no Firebase.
+
+## Previews (Vercel + Firebase staging)
+
+- A Vercel publica somente branches de trabalho (`feat/*`, `fix/*` e `chore/*`).
+- A branch `main` não é publicada pela Vercel; ela pertence ao Firebase App Hosting.
+- Todos os previews usam exclusivamente o projeto `line-transbordo-staging-382612`.
+- Variáveis `FIREBASE_CLIENT_EMAIL` e `FIREBASE_PRIVATE_KEY` ficam somente nos segredos da Vercel.
+- `NEXT_PUBLIC_APP_ENV=staging` exibe um aviso visível no topo da aplicação.
+
+Para conferir a cópia inicial sem alterar dados:
+
+```bash
+npm run copy:staging -- --dry-run
+```
+
+Para executar, é exigida confirmação explícita do destino:
+
+```bash
+npm run copy:staging -- --execute --confirm-target=line-transbordo-staging-382612
+```
+
+O utilitário copia `clients`, `events` e revisões. Perfis em `users` e contas do Firebase Auth nunca são copiados.
+
+## Documentacao complementar
+
+- `docs/ARQUITETURA.md`
+- `docs/API.md`
 - `docs/OPERACAO_LOCAL.md`
-
-Problemas comuns:
-- `auth/network-request-failed`: app nao alcança Auth (emulador parado ou config incorreta).
-- erro de Java ao iniciar emulador: instalar JRE/JDK e validar `java -version`.
-- `gh auth status` invalido: refazer login via `gh auth login`.
-
-## Documentacao tecnica adicional
-
-- Arquitetura: `docs/ARQUITETURA.md`
-- API: `docs/API.md`
-- Operacao local: `docs/OPERACAO_LOCAL.md`

@@ -6,7 +6,13 @@ import { computeWindowCheck, currentShiftFromNow } from "@/lib/domain/time";
 import { formatContainerForInput, formatPlateForInput } from "@/lib/domain/identifiers";
 import { apiFetch } from "@/lib/auth/api-fetch";
 import { useAuthSession } from "@/lib/auth/use-auth-session";
-import { categoryLabelMap, categoryOptions, pumpOptions, shiftOptions } from "@/lib/domain/options";
+import {
+  categoryLabelMap,
+  categoryOptions,
+  pumpOptions,
+  shiftLabelMap,
+  shiftOptions
+} from "@/lib/domain/options";
 import { Category, Pump, ShiftType } from "@/types/domain";
 import { ClientApiItem, EventApiItem } from "@/types/api";
 
@@ -26,13 +32,13 @@ type EventFormState = {
 
 const shiftNow = currentShiftFromNow();
 const categoryDescriptions: Record<Category, string> = {
-  PRODUTIVO: "Transbordo em execucao.",
-  EM_TRANSITO: "Movimentacao entre pontos.",
-  AGUARDANDO_LABORATORIO: "Parado aguardando liberacao.",
-  SEM_CAMINHAO: "Sem veiculo disponivel.",
-  SEM_CONTAINER: "Sem container para operacao.",
-  MANUTENCAO: "Parada para manutencao.",
-  OUTROS: "Ocorrencias fora dos cenarios acima."
+  PRODUTIVO: "Transbordo em execução.",
+  EM_TRANSITO: "Movimentação entre pontos.",
+  AGUARDANDO_LABORATORIO: "Parado aguardando liberação.",
+  SEM_CAMINHAO: "Sem veículo disponível.",
+  SEM_CONTAINER: "Sem container para operação.",
+  MANUTENCAO: "Parada para manutenção.",
+  OUTROS: "Ocorrências fora dos cenários acima."
 };
 
 function makeInitialForm(): EventFormState {
@@ -180,7 +186,7 @@ function EventFormFields({
       </label>
 
       <label className="field-label">
-        Horario inicio
+        Horário início
         <input
           className="input-ui"
           onChange={(e) => setForm({ ...form, startTime: e.target.value })}
@@ -190,13 +196,13 @@ function EventFormFields({
         />
         {warningStart ? (
           <span className="notice warn mt-1 block normal-case">
-            Aviso: horario fora da janela do turno selecionado.
+            Aviso: horário fora da janela do turno selecionado.
           </span>
         ) : null}
       </label>
 
       <label className="field-label">
-        Horario fim
+        Horário fim
         <input
           className="input-ui"
           onChange={(e) => setForm({ ...form, endTime: e.target.value })}
@@ -206,7 +212,7 @@ function EventFormFields({
         />
         {warningEnd ? (
           <span className="notice warn mt-1 block normal-case">
-            Aviso: horario fora da janela do turno selecionado.
+            Aviso: horário fora da janela do turno selecionado.
           </span>
         ) : null}
       </label>
@@ -270,7 +276,7 @@ function EventFormFields({
       </label>
 
       <label className="field-label col-span-2">
-        Observacoes {rules.requiresNotes ? "*" : ""}
+        Observações {rules.requiresNotes ? "*" : ""}
         <textarea
           className="textarea-ui h-24"
           onChange={(e) => setForm({ ...form, notes: e.target.value })}
@@ -355,13 +361,13 @@ export default function EventsPage() {
 
       setMessage(
         response.item.warnings?.length
-          ? `Lancamento salvo com avisos: ${response.item.warnings.join(" | ")}`
-          : "Lancamento salvo com sucesso."
+          ? `Lançamento salvo com avisos: ${response.item.warnings.join(" | ")}`
+          : "Lançamento salvo com sucesso."
       );
       setForm(makeInitialForm());
       await loadEvents();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erro ao salvar lancamento.");
+      setError(err instanceof Error ? err.message : "Erro ao salvar lançamento.");
     } finally {
       setLoading(false);
     }
@@ -401,21 +407,21 @@ export default function EventsPage() {
 
       setMessage(
         response.item.warnings?.length
-          ? `Edicao salva com avisos: ${response.item.warnings.join(" | ")}`
-          : "Lancamento atualizado com sucesso."
+          ? `Edição salva com avisos: ${response.item.warnings.join(" | ")}`
+          : "Lançamento atualizado com sucesso."
       );
       setEditId(null);
       setEditForm(null);
       await loadEvents();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erro ao editar lancamento.");
+      setError(err instanceof Error ? err.message : "Erro ao editar lançamento.");
     } finally {
       setLoading(false);
     }
   };
 
   const deleteEvent = async (eventId: string) => {
-    const reason = window.prompt("Informe o motivo da exclusao:");
+    const reason = window.prompt("Informe o motivo da exclusão:");
 
     if (!reason) {
       return;
@@ -427,10 +433,10 @@ export default function EventsPage() {
         body: JSON.stringify({ reason })
       });
 
-      setMessage("Lancamento excluido com sucesso.");
+      setMessage("Lançamento excluído com sucesso.");
       await loadEvents();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erro ao excluir lancamento.");
+      setError(err instanceof Error ? err.message : "Erro ao excluir lançamento.");
     }
   };
 
@@ -440,10 +446,10 @@ export default function EventsPage() {
         method: "POST"
       });
 
-      setMessage("Lancamento restaurado.");
+      setMessage("Lançamento restaurado.");
       await loadEvents();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erro ao restaurar lancamento.");
+      setError(err instanceof Error ? err.message : "Erro ao restaurar lançamento.");
     }
   };
 
@@ -453,21 +459,21 @@ export default function EventsPage() {
       {message ? <div className="notice success">{message}</div> : null}
 
       <section className="panel space-y-3">
-        <h2 className="panel-title text-2xl">Novo lancamento</h2>
+        <h2 className="panel-title text-2xl">Novo lançamento</h2>
         <EventFormFields
           clients={clients}
           form={form}
           loading={loading}
           onSubmit={handleCreate}
           setForm={(next) => setForm(next)}
-          submitLabel="Salvar lancamento"
+          submitLabel="Salvar lançamento"
         />
       </section>
 
       {editForm ? (
         <div className="panel border-amber-300 bg-amber-50/70">
           <div className="mb-2 flex items-center justify-between">
-            <h2 className="panel-title text-2xl">Editar lancamento</h2>
+            <h2 className="panel-title text-2xl">Editar lançamento</h2>
             <button
               className="btn-soft"
               onClick={() => {
@@ -480,7 +486,7 @@ export default function EventsPage() {
             </button>
           </div>
           <label className="field-label mb-3 block">
-            Justificativa da edicao (opcional)
+            Justificativa da edição (opcional)
             <input
               className="input-ui"
               onChange={(e) => setEditForm({ ...editForm, revisionReason: e.target.value })}
@@ -494,13 +500,13 @@ export default function EventsPage() {
             loading={loading}
             onSubmit={handleEdit}
             setForm={(next) => setEditForm(next)}
-            submitLabel="Salvar edicao"
+            submitLabel="Salvar edição"
           />
         </div>
       ) : null}
 
       <section className="panel space-y-3">
-        <h2 className="panel-title text-2xl">Historico</h2>
+        <h2 className="panel-title text-2xl">Histórico</h2>
         <form
           className="grid gap-3 md:grid-cols-4"
           onSubmit={(e) => {
@@ -518,7 +524,7 @@ export default function EventsPage() {
             />
           </label>
           <label className="field-label">
-            Data ate
+            Data até
             <input
               className="input-ui"
               onChange={(e) => setFilters({ ...filters, dateTo: e.target.value })}
@@ -594,7 +600,7 @@ export default function EventsPage() {
                 onChange={(e) => setFilters({ ...filters, includeDeleted: e.target.checked })}
                 type="checkbox"
               />
-              Incluir excluidos
+              Incluir excluídos
             </label>
           ) : null}
 
@@ -607,10 +613,15 @@ export default function EventsPage() {
           {events.map((item) => (
             <article className={`history-item ${item.deleted ? "is-deleted" : ""}`} key={item.id}>
               <div className="history-head">
-                <p className="history-title">
-                  {item.shiftDate} • {item.shiftType} • {pumpShortLabel(item.pump)} •{" "}
-                  {categoryLabelMap[item.category]}
-                </p>
+                <div>
+                  <p className="history-title">
+                    {item.shiftDate} • {shiftLabelMap[item.shiftType]} • {pumpShortLabel(item.pump)} •{" "}
+                    {categoryLabelMap[item.category]}
+                  </p>
+                  <p className="history-time">
+                    {toClockLabel(item.startTime)} → {toClockLabel(item.endTime)}
+                  </p>
+                </div>
                 <div className="history-top-right">
                   <p className="history-duration">{formatDuration(item.durationMinutes)}</p>
                   {isManager && !item.deleted ? (
@@ -625,13 +636,13 @@ export default function EventsPage() {
                   ) : null}
                 </div>
               </div>
-
-              <p className="history-time">
-                {toClockLabel(item.startTime)} → {toClockLabel(item.endTime)}
-              </p>
               <p className="history-mainline">
                 <strong>Cliente:</strong> {item.clientNameSnapshot || "-"} • <strong>Obs:</strong>{" "}
                 {item.notes || "-"}
+              </p>
+              <p className="history-meta">
+                <strong>Placa:</strong> {item.plate || "-"} • <strong>Container:</strong>{" "}
+                {item.container || "-"}
               </p>
               <p className="history-meta">Criado por: {item.createdByEmail}</p>
               {wasEdited(item) ? (
@@ -641,7 +652,7 @@ export default function EventsPage() {
               ) : null}
               {item.deleted ? (
                 <p className="notice error mt-2">
-                  Excluido: {item.deletedReason || "-"} ({item.deletedByEmail || "-"})
+                  Excluído: {item.deletedReason || "-"} ({item.deletedByEmail || "-"})
                 </p>
               ) : null}
 
@@ -655,7 +666,7 @@ export default function EventsPage() {
             </article>
           ))}
 
-          {!events.length ? <p className="text-sm muted">Nenhum lancamento encontrado.</p> : null}
+          {!events.length ? <p className="text-sm muted">Nenhum lançamento encontrado.</p> : null}
         </div>
       </section>
     </section>

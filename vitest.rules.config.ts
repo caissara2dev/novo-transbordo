@@ -1,12 +1,12 @@
-import { defineConfig } from "vitest/config";
 import path from "path";
+import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
     globals: true,
     environment: "node",
-    setupFiles: ["./tests/setup.ts"],
-    include: ["tests/unit/**/*.test.ts", "tests/integration/**/*.test.ts"]
+    include: ["tests/rules/**/*.test.ts"],
+    fileParallelism: false
   },
   resolve: {
     alias: {

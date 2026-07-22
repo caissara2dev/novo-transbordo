@@ -55,7 +55,7 @@ async function fetchMe(user: User): Promise<{
     });
 
     if (!syncRes.ok) {
-      throw new Error("Nao foi possivel sincronizar o perfil do usuario.");
+      throw new Error("Não foi possível sincronizar o perfil do usuário.");
     }
 
     const retry = await fetchWithTimeout("/api/me", {
@@ -65,7 +65,7 @@ async function fetchMe(user: User): Promise<{
     });
 
     if (!retry.ok) {
-      throw new Error("Nao foi possivel carregar o perfil.");
+      throw new Error("Não foi possível carregar o perfil.");
     }
 
     return retry.json();

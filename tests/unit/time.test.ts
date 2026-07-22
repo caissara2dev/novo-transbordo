@@ -47,7 +47,7 @@ describe("domain time rules", () => {
         container: null,
         notes: null
       })
-    ).toThrow("Observacao obrigatoria");
+    ).toThrow("Observação obrigatória");
   });
 
   it("accepts supported plate/container formats", () => {
@@ -99,7 +99,7 @@ describe("domain time rules", () => {
         container: "ABCU1234569",
         notes: null
       })
-    ).toThrow("Digito verificador incorreto");
+    ).toThrow("Dígito verificador incorreto");
   });
 
   it("checks edit permission window", () => {

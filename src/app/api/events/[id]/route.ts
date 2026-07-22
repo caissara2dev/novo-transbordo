@@ -34,14 +34,14 @@ async function assertEditableWindow(eventId: string, role: string): Promise<void
   const snap = await adminDb.collection("events").doc(eventId).get();
 
   if (!snap.exists) {
-    throw new HttpError(404, "Lancamento nao encontrado.");
+    throw new HttpError(404, "Lançamento não encontrado.");
   }
 
   const createdAtMs = toMillis(snap.data()?.createdAt);
   const allowed = canEdit(role, createdAtMs, Date.now());
 
   if (!allowed) {
-    throw new HttpError(403, "Supervisor so pode alterar/excluir nas primeiras 24h.");
+    throw new HttpError(403, "Supervisor só pode alterar/excluir nas primeiras 24h.");
   }
 }
 

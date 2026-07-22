@@ -70,7 +70,7 @@ export default function RegisterPage() {
       <p className="pill">Novo acesso</p>
       <h1 className="auth-title mt-3">Criar conta</h1>
       <p className="mt-1 text-sm muted">
-        O cadastro e livre, mas o acesso operacional exige aprovacao do Admin.
+        O cadastro é livre, mas o acesso operacional exige aprovação do Admin.
       </p>
       <form className="mt-5 space-y-4" onSubmit={onSubmit}>
         <label className="field-label">
@@ -113,7 +113,7 @@ export default function RegisterPage() {
         </button>
       </form>
       <p className="mt-5 text-sm muted">
-        Ja tem conta?{" "}
+        Já tem conta?{" "}
         <Link className="font-semibold underline" href="/login">
           Entrar
         </Link>

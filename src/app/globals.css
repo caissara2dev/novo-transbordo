@@ -76,6 +76,32 @@ body {
   background: var(--bg);
 }
 
+.site-root {
+  min-height: 100vh;
+}
+
+.site-frame {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.site-content {
+  flex: 1;
+}
+
+.site-footer {
+  padding: 0.65rem 1rem 0.95rem;
+  text-align: center;
+}
+
+.site-footer p {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
 h1,
 h2,
 h3,
@@ -441,7 +467,7 @@ a {
   flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 0.55rem;
+  gap: 0.35rem;
 }
 
 .history-title {
@@ -457,7 +483,7 @@ a {
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.55rem;
 }
 
 .history-duration {
@@ -482,13 +508,13 @@ a {
 }
 
 .history-time {
-  margin: 0.5rem 0 0;
+  margin: 0.22rem 0 0;
   font-size: 0.8rem;
   color: var(--muted);
 }
 
 .history-mainline {
-  margin: 0.45rem 0 0;
+  margin: 0.32rem 0 0;
   font-size: 0.82rem;
   line-height: 1.3;
   color: var(--text);
@@ -499,15 +525,180 @@ a {
 }
 
 .history-meta {
-  margin: 0.35rem 0 0;
+  margin: 0.22rem 0 0;
   font-size: 0.8rem;
   color: var(--muted);
 }
 
 .history-actions {
-  margin-top: 0.5rem;
+  margin-top: 0.35rem;
   display: flex;
   justify-content: flex-end;
+}
+
+.reports-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.reports-export-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.reports-filter-panel {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.reports-preset-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.reports-preset-btn {
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.reports-preset-btn.active {
+  border-color: var(--accent-strong);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  box-shadow: inset 0 0 0 1px rgba(63, 98, 98, 0.12);
+}
+
+.reports-custom-chip {
+  display: inline-flex;
+  align-items: center;
+  border: 1px dashed var(--accent);
+  border-radius: 999px;
+  padding: 0.3rem 0.65rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+}
+
+.reports-filter-actions {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.reports-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+}
+
+.reports-kpi-grid {
+  display: grid;
+  gap: 0.6rem;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.reports-kpi-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0.75rem;
+  background: #fff;
+  text-align: left;
+}
+
+.reports-kpi-label {
+  margin: 0;
+  font-size: 0.77rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.reports-kpi-value {
+  margin: 0.35rem 0 0;
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: var(--heading);
+}
+
+.reports-kpi-delta {
+  margin: 0.2rem 0 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--accent-strong);
+}
+
+.reports-chart-card {
+  cursor: pointer;
+}
+
+.reports-chart-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--heading);
+}
+
+.reports-chart-wrap {
+  margin-top: 0.6rem;
+  width: 100%;
+  height: 260px;
+}
+
+.reports-ranking-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.45rem 0.55rem;
+  font-size: 0.85rem;
+}
+
+.reports-table-wrap {
+  overflow-x: auto;
+}
+
+.reports-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 880px;
+  font-size: 0.82rem;
+}
+
+.reports-table th,
+.reports-table td {
+  border-bottom: 1px solid var(--line);
+  padding: 0.5rem;
+  text-align: left;
+}
+
+.reports-table th {
+  color: var(--heading);
+  font-size: 0.76rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.environment-banner {
+  position: sticky;
+  top: 0;
+  z-index: 60;
+  border-bottom: 1px solid #92400e;
+  padding: 0.45rem 1rem;
+  background: #fef3c7;
+  color: #78350f;
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-align: center;
+  text-transform: uppercase;
 }
 
 @media (max-width: 900px) {
@@ -527,5 +718,21 @@ a {
     min-width: 74px;
     padding: 0.38rem 0.62rem;
     font-size: 0.78rem;
+  }
+
+  .reports-kpi-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .reports-chart-wrap {
+    height: 220px;
+  }
+
+  .site-footer {
+    padding: 0.55rem 0.75rem 0.8rem;
+  }
+
+  .site-footer p {
+    font-size: 0.69rem;
   }
 }

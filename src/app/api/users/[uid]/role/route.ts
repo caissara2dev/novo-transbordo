@@ -18,7 +18,7 @@ export async function POST(
 
     const body = (await req.json()) as { role: string };
     if (!["OPERATOR", "SUPERVISOR", "ADMIN"].includes(body.role)) {
-      throw new HttpError(400, "Role invalido.");
+      throw new HttpError(400, "Role inválido.");
     }
 
     const updated = await setRole({

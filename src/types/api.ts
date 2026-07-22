@@ -17,3 +17,114 @@ export type ClientApiItem = {
 };
 
 export type UserApiItem = UserDoc & { id: string };
+
+export type ReportGranularity = "day" | "week" | "month";
+
+export type ReportKpi = {
+  current: number;
+  previous: number;
+  deltaPercent: number | null;
+};
+
+export type ReportSeriesPoint = {
+  bucket: string;
+  label: string;
+  productiveMinutes: number;
+  idleMinutes: number;
+  totalMinutes: number;
+};
+
+export type ReportAuditSummary = {
+  editedActions: number;
+  deletedActions: number;
+};
+
+export type ReportsOverviewResponse = {
+  filtersApplied: {
+    dateFrom: string;
+    dateTo: string;
+    granularity: ReportGranularity;
+    pump?: string;
+    shiftType?: string;
+    category?: string;
+    clientId?: string;
+    includeDeleted: boolean;
+  };
+  kpis: {
+    totalMinutes: ReportKpi;
+    productiveMinutes: ReportKpi;
+    idleMinutes: ReportKpi;
+    productiveRateMinutes: ReportKpi;
+    totalEvents: ReportKpi;
+    productiveEvents: ReportKpi;
+    productiveRateEvents: ReportKpi;
+    avgProductiveTransbordoMinutes: ReportKpi;
+  };
+  charts: {
+    productiveVsIdleByPump: Array<{
+      pump: string;
+      productiveMinutes: number;
+      idleMinutes: number;
+      totalMinutes: number;
+      productiveRateMinutes: number;
+    }>;
+    idleByCategoryMinutes: Array<{
+      category: string;
+      minutes: number;
+    }>;
+    idleByCategoryCount: Array<{
+      category: string;
+      count: number;
+    }>;
+    trendSeries: ReportSeriesPoint[];
+    shiftDistribution: Array<{
+      shiftType: string;
+      productiveMinutes: number;
+      idleMinutes: number;
+      totalMinutes: number;
+      productiveRateMinutes: number;
+    }>;
+  };
+  audit: ReportAuditSummary;
+  totals: {
+    processedCurrent: number;
+    processedComparisonWindow: number;
+  };
+  limits: {
+    maxPeriodDays: number;
+    maxEventsProcessed: number;
+  };
+  warnings: string[];
+};
+
+export type ReportDrilldownRow = {
+  id: string;
+  shiftDate: string;
+  shiftType: string;
+  pump: string;
+  category: string;
+  productive: boolean;
+  durationMinutes: number;
+  startTime: string;
+  endTime: string;
+  clientNameSnapshot: string | null;
+  notes: string | null;
+  plate: string | null;
+  container: string | null;
+  createdByEmail: string;
+  updatedByEmail: string;
+  createdAt: string;
+  updatedAt: string;
+  deleted: boolean;
+  deletedReason: string | null;
+};
+
+export type ReportsDrilldownResponse = {
+  source: "kpi" | "chart";
+  rows: ReportDrilldownRow[];
+  nextCursor: string | null;
+  summary: {
+    totalRows: number;
+    returnedRows: number;
+  };
+};

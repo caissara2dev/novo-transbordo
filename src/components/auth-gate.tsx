@@ -21,7 +21,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     return (
       <main className="auth-wrap">
         <section className="auth-card">
-          <p className="pill">Sessao</p>
+          <p className="pill">Sessão</p>
           <h1 className="auth-title mt-3">Carregando</h1>
           <p className="mt-1 text-sm muted">Validando credenciais e perfil operacional...</p>
         </section>
@@ -37,10 +37,10 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     return (
       <main className="auth-wrap">
         <section className="auth-card">
-          <p className="pill">Erro de sessao</p>
+          <p className="pill">Erro de sessão</p>
           <h1 className="auth-title mt-3">Falha ao carregar perfil</h1>
           <p className="mt-2 text-sm muted">
-          Nao foi possivel validar seu acesso operacional. Tente sincronizar novamente.
+            Não foi possível validar seu acesso operacional. Tente sincronizar novamente.
           </p>
           {profileError ? <p className="notice error mt-3">Detalhe: {profileError}</p> : null}
           <div className="mt-5 flex gap-2">
@@ -61,12 +61,12 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
       <main className="auth-wrap">
         <section className="auth-card">
           <p className="pill">Acesso pendente</p>
-          <h1 className="auth-title mt-3">Aguardando aprovacao</h1>
+          <h1 className="auth-title mt-3">Aguardando aprovação</h1>
           <p className="mt-2 text-sm muted">
-          Seu acesso ainda nao foi aprovado.
-          {approvalContactPhone ? ` Entre em contato com o responsavel: ${approvalContactPhone}.` : ""}
+            Seu acesso ainda não foi aprovado.
+            {approvalContactPhone ? ` Entre em contato com o responsável: ${approvalContactPhone}.` : ""}
           </p>
-          <p className="mt-3 text-xs muted">Usuario: {profile.email}</p>
+          <p className="mt-3 text-xs muted">Usuário: {profile.email}</p>
           <Link className="btn-primary mt-5 inline-flex" href="/login">
             Voltar
           </Link>
