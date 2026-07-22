@@ -13,7 +13,7 @@ import {
   YAxis
 } from "recharts";
 import { DateTime } from "luxon";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { type KeyboardEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { RoleGuard } from "@/components/role-guard";
 import { useAuthSession } from "@/lib/auth/use-auth-session";
 import { apiFetch } from "@/lib/auth/api-fetch";
@@ -207,6 +207,17 @@ export default function ReportsPage() {
   const onApplyFilters = async () => {
     await loadOverview();
     await loadDrilldown(drillSource, 0);
+  };
+
+  const openChartDrilldown = () => {
+    void loadDrilldown("chart", 0);
+  };
+
+  const handleChartKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      openChartDrilldown();
+    }
   };
 
   const exportCsv = async (mode: "detailed" | "aggregated") => {
@@ -518,7 +529,13 @@ export default function ReportsPage() {
         </section>
 
         <section className="grid gap-3 xl:grid-cols-2">
-          <article className="panel reports-chart-card" onClick={() => loadDrilldown("chart", 0)}>
+          <article
+            className="panel reports-chart-card"
+            onClick={openChartDrilldown}
+            onKeyDown={handleChartKeyDown}
+            role="button"
+            tabIndex={0}
+          >
             <h2 className="reports-chart-title">Produtivo vs Ocioso por bomba</h2>
             <div className="reports-chart-wrap">
               <ResponsiveContainer height="100%" width="100%">
@@ -535,7 +552,13 @@ export default function ReportsPage() {
             </div>
           </article>
 
-          <article className="panel reports-chart-card" onClick={() => loadDrilldown("chart", 0)}>
+          <article
+            className="panel reports-chart-card"
+            onClick={openChartDrilldown}
+            onKeyDown={handleChartKeyDown}
+            role="button"
+            tabIndex={0}
+          >
             <h2 className="reports-chart-title">Minutos por categoria ociosa</h2>
             <div className="reports-chart-wrap">
               <ResponsiveContainer height="100%" width="100%">
@@ -555,7 +578,13 @@ export default function ReportsPage() {
             </div>
           </article>
 
-          <article className="panel reports-chart-card" onClick={() => loadDrilldown("chart", 0)}>
+          <article
+            className="panel reports-chart-card"
+            onClick={openChartDrilldown}
+            onKeyDown={handleChartKeyDown}
+            role="button"
+            tabIndex={0}
+          >
             <h2 className="reports-chart-title">Tendência produtivo x ocioso</h2>
             <div className="reports-chart-wrap">
               <ResponsiveContainer height="100%" width="100%">
@@ -572,7 +601,13 @@ export default function ReportsPage() {
             </div>
           </article>
 
-          <article className="panel reports-chart-card" onClick={() => loadDrilldown("chart", 0)}>
+          <article
+            className="panel reports-chart-card"
+            onClick={openChartDrilldown}
+            onKeyDown={handleChartKeyDown}
+            role="button"
+            tabIndex={0}
+          >
             <h2 className="reports-chart-title">Distribuição por turno</h2>
             <div className="reports-chart-wrap">
               <ResponsiveContainer height="100%" width="100%">
