@@ -56,7 +56,7 @@ cp .env.example .env.local
 4. Suba os emuladores (terminal 1):
 
 ```bash
-npx firebase emulators:start --project line-transbordo
+npx firebase emulators:start --project demo-transbordo
 ```
 
 5. Suba o app (terminal 2):

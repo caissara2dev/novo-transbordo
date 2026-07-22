@@ -10,6 +10,10 @@ export const shiftOptions: Array<{ value: ShiftType; label: string }> = [
   { value: "NOITE", label: "NOITE" }
 ];
 
+export const shiftLabelMap = Object.fromEntries(
+  shiftOptions.map((option) => [option.value, option.label])
+) as Record<ShiftType, string>;
+
 export const categoryOptions: Array<{ value: Category; label: string }> = [
   { value: "PRODUTIVO", label: "Produtivo" },
   { value: "EM_TRANSITO", label: "Em Trânsito" },

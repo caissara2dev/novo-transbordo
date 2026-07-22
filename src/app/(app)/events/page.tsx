@@ -6,7 +6,13 @@ import { computeWindowCheck, currentShiftFromNow } from "@/lib/domain/time";
 import { formatContainerForInput, formatPlateForInput } from "@/lib/domain/identifiers";
 import { apiFetch } from "@/lib/auth/api-fetch";
 import { useAuthSession } from "@/lib/auth/use-auth-session";
-import { categoryLabelMap, categoryOptions, pumpOptions, shiftOptions } from "@/lib/domain/options";
+import {
+  categoryLabelMap,
+  categoryOptions,
+  pumpOptions,
+  shiftLabelMap,
+  shiftOptions
+} from "@/lib/domain/options";
 import { Category, Pump, ShiftType } from "@/types/domain";
 import { ClientApiItem, EventApiItem } from "@/types/api";
 
@@ -609,7 +615,7 @@ export default function EventsPage() {
               <div className="history-head">
                 <div>
                   <p className="history-title">
-                    {item.shiftDate} • {item.shiftType} • {pumpShortLabel(item.pump)} •{" "}
+                    {item.shiftDate} • {shiftLabelMap[item.shiftType]} • {pumpShortLabel(item.pump)} •{" "}
                     {categoryLabelMap[item.category]}
                   </p>
                   <p className="history-time">
