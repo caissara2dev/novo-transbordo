@@ -1,4 +1,4 @@
-# API HTTP - Controle Transbordo V1
+# API HTTP - Controle Transbordo
 
 Base local: `http://localhost:3000`
 
@@ -29,10 +29,11 @@ Lista lancamentos com filtros.
 Query params suportados:
 - `dateFrom=YYYY-MM-DD`
 - `dateTo=YYYY-MM-DD`
-- `pump=BOMBA_1|BOMBA_2`
+- `pump=BOMBA_1|BOMBA_2|BOMBA_3`
 - `shiftType=MANHA|NOITE`
 - `category=...`
 - `clientId=<id>`
+- `containerStatus=FULL|PARTIAL|BUFFER|BLEND_FULL|BLEND_PARTIAL`
 - `includeDeleted=true|false`
 
 Regra de visibilidade:
@@ -53,6 +54,11 @@ Payload base:
 - `clientId` (ou `null`)
 - `plate` (ou `null`)
 - `container` (ou `null`)
+- `containerStatus` (ou `null`)
+- `containerReason` (obrigatorio para Parcial, Pulmao e Blend parcial)
+- `startsNewContainerCycle`
+- `blendConfirmed`
+- `expectedContainerStateVersion`
 - `notes` (ou `null`)
 
 Validacoes relevantes:
@@ -60,6 +66,8 @@ Validacoes relevantes:
 - duracao (1..540 min)
 - regras condicionais por categoria
 - sobreposicao por bomba
+- transicoes de ciclo e Blend somente para o mesmo cliente
+- concorrencia otimista pelo estado atual do container
 
 ## PATCH /api/events/:id
 
@@ -75,6 +83,20 @@ Payload:
 
 Efeito colateral:
 - grava item em `events/{id}/revisions` quando houver diff.
+- recalcula o estado atual dos containers de origem e destino.
+
+## GET /api/containers
+
+Lista estados materializados. `scope=open` retorna Parcial, Pulmao e Blend parcial.
+Aceita `query=<codigo>` e `status=<estado>`.
+
+## GET /api/containers/lookup
+
+Consulta o estado atual e as transicoes permitidas para `container=<codigo>`.
+
+## GET /api/containers/history
+
+Retorna o historico operacional valido para `container=<codigo>`, ordenado pelo horario operacional.
 
 ## DELETE /api/events/:id
 

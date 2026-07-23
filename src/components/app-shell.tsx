@@ -11,11 +11,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false);
 
   const nav: Array<{
-    href: "/dashboard" | "/events" | "/reports" | "/clients" | "/users";
+    href: "/dashboard" | "/events" | "/containers" | "/reports" | "/clients" | "/users";
     label: string;
   }> = [
     { href: "/dashboard" as const, label: "Dashboard" },
     { href: "/events" as const, label: "Lançamentos" },
+    { href: "/containers" as const, label: "Containers" },
     ...(profile?.role === "SUPERVISOR" || profile?.role === "ADMIN"
       ? [{ href: "/reports" as const, label: "Relatórios" }]
       : []),

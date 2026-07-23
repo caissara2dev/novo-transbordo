@@ -2,7 +2,17 @@ export type UserRole = "OPERATOR" | "SUPERVISOR" | "ADMIN";
 
 export type ShiftType = "MANHA" | "NOITE";
 
-export type Pump = "BOMBA_1" | "BOMBA_2";
+export type Pump = "BOMBA_1" | "BOMBA_2" | "BOMBA_3";
+
+export const containerStatuses = [
+  "FULL",
+  "PARTIAL",
+  "BUFFER",
+  "BLEND_FULL",
+  "BLEND_PARTIAL"
+] as const;
+
+export type ContainerStatus = (typeof containerStatuses)[number];
 
 export const categories = [
   "PRODUTIVO",
@@ -26,6 +36,11 @@ export type EventInput = {
   clientId: string | null;
   plate: string | null;
   container: string | null;
+  containerStatus: ContainerStatus | null;
+  containerReason: string | null;
+  startsNewContainerCycle: boolean;
+  blendConfirmed: boolean;
+  expectedContainerStateVersion: number | null;
   notes: string | null;
 };
 
@@ -52,9 +67,12 @@ export type ClientDoc = {
   updatedByUid: string;
 };
 
-export type EventDoc = EventInput & {
+export type EventDoc = Omit<EventInput, "expectedContainerStateVersion"> & {
   productive: boolean;
   clientNameSnapshot: string | null;
+  containerCycleId: string | null;
+  previousContainerEventId: string | null;
+  containerStateVersion: number | null;
   startAt: unknown;
   endAt: unknown;
   durationMinutes: number;
@@ -69,4 +87,21 @@ export type EventDoc = EventInput & {
   deletedByUid: string | null;
   deletedByEmail: string | null;
   deletedReason: string | null;
+};
+
+export type ContainerStateDoc = {
+  container: string;
+  status: ContainerStatus;
+  reason: string | null;
+  cycleId: string;
+  latestEventId: string;
+  previousEventId: string | null;
+  clientId: string;
+  clientNameSnapshot: string | null;
+  plate: string;
+  pump: Pump;
+  operationalAt: unknown;
+  eventCreatedAt: unknown;
+  version: number;
+  updatedAt: unknown;
 };

@@ -23,6 +23,7 @@ ui-debug.log
 
 # misc
 .DS_Store
+*.tsbuildinfo
 .firebase/
 output/
 tmp/

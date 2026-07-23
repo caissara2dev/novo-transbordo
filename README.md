@@ -18,6 +18,8 @@ Aplicacao web para controle operacional de transbordo, com governanca de acesso,
 - Perfis: `OPERATOR`, `SUPERVISOR`, `ADMIN`
 - Lancamentos com validacoes de negocio
 - Bloqueio de sobreposicao por bomba
+- Operação independente das Bombas 1, 2 e 3
+- Ciclo de containers Cheio, Parcial, Pulmão e Blend
 - Edicao com auditoria e revisoes
 - Soft delete com motivo e restauracao (Admin)
 - Gestao de clientes e usuarios (Admin)
@@ -102,6 +104,7 @@ npm run promote-admin -- <uid>
 - `npm run lint`: lint
 - `npm test`: testes unitarios
 - `npm run test:integration`: testes de integracao
+- `npm run backfill:container-states -- --project=<projeto> --dry-run`: simular materialização de estados
 - `npm run promote-admin -- <uid>`: promover admin no ambiente local
 
 ## Estrutura principal
@@ -123,6 +126,9 @@ tests                    # unitarios e integracao
 - `GET/POST /api/events`
 - `PATCH/DELETE /api/events/:id`
 - `POST /api/events/:id/restore`
+- `GET /api/containers`
+- `GET /api/containers/lookup`
+- `GET /api/containers/history`
 - `GET/POST /api/clients`
 - `PATCH /api/clients/:id`
 - `GET /api/users`

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { categories, EventInput, ShiftType } from "@/types/domain";
+import { categories, containerStatuses, EventInput, ShiftType } from "@/types/domain";
 import {
   calculateDurationMinutes,
   computeWindowCheck,
@@ -10,7 +10,7 @@ import { categoryRules } from "@/lib/domain/constants";
 import { normalizeContainer, normalizePlate } from "@/lib/domain/identifiers";
 
 const baseSchema = z.object({
-  pump: z.enum(["BOMBA_1", "BOMBA_2"]),
+  pump: z.enum(["BOMBA_1", "BOMBA_2", "BOMBA_3"]),
   shiftDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   shiftType: z.enum(["MANHA", "NOITE"]),
   startTime: z.string(),
@@ -19,6 +19,11 @@ const baseSchema = z.object({
   clientId: z.string().trim().min(1).nullable(),
   plate: z.string().trim().nullable(),
   container: z.string().trim().nullable(),
+  containerStatus: z.enum(containerStatuses).nullable().optional(),
+  containerReason: z.string().trim().nullable().optional(),
+  startsNewContainerCycle: z.boolean().optional(),
+  blendConfirmed: z.boolean().optional(),
+  expectedContainerStateVersion: z.number().int().min(0).nullable().optional(),
   notes: z.string().trim().nullable()
 });
 
@@ -50,10 +55,27 @@ export function validateEventInput(raw: unknown): EventValidationResult {
     throw new Error("Horário deve estar no formato HH:MM.");
   }
 
+  const normalizedContainer = normalizeContainer(parsed.container);
+  const isProductiveContainer = parsed.category === "PRODUTIVO" && Boolean(normalizedContainer);
+  const containerStatus = isProductiveContainer ? parsed.containerStatus ?? "FULL" : null;
+  const containerReason = isProductiveContainer
+    ? parsed.containerReason?.trim() || null
+    : null;
+
   const normalized: EventInput = {
     ...parsed,
     plate: normalizePlate(parsed.plate),
-    container: normalizeContainer(parsed.container),
+    container: normalizedContainer,
+    containerStatus,
+    containerReason,
+    startsNewContainerCycle: isProductiveContainer
+      ? Boolean(parsed.startsNewContainerCycle)
+      : false,
+    blendConfirmed: isProductiveContainer ? Boolean(parsed.blendConfirmed) : false,
+    expectedContainerStateVersion:
+      parsed.expectedContainerStateVersion === undefined
+        ? null
+        : parsed.expectedContainerStateVersion,
     notes: parsed.notes?.trim() || null
   };
 
@@ -73,6 +95,32 @@ export function validateEventInput(raw: unknown): EventValidationResult {
 
   if (rules.requiresNotes && !normalized.notes) {
     throw new Error("Observação obrigatória para esta categoria.");
+  }
+
+  if (
+    normalized.containerStatus === "PARTIAL" ||
+    normalized.containerStatus === "BUFFER" ||
+    normalized.containerStatus === "BLEND_PARTIAL"
+  ) {
+    if (!normalized.containerReason) {
+      throw new Error("Motivo do estado do container é obrigatório.");
+    }
+  }
+
+  if (
+    (normalized.containerStatus === "BLEND_FULL" ||
+      normalized.containerStatus === "BLEND_PARTIAL") &&
+    !normalized.blendConfirmed
+  ) {
+    throw new Error("Confirme a formação do Blend antes de salvar.");
+  }
+
+  if (
+    normalized.startsNewContainerCycle &&
+    (normalized.containerStatus === "BLEND_FULL" ||
+      normalized.containerStatus === "BLEND_PARTIAL")
+  ) {
+    throw new Error("Um novo ciclo não pode começar diretamente como Blend.");
   }
 
   const startDt = resolveTimelineDate(

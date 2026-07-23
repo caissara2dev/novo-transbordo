@@ -6,14 +6,18 @@ import { computeWindowCheck, currentShiftFromNow } from "@/lib/domain/time";
 import { formatContainerForInput, formatPlateForInput } from "@/lib/domain/identifiers";
 import { apiFetch } from "@/lib/auth/api-fetch";
 import { useAuthSession } from "@/lib/auth/use-auth-session";
+import { ContainerStatusFields } from "@/components/container-status-fields";
 import {
   categoryLabelMap,
   categoryOptions,
+  containerStatusLabelMap,
+  containerStatusOptions,
   pumpOptions,
+  pumpShortLabelMap,
   shiftLabelMap,
   shiftOptions
 } from "@/lib/domain/options";
-import { Category, Pump, ShiftType } from "@/types/domain";
+import { Category, ContainerStatus, Pump, ShiftType } from "@/types/domain";
 import { ClientApiItem, EventApiItem } from "@/types/api";
 
 type EventFormState = {
@@ -26,6 +30,11 @@ type EventFormState = {
   clientId: string;
   plate: string;
   container: string;
+  containerStatus: ContainerStatus | null;
+  containerReason: string;
+  startsNewContainerCycle: boolean;
+  blendConfirmed: boolean;
+  expectedContainerStateVersion: number | null;
   notes: string;
   revisionReason?: string;
 };
@@ -52,6 +61,11 @@ function makeInitialForm(): EventFormState {
     clientId: "",
     plate: "",
     container: "",
+    containerStatus: "FULL",
+    containerReason: "",
+    startsNewContainerCycle: false,
+    blendConfirmed: false,
+    expectedContainerStateVersion: null,
     notes: ""
   };
 }
@@ -67,6 +81,11 @@ function toPayload(form: EventFormState) {
     clientId: form.clientId || null,
     plate: form.plate || null,
     container: form.container || null,
+    containerStatus: form.category === "PRODUTIVO" ? form.containerStatus || "FULL" : null,
+    containerReason: form.containerReason || null,
+    startsNewContainerCycle: form.startsNewContainerCycle,
+    blendConfirmed: form.blendConfirmed,
+    expectedContainerStateVersion: form.expectedContainerStateVersion,
     notes: form.notes || null,
     revisionReason: form.revisionReason || null
   };
@@ -96,7 +115,7 @@ function formatDuration(durationMinutes: number): string {
 }
 
 function pumpShortLabel(pump: Pump): string {
-  return pump === "BOMBA_1" ? "B1" : "B2";
+  return pumpShortLabelMap[pump];
 }
 
 function toClockLabel(hhmm: string): string {
@@ -224,7 +243,19 @@ function EventFormFields({
             <button
               className={`choice-card ${form.category === cat.value ? "active" : ""}`}
               key={cat.value}
-              onClick={() => setForm({ ...form, category: cat.value as Category })}
+              onClick={() =>
+                setForm({
+                  ...form,
+                  category: cat.value as Category,
+                  containerStatus: cat.value === "PRODUTIVO" ? form.containerStatus || "FULL" : null,
+                  containerReason: cat.value === "PRODUTIVO" ? form.containerReason : "",
+                  startsNewContainerCycle:
+                    cat.value === "PRODUTIVO" ? form.startsNewContainerCycle : false,
+                  blendConfirmed: cat.value === "PRODUTIVO" ? form.blendConfirmed : false,
+                  expectedContainerStateVersion:
+                    cat.value === "PRODUTIVO" ? form.expectedContainerStateVersion : null
+                })
+              }
               type="button"
             >
               {cat.label}
@@ -267,13 +298,26 @@ function EventFormFields({
         Container {rules.requiresContainer ? "*" : ""}
         <input
           className="input-ui"
-          onChange={(e) => setForm({ ...form, container: formatContainerForInput(e.target.value) })}
+          onChange={(e) =>
+            setForm({
+              ...form,
+              container: formatContainerForInput(e.target.value),
+              expectedContainerStateVersion: null,
+              startsNewContainerCycle: false,
+              blendConfirmed: false
+            })
+          }
           placeholder="ABCU1234560"
           required={rules.requiresContainer}
           type="text"
           value={form.container}
         />
       </label>
+
+      <ContainerStatusFields
+        fields={form}
+        onChange={(patch) => setForm({ ...form, ...patch })}
+      />
 
       <label className="field-label col-span-2">
         Observações {rules.requiresNotes ? "*" : ""}
@@ -306,6 +350,7 @@ export default function EventsPage() {
     shiftType: "",
     category: "",
     clientId: "",
+    containerStatus: "",
     includeDeleted: false
   });
   const [loading, setLoading] = useState(false);
@@ -332,6 +377,7 @@ export default function EventsPage() {
     if (filters.shiftType) query.set("shiftType", filters.shiftType);
     if (filters.category) query.set("category", filters.category);
     if (filters.clientId) query.set("clientId", filters.clientId);
+    if (filters.containerStatus) query.set("containerStatus", filters.containerStatus);
     if (filters.includeDeleted) query.set("includeDeleted", "true");
 
     const data = await apiFetch<{ items: EventApiItem[] }>(`/api/events?${query.toString()}`);
@@ -385,6 +431,11 @@ export default function EventsPage() {
       clientId: item.clientId || "",
       plate: item.plate || "",
       container: item.container || "",
+      containerStatus: item.containerStatus || (item.category === "PRODUTIVO" ? "FULL" : null),
+      containerReason: item.containerReason || "",
+      startsNewContainerCycle: Boolean(item.startsNewContainerCycle),
+      blendConfirmed: Boolean(item.blendConfirmed),
+      expectedContainerStateVersion: item.containerStateVersion,
       notes: item.notes || "",
       revisionReason: ""
     });
@@ -592,6 +643,21 @@ export default function EventsPage() {
               ))}
             </select>
           </label>
+          <label className="field-label">
+            Estado do container
+            <select
+              className="select-ui"
+              onChange={(e) => setFilters({ ...filters, containerStatus: e.target.value })}
+              value={filters.containerStatus}
+            >
+              <option value="">Todos</option>
+              {containerStatusOptions.map((status) => (
+                <option key={status.value} value={status.value}>
+                  {status.label}
+                </option>
+              ))}
+            </select>
+          </label>
 
           {isManager ? (
             <label className="mt-7 flex items-center gap-2 text-sm muted">
@@ -640,11 +706,33 @@ export default function EventsPage() {
                 <strong>Cliente:</strong> {item.clientNameSnapshot || "-"} • <strong>Obs:</strong>{" "}
                 {item.notes || "-"}
               </p>
+              {item.containerStatus ? (
+                <div className="container-history-summary">
+                  <span className={`container-status-badge status-${item.containerStatus.toLowerCase()}`}>
+                    {containerStatusLabelMap[item.containerStatus]}
+                  </span>
+                  {item.containerReason ? <span>Motivo: {item.containerReason}</span> : null}
+                </div>
+              ) : null}
               <p className="history-meta">
                 <strong>Placa:</strong> {item.plate || "-"} • <strong>Container:</strong>{" "}
                 {item.container || "-"}
               </p>
               <p className="history-meta">Criado por: {item.createdByEmail}</p>
+              {item.container && item.containerCycleId ? (
+                <details className="container-history-details">
+                  <summary>Detalhes do ciclo do container</summary>
+                  <p>
+                    Ciclo: {item.containerCycleId} · Evento anterior:{" "}
+                    {item.previousContainerEventId || "início do ciclo"}
+                  </p>
+                  <p>
+                    {item.startsNewContainerCycle
+                      ? "Novo ciclo confirmado após esvaziamento."
+                      : "Continuação do ciclo operacional anterior."}
+                  </p>
+                </details>
+              ) : null}
               {wasEdited(item) ? (
                 <p className="history-meta">
                   Editado em: {toViewDate(item.updatedAt)} ({item.updatedByEmail})

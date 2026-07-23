@@ -130,6 +130,23 @@ describe("reports API routes", () => {
     );
   });
 
+  it("accepts Bomba 3 and container state filters", async () => {
+    const mod = await import("@/app/api/reports/overview/route");
+    const req = new NextRequest(
+      "http://localhost/api/reports/overview?dateFrom=2026-02-01&dateTo=2026-02-07&pump=BOMBA_3&containerStatus=BLEND_PARTIAL"
+    );
+
+    const res = await mod.GET(req);
+
+    expect(res.status).toBe(200);
+    expect(getReportsOverviewMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pump: "BOMBA_3",
+        containerStatus: "BLEND_PARTIAL"
+      })
+    );
+  });
+
   it("rejects periods greater than 90 days", async () => {
     const mod = await import("@/app/api/reports/overview/route");
     const req = new NextRequest(

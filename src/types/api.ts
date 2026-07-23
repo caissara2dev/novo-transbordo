@@ -1,4 +1,9 @@
-import { EventDoc, UserDoc } from "@/types/domain";
+import {
+  ContainerStateDoc,
+  ContainerStatus,
+  EventDoc,
+  UserDoc
+} from "@/types/domain";
 
 export type EventApiItem = Omit<EventDoc, "createdAt" | "updatedAt" | "startAt" | "endAt"> & {
   id: string;
@@ -7,6 +12,26 @@ export type EventApiItem = Omit<EventDoc, "createdAt" | "updatedAt" | "startAt" 
   startAt: string;
   endAt: string;
   warnings?: string[];
+};
+
+export type ContainerStateApiItem = Omit<
+  ContainerStateDoc,
+  "operationalAt" | "eventCreatedAt" | "updatedAt"
+> & {
+  operationalAt: string;
+  eventCreatedAt: string;
+  updatedAt: string;
+};
+
+export type ContainerLookupResponse = {
+  container: string;
+  current: ContainerStateApiItem | null;
+  availableStatuses: ContainerStatus[];
+  requiresNewCycleConfirmation: boolean;
+};
+
+export type ContainerHistoryItem = EventApiItem & {
+  status: ContainerStatus;
 };
 
 export type ClientApiItem = {
@@ -48,7 +73,8 @@ export type ReportsOverviewResponse = {
     shiftType?: string;
     category?: string;
     clientId?: string;
-    includeDeleted: boolean;
+      includeDeleted: boolean;
+      containerStatus?: ContainerStatus;
   };
   kpis: {
     totalMinutes: ReportKpi;
@@ -111,6 +137,8 @@ export type ReportDrilldownRow = {
   notes: string | null;
   plate: string | null;
   container: string | null;
+  containerStatus: ContainerStatus | null;
+  containerReason: string | null;
   createdByEmail: string;
   updatedByEmail: string;
   createdAt: string;

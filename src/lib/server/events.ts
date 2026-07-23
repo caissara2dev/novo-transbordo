@@ -3,6 +3,14 @@ import { adminDb } from "@/lib/firebase/admin";
 import { HttpError } from "@/lib/domain/errors";
 import { collectChangedFields, validateEventInput } from "@/lib/domain/validation";
 import { EventDoc, UserDoc } from "@/types/domain";
+import {
+  eventContainerStatus,
+  assertExpectedContainerStateVersion,
+  getCurrentContainerState,
+  persistEventWithContainerState,
+  rebuildContainerState,
+  resolveContainerTransition
+} from "@/lib/server/container-states";
 
 async function assertClientIfRequired(clientId: string | null): Promise<string | null> {
   if (!clientId) {
@@ -68,11 +76,12 @@ export async function createEvent(raw: unknown, actor: { uid: string; email: str
     endAt
   });
 
-  const now = FieldValue.serverTimestamp();
-
-  const payload: Omit<EventDoc, "createdAt" | "updatedAt"> & {
-    createdAt: FieldValue;
-    updatedAt: FieldValue;
+  const now = Timestamp.now();
+  const payload: Omit<
+    EventDoc,
+    "containerCycleId" | "previousContainerEventId" | "containerStateVersion"
+  > & {
+    expectedContainerStateVersion: number | null;
   } = {
     ...validated.event,
     productive: validated.productive,
@@ -93,7 +102,11 @@ export async function createEvent(raw: unknown, actor: { uid: string; email: str
     deletedReason: null
   };
 
-  const ref = await adminDb.collection("events").add(payload);
+  const ref = adminDb.collection("events").doc();
+  await persistEventWithContainerState({
+    eventRef: ref,
+    eventPayload: payload
+  });
   const created = await ref.get();
 
   return {
@@ -134,12 +147,60 @@ export async function updateEvent(
     ignoreEventId: eventId
   });
 
+  const sameContainer = existing.container === validated.event.container;
+  const currentState = validated.event.container
+    ? await getCurrentContainerState(validated.event.container)
+    : null;
+  const expectedVersion = validated.event.expectedContainerStateVersion;
+
+  assertExpectedContainerStateVersion(
+    expectedVersion,
+    currentState?.version ?? 0
+  );
+
+  let containerCycleId = existing.containerCycleId || currentState?.cycleId || null;
+  let previousContainerEventId = existing.previousContainerEventId || null;
+  if (validated.event.containerStatus && validated.event.clientId) {
+    if (!sameContainer || validated.event.startsNewContainerCycle) {
+      const transition = resolveContainerTransition({
+        current: sameContainer && currentState?.latestEventId === eventId ? null : currentState,
+        status: validated.event.containerStatus,
+        clientId: validated.event.clientId,
+        startsNewCycle: validated.event.startsNewContainerCycle
+      });
+      containerCycleId = transition.cycleId;
+      previousContainerEventId = transition.previousEventId;
+    } else if (
+      validated.event.containerStatus === "BLEND_FULL" ||
+      validated.event.containerStatus === "BLEND_PARTIAL"
+    ) {
+      if (previousContainerEventId) {
+        const previous = await adminDb.collection("events").doc(previousContainerEventId).get();
+        const previousClientId = previous.data()?.clientId;
+        if (previousClientId && previousClientId !== validated.event.clientId) {
+          throw new HttpError(400, "Blend só pode ser formado com cargas do mesmo cliente.");
+        }
+      }
+    }
+  } else {
+    containerCycleId = null;
+    previousContainerEventId = null;
+  }
+
+  const {
+    expectedContainerStateVersion: _expectedContainerStateVersion,
+    ...validatedEventForStorage
+  } = validated.event;
+  void _expectedContainerStateVersion;
   const updatedPayload: Partial<EventDoc> & {
     updatedAt: FieldValue;
   } = {
-    ...validated.event,
+    ...validatedEventForStorage,
     productive: validated.productive,
     clientNameSnapshot,
+    containerCycleId,
+    previousContainerEventId,
+    containerStateVersion: currentState?.version ?? existing.containerStateVersion ?? null,
     startAt,
     endAt,
     durationMinutes: validated.durationMinutes,
@@ -150,27 +211,55 @@ export async function updateEvent(
 
   const comparableNext = {
     ...(existing as Record<string, unknown>),
-    ...validated.event,
+    ...validatedEventForStorage,
     productive: validated.productive,
     clientNameSnapshot,
     startAt,
     endAt,
     durationMinutes: validated.durationMinutes,
+    containerCycleId,
+    previousContainerEventId,
     updatedByUid: actor.uid,
     updatedByEmail: actor.email
   };
 
   const diff = collectChangedFields(existing as Record<string, unknown>, comparableNext);
+  const revisionReason =
+    (raw as { revisionReason?: string | null })?.revisionReason?.toString().trim() || null;
+  const lifecycleFields = new Set([
+    "container",
+    "containerStatus",
+    "containerReason",
+    "containerCycleId",
+    "previousContainerEventId",
+    "clientId",
+    "shiftDate",
+    "shiftType",
+    "startTime",
+    "endTime"
+  ]);
+
+  if (diff.changedFields.some((field) => lifecycleFields.has(field)) && !revisionReason) {
+    throw new HttpError(
+      400,
+      "Justificativa da edição é obrigatória ao alterar o ciclo do container."
+    );
+  }
 
   await ref.update(updatedPayload);
+  await Promise.all([
+    rebuildContainerState(existing.container),
+    existing.container === validated.event.container
+      ? Promise.resolve()
+      : rebuildContainerState(validated.event.container)
+  ]);
 
   if (diff.changedFields.length) {
     await ref.collection("revisions").add({
       editedAt: FieldValue.serverTimestamp(),
       editedByUid: actor.uid,
       editedByEmail: actor.email,
-      reason:
-        (raw as { revisionReason?: string | null })?.revisionReason?.toString().trim() || null,
+      reason: revisionReason,
       changedFields: diff.changedFields,
       before: diff.before,
       after: diff.after
@@ -214,6 +303,7 @@ export async function softDeleteEvent(
     updatedByEmail: actor.email,
     updatedAt: FieldValue.serverTimestamp()
   });
+  await rebuildContainerState((snap.data() as EventDoc).container);
 
   return { ok: true };
 }
@@ -236,6 +326,7 @@ export async function restoreEvent(eventId: string, actor: { uid: string; email:
     updatedByEmail: actor.email,
     updatedAt: FieldValue.serverTimestamp()
   });
+  await rebuildContainerState((snap.data() as EventDoc).container);
 
   return { ok: true };
 }
@@ -250,6 +341,7 @@ export async function listEvents(params: {
     shiftType?: string;
     category?: string;
     clientId?: string;
+    containerStatus?: string;
     includeDeleted?: boolean;
   };
 }) {
@@ -291,5 +383,23 @@ export async function listEvents(params: {
 
   const snap = await query.orderBy("createdAt", "desc").limit(200).get();
 
-  return snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  return snap.docs
+    .map((doc) => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        ...data,
+        containerStatus: eventContainerStatus(data),
+        containerReason: data.containerReason || null,
+        containerCycleId: data.containerCycleId || null,
+        previousContainerEventId: data.previousContainerEventId || null,
+        containerStateVersion: data.containerStateVersion ?? null,
+        startsNewContainerCycle: Boolean(data.startsNewContainerCycle),
+        blendConfirmed: Boolean(data.blendConfirmed)
+      };
+    })
+    .filter((event) => {
+      if (!filters.containerStatus) return true;
+      return event.containerStatus === filters.containerStatus;
+    });
 }

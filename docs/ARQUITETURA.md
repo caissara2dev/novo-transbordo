@@ -41,7 +41,8 @@ A aplicacao usa Next.js com App Router e separa claramente:
 
 - `src/lib/firebase/client.ts`: SDK web
 - `src/lib/firebase/admin.ts`: Admin SDK
-- Firestore com colecoes: `users`, `clients`, `events`, `events/{id}/revisions`
+- Firestore com colecoes: `users`, `clients`, `events`, `events/{id}/revisions` e `containerStates`
+- `containerStates` materializa o ultimo evento operacional valido por container e usa versao para concorrencia otimista
 
 ## Seguranca e acesso
 

@@ -1,7 +1,13 @@
 import { DateTime } from "luxon";
 import { HttpError } from "@/lib/domain/errors";
 import { TZ } from "@/lib/domain/constants";
-import { Category, Pump, ShiftType } from "@/types/domain";
+import {
+  Category,
+  containerStatuses,
+  ContainerStatus,
+  Pump,
+  ShiftType
+} from "@/types/domain";
 import { ReportGranularity } from "@/types/api";
 
 export const MAX_REPORT_PERIOD_DAYS = 90;
@@ -15,6 +21,7 @@ export type ReportsFilters = {
   shiftType?: ShiftType;
   category?: Category;
   clientId?: string;
+  containerStatus?: ContainerStatus;
   includeDeleted: boolean;
 };
 
@@ -35,8 +42,14 @@ function ensureIsoDate(value: string, fieldName: string): string {
 
 function parsePump(value: string | null): Pump | undefined {
   if (!value) return undefined;
-  if (value === "BOMBA_1" || value === "BOMBA_2") return value;
+  if (value === "BOMBA_1" || value === "BOMBA_2" || value === "BOMBA_3") return value;
   throw new HttpError(400, "Bomba inválida.");
+}
+
+function parseContainerStatus(value: string | null): ContainerStatus | undefined {
+  if (!value) return undefined;
+  if (containerStatuses.includes(value as ContainerStatus)) return value as ContainerStatus;
+  throw new HttpError(400, "Estado do container inválido.");
 }
 
 function parseShiftType(value: string | null): ShiftType | undefined {
@@ -112,6 +125,7 @@ export function parseReportsFilters(
     shiftType: parseShiftType(searchParams.get("shiftType")),
     category: parseCategory(searchParams.get("category")),
     clientId: searchParams.get("clientId") || undefined,
+    containerStatus: parseContainerStatus(searchParams.get("containerStatus")),
     includeDeleted
   };
 }

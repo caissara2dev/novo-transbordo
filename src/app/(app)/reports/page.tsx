@@ -13,14 +13,23 @@ import {
   YAxis
 } from "recharts";
 import { DateTime } from "luxon";
+import Link from "next/link";
 import { type KeyboardEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { RoleGuard } from "@/components/role-guard";
 import { useAuthSession } from "@/lib/auth/use-auth-session";
 import { apiFetch } from "@/lib/auth/api-fetch";
-import { categoryLabelMap, categoryOptions, pumpOptions, shiftOptions } from "@/lib/domain/options";
+import {
+  categoryLabelMap,
+  categoryOptions,
+  containerStatusLabelMap,
+  containerStatusOptions,
+  pumpOptions,
+  shiftOptions
+} from "@/lib/domain/options";
 import { auth } from "@/lib/firebase/client";
 import {
   ClientApiItem,
+  ContainerStateApiItem,
   ReportsDrilldownResponse,
   ReportsOverviewResponse,
   ReportGranularity
@@ -36,6 +45,7 @@ type ReportFilters = {
   shiftType: string;
   category: string;
   clientId: string;
+  containerStatus: string;
   includeDeleted: boolean;
 };
 
@@ -53,6 +63,7 @@ function last7DaysFilter(): ReportFilters {
     shiftType: "",
     category: "",
     clientId: "",
+    containerStatus: "",
     includeDeleted: false
   };
 }
@@ -80,6 +91,7 @@ function toQuery(filters: ReportFilters): string {
   if (filters.shiftType) qs.set("shiftType", filters.shiftType);
   if (filters.category) qs.set("category", filters.category);
   if (filters.clientId) qs.set("clientId", filters.clientId);
+  if (filters.containerStatus) qs.set("containerStatus", filters.containerStatus);
   if (filters.includeDeleted) qs.set("includeDeleted", "true");
   return qs.toString();
 }
@@ -97,6 +109,7 @@ export default function ReportsPage() {
   const [selectedPreset, setSelectedPreset] = useState<PresetKey>("last7");
   const [clients, setClients] = useState<ClientApiItem[]>([]);
   const [overview, setOverview] = useState<ReportsOverviewResponse | null>(null);
+  const [openContainers, setOpenContainers] = useState<ContainerStateApiItem[]>([]);
   const [loadingOverview, setLoadingOverview] = useState(false);
   const [loadingDrilldown, setLoadingDrilldown] = useState(false);
   const [exportingMode, setExportingMode] = useState<"detailed" | "aggregated" | null>(null);
@@ -127,6 +140,13 @@ export default function ReportsPage() {
       setLoadingOverview(false);
     }
   }, [filters]);
+
+  const loadOpenContainers = useCallback(async () => {
+    const data = await apiFetch<{ items: ContainerStateApiItem[] }>(
+      "/api/containers?scope=open"
+    );
+    setOpenContainers(data.items || []);
+  }, []);
 
   const loadDrilldown = useCallback(
     async (source: "kpi" | "chart", cursor = 0) => {
@@ -162,10 +182,20 @@ export default function ReportsPage() {
 
     loadClients().catch((err) => setError(err instanceof Error ? err.message : "Erro ao listar clientes."));
     loadOverview().catch((err) => setError(err instanceof Error ? err.message : "Erro ao carregar relatórios."));
+    loadOpenContainers().catch((err) =>
+      setError(err instanceof Error ? err.message : "Erro ao carregar containers abertos.")
+    );
     loadDrilldown("kpi", 0).catch((err) =>
       setError(err instanceof Error ? err.message : "Erro ao carregar detalhamento.")
     );
-  }, [profile?.approved, profile?.role, loadClients, loadOverview, loadDrilldown]);
+  }, [
+    profile?.approved,
+    profile?.role,
+    loadClients,
+    loadOverview,
+    loadOpenContainers,
+    loadDrilldown
+  ]);
 
   const applyPreset = (preset: "today" | "week" | "month" | "last7") => {
     const now = DateTime.now().setZone(REPORT_ZONE);
@@ -484,6 +514,23 @@ export default function ReportsPage() {
                 ))}
               </select>
             </label>
+            <label className="field-label">
+              Estado do container
+              <select
+                className="select-ui"
+                onChange={(e) =>
+                  setFilters((prev) => ({ ...prev, containerStatus: e.target.value }))
+                }
+                value={filters.containerStatus}
+              >
+                <option value="">Todos</option>
+                {containerStatusOptions.map((status) => (
+                  <option key={status.value} value={status.value}>
+                    {status.label}
+                  </option>
+                ))}
+              </select>
+            </label>
 
             <div className="reports-filter-actions">
               {isAdmin ? (
@@ -526,6 +573,30 @@ export default function ReportsPage() {
               <p className="reports-kpi-delta">{kpi.delta}</p>
             </button>
           ))}
+        </section>
+
+        <section className="panel">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="containers-eyebrow">Acompanhamento</p>
+              <h2 className="reports-chart-title">
+                Containers abertos ({numberFmt.format(openContainers.length)})
+              </h2>
+            </div>
+            <Link className="btn-soft" href="/containers">
+              Abrir painel de containers
+            </Link>
+          </div>
+          <div className="metric-grid mt-3">
+            {(["PARTIAL", "BUFFER", "BLEND_PARTIAL"] as const).map((status) => (
+              <article className="metric-card" key={status}>
+                <p className="metric-label">{containerStatusLabelMap[status]}</p>
+                <p className="metric-value">
+                  {openContainers.filter((item) => item.status === status).length}
+                </p>
+              </article>
+            ))}
+          </div>
         </section>
 
         <section className="grid gap-3 xl:grid-cols-2">
@@ -685,6 +756,9 @@ export default function ReportsPage() {
                   <th>Horário</th>
                   <th>Duração</th>
                   <th>Cliente</th>
+                  <th>Container</th>
+                  <th>Estado</th>
+                  <th>Motivo</th>
                   <th>Criado por</th>
                   <th>Editado em</th>
                 </tr>
@@ -701,6 +775,13 @@ export default function ReportsPage() {
                     </td>
                     <td>{formatMinutes(row.durationMinutes)}</td>
                     <td>{row.clientNameSnapshot || "-"}</td>
+                    <td>{row.container || "-"}</td>
+                    <td>
+                      {row.containerStatus
+                        ? containerStatusLabelMap[row.containerStatus]
+                        : "-"}
+                    </td>
+                    <td>{row.containerReason || "-"}</td>
                     <td>{row.createdByEmail}</td>
                     <td>{formatDateTime(row.updatedAt)}</td>
                   </tr>

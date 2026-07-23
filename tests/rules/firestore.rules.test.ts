@@ -50,6 +50,9 @@ async function seedProfiles() {
     await setDoc(doc(db, "events", "event-1", "revisions", "revision-1"), {
       editedByUid: "admin-1"
     });
+    await setDoc(doc(db, "containerStates", "ABCU1234560"), {
+      status: "PARTIAL"
+    });
   });
 }
 
@@ -140,5 +143,15 @@ describe("Firestore domain collection rules", () => {
         editedByUid: "admin-1"
       })
     );
+    await assertFails(
+      setDoc(doc(db, "containerStates", "ABCU1234560"), {
+        status: "FULL"
+      })
+    );
+  });
+
+  it("keeps materialized container state behind the authenticated API", async () => {
+    const db = testEnv.authenticatedContext("operator-1").firestore();
+    await assertFails(getDoc(doc(db, "containerStates", "ABCU1234560")));
   });
 });
