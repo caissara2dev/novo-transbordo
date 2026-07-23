@@ -23,8 +23,6 @@ type ContainerFields = {
   expectedContainerStateVersion: number | null;
 };
 
-type LayoutVariant = "compact" | "cards" | "guided";
-
 function isCompleteContainer(value: string): boolean {
   return value.replace(/[^A-Z0-9]/gi, "").length === 11;
 }
@@ -49,7 +47,7 @@ function CurrentStateCard({ current }: { current: ContainerStateApiItem }) {
         <span className={`container-status-badge status-${current.status.toLowerCase()}`}>
           {containerStatusLabelMap[current.status]}
         </span>
-        <strong>Estado atual encontrado</strong>
+        <strong>Último estado</strong>
       </div>
       <p>
         {formatDateTime(current.operationalAt)} · {pumpShortLabelMap[current.pump]} ·{" "}
@@ -92,9 +90,7 @@ export function ContainerStatusFields({
   const [lookup, setLookup] = useState<ContainerLookupResponse | null>(null);
   const [lookupError, setLookupError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [variant, setVariant] = useState<LayoutVariant>("cards");
   const onChangeRef = useRef(onChange);
-  const isStaging = process.env.NEXT_PUBLIC_APP_ENV === "staging";
 
   useEffect(() => {
     onChangeRef.current = onChange;
@@ -175,8 +171,6 @@ export function ContainerStatusFields({
     fields.containerStatus === "BUFFER" ||
     fields.containerStatus === "BLEND_PARTIAL";
 
-  const layoutClass = `container-status-panel container-layout-${variant}`;
-
   if (fields.category !== "PRODUTIVO") return null;
 
   const togglePartial = (checked: boolean) => {
@@ -215,32 +209,22 @@ export function ContainerStatusFields({
   };
 
   return (
-    <section className={`${layoutClass} col-span-2`}>
+    <section className="container-status-panel col-span-2">
       <div className="container-status-heading">
         <div>
-          <p className="container-status-kicker">Condição do container</p>
-          <h3>Como este container sai deste lançamento?</h3>
+          <h3>Estado do container</h3>
+          <p className="container-status-hint">Se sair cheio, não marque nada.</p>
         </div>
         <span className="container-live-dot">
-          {loading ? "Consultando…" : current ? "Histórico encontrado" : "Novo ciclo"}
+          {loading
+            ? "Consultando…"
+            : current
+              ? "Histórico encontrado"
+              : isCompleteContainer(fields.container)
+                ? "Sem histórico"
+                : "Aguardando container"}
         </span>
       </div>
-
-      {isStaging ? (
-        <div className="container-layout-switcher" aria-label="Alternativas de layout">
-          <span>Design em teste</span>
-          {(["compact", "cards", "guided"] as LayoutVariant[]).map((item) => (
-            <button
-              className={variant === item ? "active" : ""}
-              key={item}
-              onClick={() => setVariant(item)}
-              type="button"
-            >
-              {item === "compact" ? "Compacto" : item === "cards" ? "Cartões" : "Guiado"}
-            </button>
-          ))}
-        </div>
-      ) : null}
 
       {lookupError ? <div className="notice error">{lookupError}</div> : null}
       {current ? <CurrentStateCard current={current} /> : null}
@@ -317,7 +301,7 @@ export function ContainerStatusFields({
       </div>
 
       <p className="container-result-line">
-        Resultado:{" "}
+        Saída definida:{" "}
         <strong>
           {containerStatusLabelMap[fields.containerStatus || "FULL"]}
         </strong>
@@ -327,7 +311,7 @@ export function ContainerStatusFields({
         <label className="field-label">
           Motivo *
           <textarea
-            className="textarea-ui"
+            className="textarea-ui container-reason-input"
             onChange={(event) => onChange({ containerReason: event.target.value })}
             placeholder={
               buffer

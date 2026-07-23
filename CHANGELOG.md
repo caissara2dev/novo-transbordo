@@ -18,6 +18,7 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o 
 ### Alterado
 
 - Lançamentos produtivos passam a consultar o ciclo atual do container antes da gravação.
+- O estado do container usa uma interface compacta, otimizada para o fluxo atual e para operação em celulares.
 - Relatórios, detalhamento e CSV passam a aceitar filtros e campos de estado do container.
 
 ### Segurança
