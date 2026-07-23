@@ -82,10 +82,12 @@ function CurrentStateCard({ current }: { current: ContainerStateApiItem }) {
 
 export function ContainerStatusFields({
   fields,
-  onChange
+  onChange,
+  preserveStatus = false
 }: {
   fields: ContainerFields;
   onChange: (patch: Partial<ContainerFields>) => void;
+  preserveStatus?: boolean;
 }) {
   const [lookup, setLookup] = useState<ContainerLookupResponse | null>(null);
   const [lookupError, setLookupError] = useState<string | null>(null);
@@ -122,7 +124,8 @@ export function ContainerStatusFields({
         if (
           result.current &&
           isBlend(result.current.status) &&
-          !fields.startsNewContainerCycle
+          !fields.startsNewContainerCycle &&
+          !preserveStatus
         ) {
           patch.containerStatus =
             result.current.status === "BLEND_PARTIAL" ? "BLEND_PARTIAL" : "BLEND_FULL";
@@ -149,6 +152,7 @@ export function ContainerStatusFields({
     fields.category,
     fields.container,
     fields.startsNewContainerCycle,
+    preserveStatus
   ]);
 
   const current = lookup?.current ?? null;

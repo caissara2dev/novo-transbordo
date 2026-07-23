@@ -144,7 +144,8 @@ function EventFormFields({
   clients,
   submitLabel,
   onSubmit,
-  loading
+  loading,
+  isEditing = false
 }: {
   form: EventFormState;
   setForm: (next: EventFormState) => void;
@@ -152,6 +153,7 @@ function EventFormFields({
   submitLabel: string;
   onSubmit: (e: FormEvent) => Promise<void>;
   loading: boolean;
+  isEditing?: boolean;
 }) {
   const rules = categoryRules[form.category];
 
@@ -317,6 +319,7 @@ function EventFormFields({
       <ContainerStatusFields
         fields={form}
         onChange={(patch) => setForm({ ...form, ...patch })}
+        preserveStatus={isEditing}
       />
 
       <label className="field-label col-span-2">
@@ -548,6 +551,7 @@ export default function EventsPage() {
           <EventFormFields
             clients={clients}
             form={editForm}
+            isEditing
             loading={loading}
             onSubmit={handleEdit}
             setForm={(next) => setEditForm(next)}
