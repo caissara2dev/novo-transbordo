@@ -14,16 +14,20 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o 
 - Estado atual materializado, histórico encadeado e proteção contra atualizações concorrentes.
 - Tela de consulta de containers abertos, ciclos, motivos e placas relacionadas.
 - Backfill protegido e idempotente para materializar containers legados como Cheio.
+- Display operacional `/display`, otimizado para TVs 16:9, com atualização a cada 30 segundos e rotação automática de clientes.
+- Papel `DISPLAY` gerenciável por administradores e endpoint exclusivo `GET /api/display/overview`.
 
 ### Alterado
 
 - Lançamentos produtivos passam a consultar o ciclo atual do container antes da gravação.
 - O estado do container usa uma interface compacta, otimizada para o fluxo atual e para operação em celulares.
 - Relatórios, detalhamento e CSV passam a aceitar filtros e campos de estado do container.
+- O login direciona contas `DISPLAY` diretamente para a tela de TV, sem menu, rodapé ou controles operacionais.
 
 ### Segurança
 
 - A coleção `containerStates` permanece inacessível diretamente pelo cliente; leitura e escrita passam pelas APIs autenticadas.
+- Contas `DISPLAY` ficam bloqueadas em todas as APIs operacionais, mantendo acesso apenas à autenticação, ao próprio perfil e ao resumo do display.
 
 ## [2.0.0] - 2026-07-21
 

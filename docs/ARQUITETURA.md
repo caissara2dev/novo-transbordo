@@ -22,6 +22,7 @@ A aplicacao usa Next.js com App Router e separa claramente:
 
 - `src/app/(auth)`: login e registro
 - `src/app/(app)`: area operacional protegida
+- `src/app/display`: tela de TV protegida, sem `AppShell` e `SiteFooter`
 - `src/components/*`: shell, guards e componentes de suporte
 
 ## 2) API Server-side
@@ -52,6 +53,7 @@ A aplicacao usa Next.js com App Router e separa claramente:
 - APIs validam papel:
   - `OPERATOR`: operacao basica
   - `SUPERVISOR`: edicao/exclusao com limite de 24h
+  - `DISPLAY`: acesso isolado ao resumo ao vivo
   - `ADMIN`: gestao completa
 
 ## Auditoria

@@ -6,7 +6,7 @@ export function RoleGuard({
   allowed,
   children
 }: {
-  allowed: Array<"OPERATOR" | "SUPERVISOR" | "ADMIN">;
+  allowed: Array<"OPERATOR" | "SUPERVISOR" | "DISPLAY" | "ADMIN">;
   children: React.ReactNode;
 }) {
   const { profile } = useAuthSession();

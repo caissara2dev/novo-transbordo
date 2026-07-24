@@ -80,6 +80,7 @@ export default function UsersPage() {
                   >
                     <option value="OPERATOR">OPERATOR</option>
                     <option value="SUPERVISOR">SUPERVISOR</option>
+                    <option value="DISPLAY">DISPLAY</option>
                     <option value="ADMIN">ADMIN</option>
                   </select>
                 </div>

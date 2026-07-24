@@ -17,13 +17,13 @@ export async function POST(
     ensureRole(profile, ["ADMIN"]);
 
     const body = (await req.json()) as { role: string };
-    if (!["OPERATOR", "SUPERVISOR", "ADMIN"].includes(body.role)) {
+    if (!["OPERATOR", "SUPERVISOR", "DISPLAY", "ADMIN"].includes(body.role)) {
       throw new HttpError(400, "Role inválido.");
     }
 
     const updated = await setRole({
       targetUid,
-      role: body.role as "OPERATOR" | "SUPERVISOR" | "ADMIN",
+      role: body.role as "OPERATOR" | "SUPERVISOR" | "DISPLAY" | "ADMIN",
       actorUid: uid
     });
 

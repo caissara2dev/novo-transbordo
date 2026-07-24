@@ -1,4 +1,4 @@
-export type UserRole = "OPERATOR" | "SUPERVISOR" | "ADMIN";
+export type UserRole = "OPERATOR" | "SUPERVISOR" | "DISPLAY" | "ADMIN";
 
 export type ShiftType = "MANHA" | "NOITE";
 

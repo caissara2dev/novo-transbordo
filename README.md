@@ -15,7 +15,7 @@ Aplicacao web para controle operacional de transbordo, com governanca de acesso,
 ### V1 - Nucleo operacional
 
 - Cadastro/login e aprovacao manual de usuarios
-- Perfis: `OPERATOR`, `SUPERVISOR`, `ADMIN`
+- Perfis: `OPERATOR`, `SUPERVISOR`, `DISPLAY`, `ADMIN`
 - Lancamentos com validacoes de negocio
 - Bloqueio de sobreposicao por bomba
 - Operação independente das Bombas 1, 2 e 3
@@ -32,6 +32,13 @@ Aplicacao web para controle operacional de transbordo, com governanca de acesso,
 - Graficos operacionais (produtivo/ocioso, tendencia, turno, ranking)
 - Drilldown em tabela na mesma pagina
 - Exportacao CSV detalhado e agregado
+
+### V2.1 - Display operacional
+
+- Tela `/display` sem shell operacional, otimizada para TVs 16:9
+- Atualização automática a cada 30 segundos e rotação de clientes a cada 10 segundos
+- Finalizações do dia, média produtiva, containers abertos e quadro por cliente
+- Acesso exclusivo para `DISPLAY` e `ADMIN`
 
 ## Requisitos
 
@@ -112,6 +119,7 @@ npm run promote-admin -- <uid>
 ```text
 src/app/(auth)           # login/registro
 src/app/(app)            # dashboard, events, reports, clients, users
+src/app/display          # display operacional independente para TV
 src/app/api              # APIs server-side
 src/lib/domain           # validacoes e regras de negocio
 src/lib/server           # servicos de dominio (events, reports, etc)
@@ -137,6 +145,7 @@ tests                    # unitarios e integracao
 - `GET /api/reports/overview`
 - `GET /api/reports/drilldown`
 - `GET /api/reports/export`
+- `GET /api/display/overview`
 
 ## Qualidade e seguranca
 

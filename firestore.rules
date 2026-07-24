@@ -21,22 +21,26 @@ service cloud.firestore {
       return isApproved() && myUserDoc().data.role == 'ADMIN';
     }
 
+    function isOperationalUser() {
+      return isApproved() && myUserDoc().data.role != 'DISPLAY';
+    }
+
     match /users/{uid} {
       allow read: if isSignedIn() && (uid == request.auth.uid || isAdmin());
       allow create, update, delete: if false;
     }
 
     match /clients/{clientId} {
-      allow read: if isApproved();
+      allow read: if isOperationalUser();
       allow write: if false;
     }
 
     match /events/{eventId} {
-      allow read: if isApproved();
+      allow read: if isOperationalUser();
       allow write: if false;
 
       match /revisions/{revisionId} {
-        allow read: if isApproved();
+        allow read: if isOperationalUser();
         allow write: if false;
       }
     }

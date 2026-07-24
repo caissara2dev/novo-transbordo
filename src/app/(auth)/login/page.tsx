@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
 import { signInWithEmailAndPassword } from "firebase/auth";
@@ -9,7 +10,7 @@ import { useAuthSession } from "@/lib/auth/use-auth-session";
 
 export default function LoginPage() {
   const router = useRouter();
-  const { firebaseUser, loading: sessionLoading } = useAuthSession();
+  const { firebaseUser, profile, loading: sessionLoading } = useAuthSession();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -35,10 +36,10 @@ export default function LoginPage() {
   };
 
   useEffect(() => {
-    if (!sessionLoading && firebaseUser) {
-      router.replace("/dashboard");
+    if (!sessionLoading && firebaseUser && profile) {
+      router.replace((profile.role === "DISPLAY" ? "/display" : "/dashboard") as Route);
     }
-  }, [sessionLoading, firebaseUser, router]);
+  }, [sessionLoading, firebaseUser, profile, router]);
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -49,7 +50,13 @@ export default function LoginPage() {
       const credentials = await signInWithEmailAndPassword(auth, email.trim(), password);
       const token = await credentials.user.getIdToken();
       await syncProfileBestEffort(token);
-      router.replace("/dashboard");
+      const meResponse = await fetch("/api/me", {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const me = meResponse.ok
+        ? ((await meResponse.json()) as { profile?: { role?: string } })
+        : null;
+      router.replace((me?.profile?.role === "DISPLAY" ? "/display" : "/dashboard") as Route);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao autenticar.");
     } finally {

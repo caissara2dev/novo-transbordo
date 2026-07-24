@@ -43,6 +43,27 @@ export type ClientApiItem = {
 
 export type UserApiItem = UserDoc & { id: string };
 
+export type DisplayClientCount = {
+  clientId: string;
+  clientName: string;
+  finalizedToday: number;
+  openNow: number;
+};
+
+export type DisplayOverviewResponse = {
+  operationalDate: string;
+  generatedAt: string;
+  finalizedTotal: number;
+  averageProductiveMinutes: number | null;
+  openContainers: {
+    total: number;
+    partial: number;
+    buffer: number;
+    blendPartial: number;
+  };
+  clients: DisplayClientCount[];
+};
+
 export type ReportGranularity = "day" | "week" | "month";
 
 export type ReportKpi = {

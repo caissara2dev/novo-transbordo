@@ -23,7 +23,7 @@ vi.mock("@/lib/server/auth", () => ({
 }));
 
 vi.mock("@/lib/server/users", () => ({
-  setRole: vi.fn(async () => ({ id: "u1", role: "SUPERVISOR" }))
+  setRole: vi.fn(async (params: { role: string }) => ({ id: "u1", role: params.role }))
 }));
 
 describe("users role route", () => {
@@ -43,5 +43,22 @@ describe("users role route", () => {
 
     expect(res.status).toBe(400);
     expect(body.error).toContain("Role inválido");
+  });
+
+  it("accepts DISPLAY role", async () => {
+    const mod = await import("@/app/api/users/[uid]/role/route");
+    const req = new NextRequest("http://localhost/api/users/u1/role", {
+      method: "POST",
+      body: JSON.stringify({ role: "DISPLAY" }),
+      headers: {
+        "content-type": "application/json"
+      }
+    });
+
+    const res = await mod.POST(req, { params: Promise.resolve({ uid: "u1" }) });
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.item.role).toBe("DISPLAY");
   });
 });

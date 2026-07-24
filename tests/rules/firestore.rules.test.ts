@@ -27,6 +27,12 @@ async function seedProfiles() {
       approved: true,
       active: true
     });
+    await setDoc(doc(db, "users", "display-1"), {
+      email: "display@example.com",
+      role: "DISPLAY",
+      approved: true,
+      active: true
+    });
     await setDoc(doc(db, "users", "pending-admin"), {
       email: "pending@example.com",
       role: "ADMIN",
@@ -129,6 +135,17 @@ describe("Firestore domain collection rules", () => {
     await assertSucceeds(getDoc(doc(db, "clients", "client-1")));
     await assertSucceeds(getDoc(doc(db, "events", "event-1")));
     await assertSucceeds(
+      getDoc(doc(db, "events", "event-1", "revisions", "revision-1"))
+    );
+  });
+
+  it("blocks DISPLAY from reading operational collections directly", async () => {
+    const db = testEnv.authenticatedContext("display-1").firestore();
+
+    await assertSucceeds(getDoc(doc(db, "users", "display-1")));
+    await assertFails(getDoc(doc(db, "clients", "client-1")));
+    await assertFails(getDoc(doc(db, "events", "event-1")));
+    await assertFails(
       getDoc(doc(db, "events", "event-1", "revisions", "revision-1"))
     );
   });

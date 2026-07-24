@@ -11,7 +11,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false);
 
   const nav: Array<{
-    href: "/dashboard" | "/events" | "/containers" | "/reports" | "/clients" | "/users";
+    href: "/dashboard" | "/events" | "/containers" | "/reports" | "/display" | "/clients" | "/users";
     label: string;
   }> = [
     { href: "/dashboard" as const, label: "Dashboard" },
@@ -20,6 +20,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     ...(profile?.role === "SUPERVISOR" || profile?.role === "ADMIN"
       ? [{ href: "/reports" as const, label: "Relatórios" }]
       : []),
+    ...(profile?.role === "ADMIN" ? [{ href: "/display" as const, label: "Display TV" }] : []),
     ...(profile?.role === "ADMIN" ? [{ href: "/clients" as const, label: "Clientes" }] : []),
     ...(profile?.role === "ADMIN" ? [{ href: "/users" as const, label: "Usuários" }] : [])
   ];

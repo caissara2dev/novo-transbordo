@@ -11,6 +11,17 @@ export type RequestContext = {
   email: string;
 };
 
+export function ensureDisplayApiAccess(profile: UserDoc, pathname: string): void {
+  const displayAllowed =
+    pathname === "/api/me" ||
+    pathname.startsWith("/api/auth/") ||
+    pathname === "/api/display/overview";
+
+  if (profile.role === "DISPLAY" && !displayAllowed) {
+    throw new HttpError(403, "Conta de display sem acesso à operação.");
+  }
+}
+
 export async function requireAuth(req: NextRequest): Promise<RequestContext> {
   const authHeader = req.headers.get("authorization") || "";
   const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
@@ -34,6 +45,8 @@ export async function requireAuth(req: NextRequest): Promise<RequestContext> {
   if (!profile.active) {
     throw new HttpError(403, "Usuário inativo.");
   }
+
+  ensureDisplayApiAccess(profile, req.nextUrl.pathname);
 
   return {
     token: decoded,

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import type { Route } from "next";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { useAuthSession } from "@/lib/auth/use-auth-session";
@@ -16,6 +17,12 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
       router.replace("/login");
     }
   }, [loading, firebaseUser, pathname, router]);
+
+  useEffect(() => {
+    if (!loading && profile?.approved && profile.role === "DISPLAY" && pathname !== "/display") {
+      router.replace("/display" as Route);
+    }
+  }, [loading, pathname, profile, router]);
 
   if (loading) {
     return (
@@ -73,6 +80,10 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
         </section>
       </main>
     );
+  }
+
+  if (profile.role === "DISPLAY" && pathname !== "/display") {
+    return null;
   }
 
   return <>{children}</>;

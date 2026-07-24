@@ -22,6 +22,25 @@ Resposta:
 - `profile` (`role`, `approved`, `active`, etc)
 - `approvalContactPhone`
 
+Contas `DISPLAY` podem acessar apenas autenticação, esta rota e
+`GET /api/display/overview`. Todas as APIs operacionais retornam `403`.
+
+## GET /api/display/overview
+
+Retorna o resumo da data operacional atual para a tela de TV.
+
+Permissao:
+- `DISPLAY`
+- `ADMIN`
+
+Resposta:
+- `operationalDate`
+- `generatedAt`
+- `finalizedTotal`
+- `averageProductiveMinutes`
+- `openContainers` (`total`, `partial`, `buffer`, `blendPartial`)
+- `clients[]` (`clientId`, `clientName`, `finalizedToday`, `openNow`)
+
 ## GET /api/events
 
 Lista lancamentos com filtros.
@@ -169,4 +188,4 @@ Permissao:
 - somente `ADMIN`
 
 Payload:
-- `{ "role": "OPERATOR" | "SUPERVISOR" | "ADMIN" }`
+- `{ "role": "OPERATOR" | "SUPERVISOR" | "DISPLAY" | "ADMIN" }`
