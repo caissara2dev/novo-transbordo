@@ -1286,9 +1286,20 @@ a {
   font-family: "Bahnschrift", "DIN Alternate", "Avenir Next Condensed", sans-serif;
 }
 
-.environment-banner + .site-content .display-screen {
-  min-height: calc(100dvh - 1.9rem);
-  height: calc(100dvh - 1.9rem);
+.site-frame:has(.display-screen) {
+  height: 100dvh;
+  min-height: 0;
+}
+
+.site-content:has(.display-screen) {
+  display: flex;
+  min-height: 0;
+}
+
+.site-content:has(.display-screen) .display-screen {
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0;
 }
 
 .display-screen::after {
