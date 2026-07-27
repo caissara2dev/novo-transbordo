@@ -62,6 +62,7 @@ function parseCategory(value: string | null): Category | undefined {
   if (!value) return undefined;
   if (
     value === "PRODUTIVO" ||
+    value === "INTERVALO_OPERACIONAL" ||
     value === "EM_TRANSITO" ||
     value === "AGUARDANDO_LABORATORIO" ||
     value === "SEM_CAMINHAO" ||

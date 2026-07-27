@@ -80,10 +80,17 @@ export async function DELETE(
     ensureRole(profile, ["SUPERVISOR", "ADMIN"]);
     await assertEditableWindow(id, profile.role);
 
-    const body = (await req.json().catch(() => ({}))) as { reason?: string };
+    const body = (await req.json().catch(() => ({}))) as {
+      reason?: string;
+      gapVersion?: string;
+      gapJustifications?: unknown[];
+    };
     const result = await softDeleteEvent(id, body.reason || "", {
       uid,
       email
+    }, {
+      gapVersion: body.gapVersion,
+      gapJustifications: body.gapJustifications
     });
 
     return ok(result);

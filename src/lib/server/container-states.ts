@@ -125,7 +125,7 @@ export function assertExpectedContainerStateVersion(
   }
 }
 
-async function latestEventState(container: string): Promise<ContainerStateView | null> {
+export async function latestEventState(container: string): Promise<ContainerStateView | null> {
   const snap = await adminDb
     .collection("events")
     .where("container", "==", container)
@@ -256,11 +256,12 @@ export async function persistEventWithContainerState(params: {
   stateVersion: number | null;
 }> {
   const { eventPayload, eventRef } = params;
-  const {
-    expectedContainerStateVersion,
-    ...storedEventPayload
-  } = eventPayload;
   if (!eventPayload.container || !eventPayload.containerStatus || !eventPayload.clientId) {
+    const {
+      expectedContainerStateVersion: _expectedContainerStateVersion,
+      ...storedEventPayload
+    } = eventPayload;
+    void _expectedContainerStateVersion;
     await eventRef.set({
       ...storedEventPayload,
       containerCycleId: null,
@@ -271,64 +272,99 @@ export async function persistEventWithContainerState(params: {
   }
 
   const container = eventPayload.container;
-  const containerStatus = eventPayload.containerStatus;
-  const clientId = eventPayload.clientId;
+  const fallbackState = await latestEventState(container);
+
+  return adminDb.runTransaction((transaction) =>
+    persistEventWithContainerStateInTransaction({
+      transaction,
+      eventRef,
+      eventPayload,
+      fallbackState
+    })
+  );
+}
+
+export async function persistEventWithContainerStateInTransaction(params: {
+  transaction: Transaction;
+  eventRef: DocumentReference;
+  eventPayload: Omit<
+    EventDoc,
+    "containerCycleId" | "previousContainerEventId" | "containerStateVersion"
+  > & {
+    expectedContainerStateVersion: number | null;
+  };
+  fallbackState: ContainerStateView | null;
+}): Promise<{
+  cycleId: string | null;
+  previousEventId: string | null;
+  stateVersion: number | null;
+}> {
+  const { transaction, eventPayload, eventRef, fallbackState } = params;
+  const { expectedContainerStateVersion, ...storedEventPayload } = eventPayload;
+
+  if (!eventPayload.container || !eventPayload.containerStatus || !eventPayload.clientId) {
+    transaction.set(eventRef, {
+      ...storedEventPayload,
+      containerCycleId: null,
+      previousContainerEventId: null,
+      containerStateVersion: null
+    });
+    return { cycleId: null, previousEventId: null, stateVersion: null };
+  }
+
+  const container = eventPayload.container;
   const stateRef = adminDb
     .collection("containerStates")
     .doc(containerDocumentKey(container));
-  const fallbackState = await latestEventState(container);
+  const stateSnap = await transaction.get(stateRef);
+  const current = stateSnap.exists
+    ? (stateSnap.data() as ContainerStateView)
+    : fallbackState;
+  const observedVersion = current?.version ?? 0;
+  const expectedVersion = expectedContainerStateVersion;
 
-  return adminDb.runTransaction(async (transaction) => {
-    const stateSnap = await transaction.get(stateRef);
-    const current = stateSnap.exists
-      ? (stateSnap.data() as ContainerStateView)
-      : fallbackState;
-    const observedVersion = current?.version ?? 0;
-    const expectedVersion = expectedContainerStateVersion;
+  assertExpectedContainerStateVersion(expectedVersion, observedVersion);
 
-    assertExpectedContainerStateVersion(expectedVersion, observedVersion);
-
-    const transition = resolveContainerTransition({
-      current,
-      status: containerStatus,
-      clientId,
-      startsNewCycle: eventPayload.startsNewContainerCycle
-    });
-
-    const candidateIsCurrent =
-      !current ||
-      compareOperationalOrder(
-        eventPayload.endAt,
-        eventPayload.createdAt,
-        current
-      ) >= 0;
-    const nextVersion = candidateIsCurrent ? observedVersion + 1 : observedVersion;
-    const persistedPayload = {
-      ...storedEventPayload,
-      containerCycleId: transition.cycleId,
-      previousContainerEventId: transition.previousEventId,
-      containerStateVersion: nextVersion
-    };
-
-    transaction.set(eventRef, persistedPayload);
-
-    if (candidateIsCurrent) {
-      const nextState = stateFromEvent(eventRef.id, persistedPayload, nextVersion);
-      if (nextState) transaction.set(stateRef, nextState);
-    } else if (!stateSnap.exists && current) {
-      transaction.set(stateRef, {
-        ...current,
-        version: Math.max(1, current.version),
-        updatedAt: FieldValue.serverTimestamp()
-      });
-    }
-
-    return {
-      cycleId: transition.cycleId,
-      previousEventId: transition.previousEventId,
-      stateVersion: nextVersion
-    };
+  const transition = resolveContainerTransition({
+    current,
+    status: eventPayload.containerStatus,
+    clientId: eventPayload.clientId,
+    startsNewCycle: eventPayload.startsNewContainerCycle
   });
+
+  const candidateIsCurrent =
+    !current ||
+    compareOperationalOrder(
+      eventPayload.endAt,
+      eventPayload.createdAt,
+      current
+    ) >= 0;
+  const nextVersion = candidateIsCurrent ? observedVersion + 1 : observedVersion;
+  const persistedPayload = {
+    ...storedEventPayload,
+    containerCycleId: transition.cycleId,
+    previousContainerEventId: transition.previousEventId,
+    containerStateVersion: nextVersion
+  };
+
+  transaction.set(eventRef, persistedPayload);
+
+  if (candidateIsCurrent) {
+    const nextState = stateFromEvent(eventRef.id, persistedPayload, nextVersion);
+    if (nextState) transaction.set(stateRef, nextState);
+  } else if (!stateSnap.exists && current) {
+    transaction.set(stateRef, {
+      ...current,
+      version: Math.max(1, current.version),
+      updatedAt: FieldValue.serverTimestamp()
+    });
+  }
+
+  return {
+    cycleId: transition.cycleId,
+    previousEventId: transition.previousEventId,
+    stateVersion: nextVersion
+  };
 }
 
 export async function rebuildContainerState(rawContainer: string | null): Promise<void> {

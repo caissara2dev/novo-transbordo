@@ -5,6 +5,41 @@ Todas as alterações relevantes deste projeto serão registradas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o projeto usa
 [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [2.2.0] - 2026-07-27
+
+### Adicionado
+
+- Ociosidade automática para todo trecho descoberto antes de um lançamento produtivo.
+- Categoria interna `INTERVALO_OPERACIONAL` para intervalos dispensados de justificativa.
+- Preview versionado da linha do tempo em `POST /api/events/gap-preview`.
+- Configuração administrativa global do limite sem justificativa, entre 0 e 60 minutos.
+- Identificação da origem `MANUAL` ou `AUTO_GAP` e vínculo entre o intervalo gerado e o produtivo.
+
+### Alterado
+
+- O formulário passa a iniciar no modo produtivo e mantém o lançamento ocioso manual atrás de
+  `Registrar ociosidade`.
+- Intervalos acima do limite exigem uma causa para cada trecho não coberto por ociosidades manuais.
+- Relatórios, gráficos, detalhamento e CSV incluem o rótulo `Intervalo operacional`.
+- Edições, exclusões e restaurações atualizam a versão da linha do tempo e preservam a auditoria dos
+  eventos automáticos vinculados.
+- O histórico identifica lançamentos automáticos e mostra, a partir da segunda visita, um resumo
+  operacional das passagens anteriores do mesmo ciclo do container.
+- Display, containers e configurações passam a usar a mesma linguagem visual das demais telas.
+
+### Corrigido
+
+- Ordenação do histórico para manter o produtivo acima da ociosidade automática que o antecede.
+- Filtros do histórico deixam de depender de combinações de índices compostos não publicadas.
+- Avisos de sucesso passam a usar uma aparência positiva, distinta das mensagens de erro.
+
+### Segurança
+
+- Preview e gravação validam a mesma versão da linha do tempo e retornam conflito quando há alteração
+  concorrente.
+- O produtivo, seus intervalos automáticos e o estado do container são persistidos em uma única
+  transação.
+
 ## [2.1.0] - 2026-07-23
 
 ### Adicionado
@@ -50,3 +85,4 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o 
 
 [2.0.0]: https://github.com/caissara2dev/novo-transbordo/releases/tag/v2.0.0
 [2.1.0]: https://github.com/caissara2dev/novo-transbordo/releases/tag/v2.1.0
+[2.2.0]: https://github.com/caissara2dev/novo-transbordo/releases/tag/v2.2.0

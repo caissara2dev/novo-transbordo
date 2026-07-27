@@ -47,6 +47,23 @@ export const categoryOptions: Array<{ value: Category; label: string }> = [
   { value: "OUTROS", label: "Outros" }
 ];
 
-export const categoryLabelMap = Object.fromEntries(
-  categoryOptions.map((option) => [option.value, option.label])
-) as Record<Category, string>;
+export const idleCategoryOptions = categoryOptions.filter(
+  (option): option is { value: Exclude<Category, "PRODUTIVO" | "INTERVALO_OPERACIONAL">; label: string } =>
+    option.value !== "PRODUTIVO" && option.value !== "INTERVALO_OPERACIONAL"
+);
+
+export const reportCategoryOptions: Array<{ value: Category; label: string }> = [
+  ...categoryOptions,
+  { value: "INTERVALO_OPERACIONAL", label: "Intervalo operacional" }
+];
+
+export const categoryLabelMap: Record<Category, string> = {
+  PRODUTIVO: "Produtivo",
+  INTERVALO_OPERACIONAL: "Intervalo operacional",
+  EM_TRANSITO: "Em Trânsito",
+  AGUARDANDO_LABORATORIO: "Aguardando Laboratório",
+  SEM_CAMINHAO: "Sem Caminhão",
+  SEM_CONTAINER: "Sem Container",
+  MANUTENCAO: "Manutenção",
+  OUTROS: "Outros"
+};

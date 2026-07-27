@@ -16,6 +16,7 @@ export type ContainerStatus = (typeof containerStatuses)[number];
 
 export const categories = [
   "PRODUTIVO",
+  "INTERVALO_OPERACIONAL",
   "EM_TRANSITO",
   "AGUARDANDO_LABORATORIO",
   "SEM_CAMINHAO",
@@ -25,6 +26,31 @@ export const categories = [
 ] as const;
 
 export type Category = (typeof categories)[number];
+
+export type EventOrigin = "MANUAL" | "AUTO_GAP";
+
+export type GapSegment = {
+  id: string;
+  startTime: string;
+  endTime: string;
+  durationMinutes: number;
+};
+
+export type GapJustification = GapSegment & {
+  category: Exclude<Category, "PRODUTIVO" | "INTERVALO_OPERACIONAL">;
+  clientId: string | null;
+  plate: string | null;
+  notes: string | null;
+};
+
+export type GapPreview = {
+  toleranceMinutes: number;
+  gapVersion: string;
+  uncoveredSegments: GapSegment[];
+  uncoveredMinutes: number;
+  requiresJustification: boolean;
+  reconciliationEventId?: string | null;
+};
 
 export type EventInput = {
   pump: Pump;
@@ -69,6 +95,13 @@ export type ClientDoc = {
 
 export type EventDoc = Omit<EventInput, "expectedContainerStateVersion"> & {
   productive: boolean;
+  origin: EventOrigin;
+  generatedForEventId: string | null;
+  gapSegmentId: string | null;
+  justificationWaived: boolean;
+  reconciledAfterEventId?: string | null;
+  deletionReconciliationEventId?: string | null;
+  deletionTimelineVersion?: number | null;
   clientNameSnapshot: string | null;
   containerCycleId: string | null;
   previousContainerEventId: string | null;
@@ -87,6 +120,15 @@ export type EventDoc = Omit<EventInput, "expectedContainerStateVersion"> & {
   deletedByUid: string | null;
   deletedByEmail: string | null;
   deletedReason: string | null;
+};
+
+export type ContainerCyclePassage = {
+  id: string;
+  startTime: string;
+  endTime: string;
+  pump: Pump;
+  plate: string | null;
+  status: ContainerStatus;
 };
 
 export type ContainerStateDoc = {

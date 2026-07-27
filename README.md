@@ -40,6 +40,15 @@ Aplicacao web para controle operacional de transbordo, com governanca de acesso,
 - Finalizações do dia, média produtiva, containers abertos e quadro por cliente
 - Acesso exclusivo para `DISPLAY` e `ADMIN`
 
+### V2.2 - Ociosidade automática
+
+- Geração automática dos intervalos descobertos antes de cada produtivo
+- Cobertura por ociosidades manuais existentes, inclusive em múltiplos trechos
+- Justificativa inline somente quando a soma descoberta supera o limite configurável
+- Categoria interna `Intervalo operacional` incluída nos indicadores e exportações
+- Configuração global do limite em `/settings`, exclusiva para administradores
+- Proteção de concorrência por versão da linha do tempo de cada bomba e turno
+
 ## Requisitos
 
 - Node.js 20+
@@ -132,6 +141,7 @@ tests                    # unitarios e integracao
 
 - `GET /api/me`
 - `GET/POST /api/events`
+- `POST /api/events/gap-preview`
 - `PATCH/DELETE /api/events/:id`
 - `POST /api/events/:id/restore`
 - `GET /api/containers`
@@ -146,6 +156,7 @@ tests                    # unitarios e integracao
 - `GET /api/reports/drilldown`
 - `GET /api/reports/export`
 - `GET /api/display/overview`
+- `GET/PATCH /api/settings/operations`
 
 ## Qualidade e seguranca
 

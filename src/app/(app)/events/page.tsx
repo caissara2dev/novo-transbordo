@@ -1,6 +1,14 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Dispatch,
+  FormEvent,
+  SetStateAction,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState
+} from "react";
 import { categoryRules } from "@/lib/domain/constants";
 import { computeWindowCheck, currentShiftFromNow } from "@/lib/domain/time";
 import { formatContainerForInput, formatPlateForInput } from "@/lib/domain/identifiers";
@@ -9,15 +17,23 @@ import { useAuthSession } from "@/lib/auth/use-auth-session";
 import { ContainerStatusFields } from "@/components/container-status-fields";
 import {
   categoryLabelMap,
-  categoryOptions,
   containerStatusLabelMap,
   containerStatusOptions,
+  idleCategoryOptions,
   pumpOptions,
+  reportCategoryOptions,
   pumpShortLabelMap,
   shiftLabelMap,
   shiftOptions
 } from "@/lib/domain/options";
-import { Category, ContainerStatus, Pump, ShiftType } from "@/types/domain";
+import {
+  Category,
+  ContainerStatus,
+  GapJustification,
+  GapPreview,
+  Pump,
+  ShiftType
+} from "@/types/domain";
 import { ClientApiItem, EventApiItem } from "@/types/api";
 
 type EventFormState = {
@@ -37,11 +53,21 @@ type EventFormState = {
   expectedContainerStateVersion: number | null;
   notes: string;
   revisionReason?: string;
+  gapPreview: GapPreview | null;
+  gapJustifications: GapJustification[];
+};
+
+type DeletePlan = {
+  eventId: string;
+  reason: string;
+  preview: GapPreview;
+  gapJustifications: GapJustification[];
 };
 
 const shiftNow = currentShiftFromNow();
 const categoryDescriptions: Record<Category, string> = {
   PRODUTIVO: "Transbordo em execução.",
+  INTERVALO_OPERACIONAL: "Intervalo gerado automaticamente.",
   EM_TRANSITO: "Movimentação entre pontos.",
   AGUARDANDO_LABORATORIO: "Parado aguardando liberação.",
   SEM_CAMINHAO: "Sem veículo disponível.",
@@ -66,7 +92,9 @@ function makeInitialForm(): EventFormState {
     startsNewContainerCycle: false,
     blendConfirmed: false,
     expectedContainerStateVersion: null,
-    notes: ""
+    notes: "",
+    gapPreview: null,
+    gapJustifications: []
   };
 }
 
@@ -87,8 +115,81 @@ function toPayload(form: EventFormState) {
     blendConfirmed: form.blendConfirmed,
     expectedContainerStateVersion: form.expectedContainerStateVersion,
     notes: form.notes || null,
-    revisionReason: form.revisionReason || null
+    revisionReason: form.revisionReason || null,
+    gapVersion: form.gapPreview?.gapVersion || null,
+    gapJustifications: form.gapJustifications
   };
+}
+
+function useGapPreview<T extends EventFormState | null>(
+  form: T,
+  setForm: Dispatch<SetStateAction<T>>,
+  eventId?: string | null
+) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const pump = form?.pump;
+  const shiftDate = form?.shiftDate;
+  const shiftType = form?.shiftType;
+  const startTime = form?.startTime;
+  const endTime = form?.endTime;
+  const category = form?.category;
+
+  useEffect(() => {
+    if (category !== "PRODUTIVO" || !startTime || !shiftDate || !pump || !shiftType) {
+      setLoading(false);
+      setError(null);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const preview = await apiFetch<GapPreview>("/api/events/gap-preview", {
+          method: "POST",
+          body: JSON.stringify({
+            pump,
+            shiftDate,
+            shiftType,
+            startTime,
+            endTime: endTime || undefined,
+            eventId: eventId || undefined
+          }),
+          signal: controller.signal
+        });
+        setForm((current) => {
+          if (!current) return current;
+          const previous = new Map(current.gapJustifications.map((item) => [item.id, item]));
+          const gapJustifications = preview.requiresJustification
+            ? preview.uncoveredSegments.map((segment) => previous.get(segment.id) || {
+                ...segment,
+                category: "OUTROS",
+                clientId: null,
+                plate: null,
+                notes: null
+              })
+            : [];
+          return { ...current, gapPreview: preview, gapJustifications } as T;
+        });
+      } catch (reason) {
+        if (!controller.signal.aborted) {
+          setError(reason instanceof Error ? reason.message : "Falha ao calcular o intervalo.");
+          setForm((current) => current ? { ...current, gapPreview: null } as T : current);
+        }
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
+    }, 350);
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [category, endTime, eventId, pump, setForm, shiftDate, shiftType, startTime]);
+
+  return { loading, error };
 }
 
 function toViewDate(iso: string): string {
@@ -138,6 +239,254 @@ function wasEdited(item: EventApiItem): boolean {
   return item.updatedAt !== item.createdAt;
 }
 
+function GapPanel({
+  form,
+  setForm,
+  clients,
+  gapState
+}: {
+  form: EventFormState;
+  setForm: Dispatch<SetStateAction<EventFormState>>;
+  clients: ClientApiItem[];
+  gapState: { loading: boolean; error: string | null };
+}) {
+  const preview = form.gapPreview;
+  const patchJustification = (id: string, patch: Partial<GapJustification>) => {
+    setForm((current) => ({
+      ...current,
+      gapJustifications: current.gapJustifications.map((item) =>
+        item.id === id ? { ...item, ...patch } : item
+      )
+    }));
+  };
+
+  if (gapState.loading) {
+    return (
+      <div className="notice col-span-2 border-slate-200 bg-slate-50 text-slate-600">
+        Verificando a linha do tempo da bomba…
+      </div>
+    );
+  }
+  if (gapState.error) {
+    return <div className="notice error col-span-2">{gapState.error}</div>;
+  }
+  if (!form.startTime || !preview) return null;
+  if (!preview.uncoveredSegments.length) {
+    return (
+      <div className="notice success col-span-2">
+        Linha do tempo contínua. Nenhuma ociosidade será criada.
+      </div>
+    );
+  }
+  if (!preview.requiresJustification) {
+    return (
+      <div className="notice success col-span-2">
+        <strong>{formatDuration(preview.uncoveredMinutes)}</strong> de intervalo serão registrados
+        automaticamente como <strong>Intervalo operacional</strong>. O limite sem justificativa é
+        de {preview.toleranceMinutes} min.
+      </div>
+    );
+  }
+
+  return (
+    <section className="col-span-2 space-y-3 rounded-xl border border-amber-300 bg-amber-50 p-3">
+      <div>
+        <h3 className="text-base font-extrabold text-amber-950">Justificativa obrigatória</h3>
+        <p className="text-sm text-amber-900">
+          Há {formatDuration(preview.uncoveredMinutes)} sem cobertura. Informe uma causa para cada
+          trecho antes de salvar.
+        </p>
+      </div>
+      {form.gapJustifications.map((item, index) => {
+        const rules = categoryRules[item.category];
+        return (
+          <fieldset className="grid grid-cols-2 gap-3 rounded-xl border border-amber-200 bg-white p-3" key={item.id}>
+            <legend className="px-2 text-sm font-extrabold text-slate-700">
+              Trecho {index + 1}: {item.startTime}–{item.endTime} ({item.durationMinutes} min)
+            </legend>
+            <label className="field-label col-span-2">
+              Causa
+              <select
+                className="select-ui"
+                onChange={(e) =>
+                  patchJustification(item.id, {
+                    category: e.target.value as GapJustification["category"],
+                    clientId: null,
+                    plate: null,
+                    notes: null
+                  })
+                }
+                value={item.category}
+              >
+                {idleCategoryOptions.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </label>
+            {rules.requiresClient ? (
+              <label className="field-label col-span-2">
+                Cliente *
+                <select
+                  className="select-ui"
+                  onChange={(e) => patchJustification(item.id, { clientId: e.target.value || null })}
+                  required
+                  value={item.clientId || ""}
+                >
+                  <option value="">Selecione</option>
+                  {clients.map((client) => (
+                    <option key={client.id} value={client.id}>{client.name}</option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            {rules.requiresPlate ? (
+              <label className="field-label col-span-2 md:col-span-1">
+                Placa *
+                <input
+                  className="input-ui"
+                  onChange={(e) =>
+                    patchJustification(item.id, { plate: formatPlateForInput(e.target.value) || null })
+                  }
+                  required
+                  value={item.plate || ""}
+                />
+              </label>
+            ) : null}
+            {rules.requiresNotes ? (
+              <label className={`field-label ${rules.requiresPlate ? "md:col-span-1" : "col-span-2"}`}>
+                Observação *
+                <textarea
+                  className="textarea-ui"
+                  onChange={(e) => patchJustification(item.id, { notes: e.target.value || null })}
+                  required
+                  value={item.notes || ""}
+                />
+              </label>
+            ) : null}
+          </fieldset>
+        );
+      })}
+    </section>
+  );
+}
+
+function DeleteReconciliationPanel({
+  plan,
+  clients,
+  loading,
+  onChange,
+  onCancel,
+  onConfirm
+}: {
+  plan: DeletePlan;
+  clients: ClientApiItem[];
+  loading: boolean;
+  onChange: (next: DeletePlan) => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const patch = (id: string, change: Partial<GapJustification>) => {
+    onChange({
+      ...plan,
+      gapJustifications: plan.gapJustifications.map((item) =>
+        item.id === id ? { ...item, ...change } : item
+      )
+    });
+  };
+
+  return (
+    <section className="panel space-y-3 border-amber-300 bg-amber-50">
+      <div>
+        <p className="text-xs font-extrabold uppercase tracking-[0.16em] text-amber-800">
+          Recalcular após exclusão
+        </p>
+        <h2 className="panel-title mt-1">Justifique os novos intervalos</h2>
+        <p className="mt-1 text-sm text-amber-950">
+          Excluir este produtivo abrirá {formatDuration(plan.preview.uncoveredMinutes)} antes do
+          próximo lançamento. Informe uma causa para cada trecho.
+        </p>
+      </div>
+      {plan.gapJustifications.map((item, index) => {
+        const rules = categoryRules[item.category];
+        return (
+          <fieldset className="grid grid-cols-2 gap-3 rounded-xl border border-amber-200 bg-white p-3" key={item.id}>
+            <legend className="px-2 text-sm font-extrabold">
+              Trecho {index + 1}: {item.startTime}–{item.endTime} ({item.durationMinutes} min)
+            </legend>
+            <label className="field-label col-span-2">
+              Causa
+              <select
+                className="select-ui"
+                onChange={(event) =>
+                  patch(item.id, {
+                    category: event.target.value as GapJustification["category"],
+                    clientId: null,
+                    plate: null,
+                    notes: null
+                  })
+                }
+                value={item.category}
+              >
+                {idleCategoryOptions.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </label>
+            {rules.requiresClient ? (
+              <label className="field-label col-span-2">
+                Cliente *
+                <select
+                  className="select-ui"
+                  onChange={(event) => patch(item.id, { clientId: event.target.value || null })}
+                  required
+                  value={item.clientId || ""}
+                >
+                  <option value="">Selecione</option>
+                  {clients.map((client) => (
+                    <option key={client.id} value={client.id}>{client.name}</option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            {rules.requiresPlate ? (
+              <label className="field-label">
+                Placa *
+                <input
+                  className="input-ui"
+                  onChange={(event) =>
+                    patch(item.id, { plate: formatPlateForInput(event.target.value) || null })
+                  }
+                  required
+                  value={item.plate || ""}
+                />
+              </label>
+            ) : null}
+            {rules.requiresNotes ? (
+              <label className={`field-label ${rules.requiresPlate ? "" : "col-span-2"}`}>
+                Observação *
+                <textarea
+                  className="textarea-ui"
+                  onChange={(event) => patch(item.id, { notes: event.target.value || null })}
+                  required
+                  value={item.notes || ""}
+                />
+              </label>
+            ) : null}
+          </fieldset>
+        );
+      })}
+      <div className="flex justify-end gap-2">
+        <button className="btn-soft" disabled={loading} onClick={onCancel} type="button">
+          Cancelar
+        </button>
+        <button className="btn-danger" disabled={loading} onClick={onConfirm} type="button">
+          {loading ? "Excluindo…" : "Confirmar exclusão e recalcular"}
+        </button>
+      </div>
+    </section>
+  );
+}
+
 function EventFormFields({
   form,
   setForm,
@@ -145,15 +494,19 @@ function EventFormFields({
   submitLabel,
   onSubmit,
   loading,
-  isEditing = false
+  isEditing = false,
+  isAutomatic = false,
+  gapState
 }: {
   form: EventFormState;
-  setForm: (next: EventFormState) => void;
+  setForm: Dispatch<SetStateAction<EventFormState>>;
   clients: ClientApiItem[];
   submitLabel: string;
   onSubmit: (e: FormEvent) => Promise<void>;
   loading: boolean;
   isEditing?: boolean;
+  isAutomatic?: boolean;
+  gapState: { loading: boolean; error: string | null };
 }) {
   const rules = categoryRules[form.category];
 
@@ -171,6 +524,7 @@ function EventFormFields({
             <button
               className={`choice-card ${form.pump === pump.value ? "active" : ""}`}
               key={pump.value}
+              disabled={isAutomatic}
               onClick={() => setForm({ ...form, pump: pump.value })}
               type="button"
             >
@@ -185,6 +539,7 @@ function EventFormFields({
         <input
           className="input-ui"
           onChange={(e) => setForm({ ...form, shiftDate: e.target.value })}
+          disabled={isAutomatic}
           required
           type="date"
           value={form.shiftDate}
@@ -196,6 +551,7 @@ function EventFormFields({
         <select
           className="select-ui"
           onChange={(e) => setForm({ ...form, shiftType: e.target.value as ShiftType })}
+          disabled={isAutomatic}
           value={form.shiftType}
         >
           {shiftOptions.map((shift) => (
@@ -211,6 +567,7 @@ function EventFormFields({
         <input
           className="input-ui"
           onChange={(e) => setForm({ ...form, startTime: e.target.value })}
+          disabled={isAutomatic}
           required
           type="time"
           value={form.startTime}
@@ -227,6 +584,7 @@ function EventFormFields({
         <input
           className="input-ui"
           onChange={(e) => setForm({ ...form, endTime: e.target.value })}
+          disabled={isAutomatic}
           required
           type="time"
           value={form.endTime}
@@ -238,24 +596,55 @@ function EventFormFields({
         ) : null}
       </label>
 
-      <div className="field-label col-span-2">
-        Categoria
-        <div className="choice-grid category-grid">
-          {categoryOptions.map((cat) => (
+      <div className="col-span-2 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+        <div>
+          <p className="text-sm font-extrabold text-slate-700">
+            {form.category === "PRODUTIVO" ? "Lançamento produtivo" : "Ociosidade manual"}
+          </p>
+          <p className="text-xs text-slate-500">
+            {form.category === "PRODUTIVO"
+              ? "Os intervalos anteriores serão calculados automaticamente."
+              : "Use este modo somente para registrar uma ocorrência manual."}
+          </p>
+        </div>
+        {!isAutomatic ? (
+          <button
+            className="btn-soft"
+            onClick={() =>
+              setForm({
+                ...form,
+                category: form.category === "PRODUTIVO" ? "OUTROS" : "PRODUTIVO",
+                containerStatus: form.category === "PRODUTIVO" ? null : form.containerStatus || "FULL",
+                gapPreview: null,
+                gapJustifications: []
+              })
+            }
+            type="button"
+          >
+            {form.category === "PRODUTIVO" ? "Registrar ociosidade" : "Voltar ao produtivo"}
+          </button>
+        ) : (
+          <span className="pill">Horários derivados</span>
+        )}
+      </div>
+
+      {form.category !== "PRODUTIVO" ? (
+        <div className="field-label col-span-2">
+          Causa da ociosidade
+          <div className="choice-grid category-grid">
+          {idleCategoryOptions.map((cat) => (
             <button
               className={`choice-card ${form.category === cat.value ? "active" : ""}`}
               key={cat.value}
               onClick={() =>
                 setForm({
                   ...form,
-                  category: cat.value as Category,
-                  containerStatus: cat.value === "PRODUTIVO" ? form.containerStatus || "FULL" : null,
-                  containerReason: cat.value === "PRODUTIVO" ? form.containerReason : "",
-                  startsNewContainerCycle:
-                    cat.value === "PRODUTIVO" ? form.startsNewContainerCycle : false,
-                  blendConfirmed: cat.value === "PRODUTIVO" ? form.blendConfirmed : false,
-                  expectedContainerStateVersion:
-                    cat.value === "PRODUTIVO" ? form.expectedContainerStateVersion : null
+                  category: cat.value,
+                  containerStatus: null,
+                  containerReason: "",
+                  startsNewContainerCycle: false,
+                  blendConfirmed: false,
+                  expectedContainerStateVersion: null
                 })
               }
               type="button"
@@ -264,8 +653,18 @@ function EventFormFields({
               <span className="choice-card-detail">{categoryDescriptions[cat.value]}</span>
             </button>
           ))}
+          </div>
         </div>
-      </div>
+      ) : null}
+
+      {form.category === "PRODUTIVO" ? (
+        <GapPanel
+          clients={clients}
+          form={form}
+          gapState={gapState}
+          setForm={setForm}
+        />
+      ) : null}
 
       <label className="field-label col-span-2">
         Cliente {rules.requiresClient ? "*" : ""}
@@ -332,7 +731,15 @@ function EventFormFields({
         />
       </label>
 
-      <button className="btn-primary col-span-2 w-full" disabled={loading} type="submit">
+      <button
+        className="btn-primary col-span-2 w-full"
+        disabled={
+          loading ||
+          gapState.loading ||
+          Boolean(form.category === "PRODUTIVO" && form.startTime && !form.gapPreview)
+        }
+        type="submit"
+      >
         {loading ? "Salvando..." : submitLabel}
       </button>
     </form>
@@ -346,6 +753,8 @@ export default function EventsPage() {
   const [form, setForm] = useState<EventFormState>(makeInitialForm());
   const [editForm, setEditForm] = useState<EventFormState | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
+  const [editAutomatic, setEditAutomatic] = useState(false);
+  const [deletePlan, setDeletePlan] = useState<DeletePlan | null>(null);
   const [filters, setFilters] = useState({
     dateFrom: shiftNow.shiftDate,
     dateTo: shiftNow.shiftDate,
@@ -359,6 +768,8 @@ export default function EventsPage() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const createGapState = useGapPreview(form, setForm);
+  const editGapState = useGapPreview(editForm, setEditForm, editId);
 
   const isManager = useMemo(
     () => profile?.role === "SUPERVISOR" || profile?.role === "ADMIN",
@@ -414,7 +825,15 @@ export default function EventsPage() {
           : "Lançamento salvo com sucesso."
       );
       setForm(makeInitialForm());
-      await loadEvents();
+      try {
+        await loadEvents();
+      } catch (historyError) {
+        setError(
+          historyError instanceof Error
+            ? `Lançamento salvo, mas o histórico não pôde ser atualizado: ${historyError.message}`
+            : "Lançamento salvo, mas o histórico não pôde ser atualizado."
+        );
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao salvar lançamento.");
     } finally {
@@ -440,8 +859,11 @@ export default function EventsPage() {
       blendConfirmed: Boolean(item.blendConfirmed),
       expectedContainerStateVersion: item.containerStateVersion,
       notes: item.notes || "",
-      revisionReason: ""
+      revisionReason: "",
+      gapPreview: null,
+      gapJustifications: []
     });
+    setEditAutomatic((item.origin || "MANUAL") === "AUTO_GAP");
   };
 
   const handleEdit = async (e: FormEvent) => {
@@ -466,6 +888,7 @@ export default function EventsPage() {
       );
       setEditId(null);
       setEditForm(null);
+      setEditAutomatic(false);
       await loadEvents();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao editar lançamento.");
@@ -474,7 +897,29 @@ export default function EventsPage() {
     }
   };
 
-  const deleteEvent = async (eventId: string) => {
+  const performDelete = async (plan: DeletePlan) => {
+    setLoading(true);
+    setError(null);
+    try {
+      await apiFetch(`/api/events/${plan.eventId}`, {
+        method: "DELETE",
+        body: JSON.stringify({
+          reason: plan.reason,
+          gapVersion: plan.preview.gapVersion,
+          gapJustifications: plan.gapJustifications
+        })
+      });
+      setDeletePlan(null);
+      setMessage("Lançamento excluído e linha do tempo recalculada.");
+      await loadEvents();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao excluir lançamento.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const deleteEvent = async (item: EventApiItem) => {
     const reason = window.prompt("Informe o motivo da exclusão:");
 
     if (!reason) {
@@ -482,13 +927,37 @@ export default function EventsPage() {
     }
 
     try {
-      await apiFetch(`/api/events/${eventId}`, {
-        method: "DELETE",
-        body: JSON.stringify({ reason })
+      const preview = await apiFetch<GapPreview>("/api/events/gap-preview", {
+        method: "POST",
+        body: JSON.stringify({
+          pump: item.pump,
+          shiftDate: item.shiftDate,
+          shiftType: item.shiftType,
+          startTime: item.startTime,
+          endTime: item.endTime,
+          eventId: item.id,
+          operation: "DELETE"
+        })
       });
-
-      setMessage("Lançamento excluído com sucesso.");
-      await loadEvents();
+      const plan: DeletePlan = {
+        eventId: item.id,
+        reason,
+        preview,
+        gapJustifications: preview.requiresJustification
+          ? preview.uncoveredSegments.map((segment) => ({
+              ...segment,
+              category: "OUTROS",
+              clientId: null,
+              plate: null,
+              notes: null
+            }))
+          : []
+      };
+      if (preview.requiresJustification) {
+        setDeletePlan(plan);
+      } else {
+        await performDelete(plan);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao excluir lançamento.");
     }
@@ -519,8 +988,9 @@ export default function EventsPage() {
           form={form}
           loading={loading}
           onSubmit={handleCreate}
-          setForm={(next) => setForm(next)}
+          setForm={setForm}
           submitLabel="Salvar lançamento"
+          gapState={createGapState}
         />
       </section>
 
@@ -533,6 +1003,7 @@ export default function EventsPage() {
               onClick={() => {
                 setEditId(null);
                 setEditForm(null);
+                setEditAutomatic(false);
               }}
               type="button"
             >
@@ -552,12 +1023,25 @@ export default function EventsPage() {
             clients={clients}
             form={editForm}
             isEditing
+            isAutomatic={editAutomatic}
             loading={loading}
             onSubmit={handleEdit}
-            setForm={(next) => setEditForm(next)}
+            setForm={setEditForm as Dispatch<SetStateAction<EventFormState>>}
             submitLabel="Salvar edição"
+            gapState={editGapState}
           />
         </div>
+      ) : null}
+
+      {deletePlan ? (
+        <DeleteReconciliationPanel
+          clients={clients}
+          loading={loading}
+          onCancel={() => setDeletePlan(null)}
+          onChange={setDeletePlan}
+          onConfirm={() => performDelete(deletePlan)}
+          plan={deletePlan}
+        />
       ) : null}
 
       <section className="panel space-y-3">
@@ -625,7 +1109,7 @@ export default function EventsPage() {
               value={filters.category}
             >
               <option value="">Todas</option>
-              {categoryOptions.map((cat) => (
+              {reportCategoryOptions.map((cat) => (
                 <option key={cat.value} value={cat.value}>
                   {cat.label}
                 </option>
@@ -687,6 +1171,11 @@ export default function EventsPage() {
                   <p className="history-title">
                     {item.shiftDate} • {shiftLabelMap[item.shiftType]} • {pumpShortLabel(item.pump)} •{" "}
                     {categoryLabelMap[item.category]}
+                    {(item.origin || "MANUAL") === "AUTO_GAP" ? (
+                      <span className="ml-2 inline-flex rounded-full border border-teal-300 bg-teal-50 px-2 py-0.5 text-[0.68rem] font-extrabold uppercase tracking-wide text-teal-800">
+                        Automático
+                      </span>
+                    ) : null}
                   </p>
                   <p className="history-time">
                     {toClockLabel(item.startTime)} → {toClockLabel(item.endTime)}
@@ -699,7 +1188,7 @@ export default function EventsPage() {
                       Editar
                     </button>
                   ) : null}
-                  {item.deleted && canRestore ? (
+                  {item.deleted && canRestore && (item.origin || "MANUAL") !== "AUTO_GAP" ? (
                     <button className="history-edit-btn" onClick={() => restoreEvent(item.id)} type="button">
                       Restaurar
                     </button>
@@ -723,18 +1212,30 @@ export default function EventsPage() {
                 {item.container || "-"}
               </p>
               <p className="history-meta">Criado por: {item.createdByEmail}</p>
-              {item.container && item.containerCycleId ? (
+              {item.previousContainerPassages?.length ? (
                 <details className="container-history-details">
-                  <summary>Detalhes do ciclo do container</summary>
-                  <p>
-                    Ciclo: {item.containerCycleId} · Evento anterior:{" "}
-                    {item.previousContainerEventId || "início do ciclo"}
-                  </p>
-                  <p>
-                    {item.startsNewContainerCycle
-                      ? "Novo ciclo confirmado após esvaziamento."
-                      : "Continuação do ciclo operacional anterior."}
-                  </p>
+                  <summary>
+                    Ver passagens anteriores ({item.previousContainerPassages.length})
+                  </summary>
+                  <ol className="container-cycle-passages">
+                    {item.previousContainerPassages.map((passage, index) => (
+                      <li key={passage.id}>
+                        <span className="container-passage-index">
+                          {index + 1}ª passagem
+                        </span>
+                        <span>
+                          {toClockLabel(passage.startTime)}–{toClockLabel(passage.endTime)}
+                        </span>
+                        <span>{pumpShortLabel(passage.pump)}</span>
+                        <span>{passage.plate || "Sem placa"}</span>
+                        <span
+                          className={`container-status-badge status-${passage.status.toLowerCase()}`}
+                        >
+                          {containerStatusLabelMap[passage.status]}
+                        </span>
+                      </li>
+                    ))}
+                  </ol>
                 </details>
               ) : null}
               {wasEdited(item) ? (
@@ -748,9 +1249,9 @@ export default function EventsPage() {
                 </p>
               ) : null}
 
-              {isManager && !item.deleted ? (
+              {isManager && !item.deleted && (item.origin || "MANUAL") !== "AUTO_GAP" ? (
                 <div className="history-actions">
-                  <button className="btn-danger" onClick={() => deleteEvent(item.id)} type="button">
+                  <button className="btn-danger" onClick={() => deleteEvent(item)} type="button">
                     Excluir
                   </button>
                 </div>

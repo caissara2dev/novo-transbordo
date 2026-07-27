@@ -47,6 +47,7 @@ type ReportEvent = {
 };
 
 const IDLE_CATEGORIES: Category[] = [
+  "INTERVALO_OPERACIONAL",
   "EM_TRANSITO",
   "AGUARDANDO_LABORATORIO",
   "SEM_CAMINHAO",

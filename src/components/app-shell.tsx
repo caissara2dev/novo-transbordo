@@ -11,7 +11,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false);
 
   const nav: Array<{
-    href: "/dashboard" | "/events" | "/containers" | "/reports" | "/display" | "/clients" | "/users";
+    href: "/dashboard" | "/events" | "/containers" | "/reports" | "/display" | "/clients" | "/users" | "/settings";
     label: string;
   }> = [
     { href: "/dashboard" as const, label: "Dashboard" },
@@ -22,7 +22,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       : []),
     ...(profile?.role === "ADMIN" ? [{ href: "/display" as const, label: "Display TV" }] : []),
     ...(profile?.role === "ADMIN" ? [{ href: "/clients" as const, label: "Clientes" }] : []),
-    ...(profile?.role === "ADMIN" ? [{ href: "/users" as const, label: "Usuários" }] : [])
+    ...(profile?.role === "ADMIN" ? [{ href: "/users" as const, label: "Usuários" }] : []),
+    ...(profile?.role === "ADMIN" ? [{ href: "/settings" as const, label: "Configurações" }] : [])
   ];
 
   useEffect(() => {
@@ -64,7 +65,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <ul>
           {nav.map((item) => (
             <li key={item.href}>
-              <Link className={`side-link ${pathname.startsWith(item.href) ? "active" : ""}`} href={item.href}>
+              <Link
+                className={`side-link ${pathname.startsWith(item.href) ? "active" : ""}`}
+                href={{ pathname: item.href }}
+              >
                 {item.label}
               </Link>
             </li>

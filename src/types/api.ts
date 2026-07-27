@@ -1,4 +1,5 @@
 import {
+  ContainerCyclePassage,
   ContainerStateDoc,
   ContainerStatus,
   EventDoc,
@@ -11,6 +12,7 @@ export type EventApiItem = Omit<EventDoc, "createdAt" | "updatedAt" | "startAt" 
   updatedAt: string;
   startAt: string;
   endAt: string;
+  previousContainerPassages?: ContainerCyclePassage[];
   warnings?: string[];
 };
 

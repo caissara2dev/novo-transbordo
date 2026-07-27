@@ -20,7 +20,7 @@ import { useAuthSession } from "@/lib/auth/use-auth-session";
 import { apiFetch } from "@/lib/auth/api-fetch";
 import {
   categoryLabelMap,
-  categoryOptions,
+  reportCategoryOptions,
   containerStatusLabelMap,
   containerStatusOptions,
   pumpOptions,
@@ -492,7 +492,7 @@ export default function ReportsPage() {
                 value={filters.category}
               >
                 <option value="">Todas</option>
-                {categoryOptions.map((cat) => (
+                {reportCategoryOptions.map((cat) => (
                   <option key={cat.value} value={cat.value}>
                     {cat.label}
                   </option>

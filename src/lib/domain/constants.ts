@@ -17,6 +17,12 @@ export const categoryRules: Record<
     requiresContainer: true,
     requiresNotes: false
   },
+  INTERVALO_OPERACIONAL: {
+    requiresClient: false,
+    requiresPlate: false,
+    requiresContainer: false,
+    requiresNotes: false
+  },
   EM_TRANSITO: {
     requiresClient: true,
     requiresPlate: true,
