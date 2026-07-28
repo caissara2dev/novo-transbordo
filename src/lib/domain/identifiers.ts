@@ -1,3 +1,5 @@
+import { HttpError } from "@/lib/domain/errors";
+
 const LETTER_VALUE_MAP: Record<string, number> = {
   A: 10,
   B: 12,
@@ -49,18 +51,27 @@ export function normalizePlate(value: string | null | undefined): string | null 
   const stripped = stripAlphaNumeric(value);
 
   if (stripped.length !== 7) {
-    throw new Error("Placa inválida. Informe 7 caracteres (ex.: AAA1234 ou AAA1A23).");
+    throw new HttpError(
+      400,
+      "Placa inválida. Informe 7 caracteres (ex.: AAA1234 ou AAA1A23)."
+    );
   }
 
   const prefix = stripped.slice(0, 3);
   const suffix = stripped.slice(3);
 
   if (!/^[A-Z]{3}$/.test(prefix)) {
-    throw new Error("Placa inválida. Os 3 primeiros caracteres devem ser letras.");
+    throw new HttpError(
+      400,
+      "Placa inválida. Os 3 primeiros caracteres devem ser letras."
+    );
   }
 
   if (!/^\d{4}$/.test(suffix) && !/^\d[A-Z]\d{2}$/.test(suffix)) {
-    throw new Error("Placa inválida. Use padrão brasileiro antigo (AAA1234) ou Mercosul (AAA1A23).");
+    throw new HttpError(
+      400,
+      "Placa inválida. Use padrão brasileiro antigo (AAA1234) ou Mercosul (AAA1A23)."
+    );
   }
 
   return `${prefix}-${suffix}`;
@@ -88,7 +99,7 @@ export function calculateContainerCheckDigit(ownerAndSerial: string): number {
     const value = /\d/.test(char) ? Number(char) : LETTER_VALUE_MAP[char];
 
     if (value === undefined) {
-      throw new Error("Código de container inválido.");
+      throw new HttpError(400, "Código de container inválido.");
     }
 
     sum += value * 2 ** i;
@@ -106,7 +117,8 @@ export function normalizeContainer(value: string | null | undefined): string | n
   const stripped = stripAlphaNumeric(value);
 
   if (stripped.length !== 11) {
-    throw new Error(
+    throw new HttpError(
+      400,
       "Container inválido. Informe 4 letras + 7 dígitos (ex.: ABCU1234560)."
     );
   }
@@ -116,18 +128,25 @@ export function normalizeContainer(value: string | null | undefined): string | n
   const checkDigitText = stripped.slice(10, 11);
 
   if (!/^[A-Z]{3}[UJZ]$/.test(owner)) {
-    throw new Error("Container inválido. Prefixo deve seguir padrão ISO (ex.: ABCU).");
+    throw new HttpError(
+      400,
+      "Container inválido. Prefixo deve seguir padrão ISO (ex.: ABCU)."
+    );
   }
 
   if (!/^\d{6}$/.test(serial) || !/^\d$/.test(checkDigitText)) {
-    throw new Error("Container inválido. Os 7 últimos caracteres devem ser numéricos.");
+    throw new HttpError(
+      400,
+      "Container inválido. Os 7 últimos caracteres devem ser numéricos."
+    );
   }
 
   const expected = calculateContainerCheckDigit(`${owner}${serial}`);
   const informed = Number(checkDigitText);
 
   if (informed !== expected) {
-    throw new Error(
+    throw new HttpError(
+      400,
       `Container inválido. Dígito verificador incorreto (esperado ${expected}).`
     );
   }

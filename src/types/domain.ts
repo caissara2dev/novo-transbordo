@@ -50,6 +50,10 @@ export type GapPreview = {
   uncoveredMinutes: number;
   requiresJustification: boolean;
   reconciliationEventId?: string | null;
+  reconciliations?: Array<{
+    eventId: string;
+    preview: Omit<GapPreview, "reconciliations">;
+  }>;
 };
 
 export type EventInput = {

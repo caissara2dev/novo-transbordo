@@ -47,6 +47,28 @@ describe("sortByOperationalTimeline", () => {
     expect(sortByOperationalTimeline(items).map((item) => item.id)).toEqual(["c", "b", "a"]);
   });
 
+  it("normalizes Firestore-like, numeric and missing timeline values", () => {
+    const items = [
+      {
+        id: "timestamp",
+        startAt: { toMillis: () => 20 },
+        endAt: null,
+        createdAt: null
+      },
+      {
+        id: "number",
+        startAt: 10,
+        endAt: undefined,
+        createdAt: undefined
+      }
+    ];
+
+    expect(sortByOperationalTimeline(items).map((item) => item.id)).toEqual([
+      "timestamp",
+      "number"
+    ]);
+  });
+
   it("applies combined history filters without relying on a composite query", () => {
     const base = {
       startAt: "2026-07-27T17:00:00.000Z",
@@ -87,5 +109,56 @@ describe("sortByOperationalTimeline", () => {
     });
 
     expect(result.map((item) => item.id)).toEqual(["matching"]);
+  });
+
+  it("does not silently truncate matching operational history", () => {
+    const items = Array.from({ length: 250 }, (_, index) => ({
+      id: `event-${String(index).padStart(3, "0")}`,
+      startAt: new Date(2026, 6, 27, 12, 0, index),
+      endAt: new Date(2026, 6, 27, 12, 1, index),
+      createdAt: new Date(2026, 6, 27, 12, 2, index),
+      shiftDate: "2026-07-27",
+      pump: "BOMBA_1",
+      shiftType: "MANHA",
+      category: "PRODUTIVO",
+      clientId: "client-1",
+      containerStatus: "FULL",
+      createdByUid: "operator-1",
+      deleted: false
+    }));
+
+    const result = filterAndSortOperationalHistory(items, {
+      role: "OPERATOR",
+      uid: "operator-1",
+      filters: {}
+    });
+
+    expect(result).toHaveLength(250);
+  });
+
+  it("filters a non-matching container status", () => {
+    const result = filterAndSortOperationalHistory(
+      [
+        {
+          id: "partial",
+          startAt: 1,
+          shiftDate: "2026-07-27",
+          pump: "BOMBA_1",
+          shiftType: "MANHA",
+          category: "PRODUTIVO",
+          clientId: "client-1",
+          containerStatus: "PARTIAL",
+          createdByUid: "operator-1",
+          deleted: false
+        }
+      ],
+      {
+        role: "ADMIN",
+        uid: "admin-1",
+        filters: { containerStatus: "FULL" }
+      }
+    );
+
+    expect(result).toEqual([]);
   });
 });

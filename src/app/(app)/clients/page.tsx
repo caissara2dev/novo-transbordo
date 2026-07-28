@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { apiFetch } from "@/lib/auth/api-fetch";
 import { RoleGuard } from "@/components/role-guard";
+import { isAbortError } from "@/lib/ui/latest-request";
 import { ClientApiItem } from "@/types/api";
 
 export default function ClientsPage() {
@@ -12,17 +13,32 @@ export default function ClientsPage() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
-  const loadClients = useCallback(async () => {
+  const fetchClients = useCallback(async (signal?: AbortSignal) => {
     const data = await apiFetch<{ items: ClientApiItem[] }>(
-      `/api/clients?includeInactive=${includeInactive ? "true" : "false"}`
+      `/api/clients?includeInactive=${includeInactive ? "true" : "false"}`,
+      { signal }
     );
 
-    setClients(data.items || []);
+    return data.items || [];
   }, [includeInactive]);
 
   useEffect(() => {
-    loadClients().catch((err) => setError(err.message));
-  }, [loadClients]);
+    const controller = new AbortController();
+
+    void fetchClients(controller.signal)
+      .then((nextClients) => {
+        if (!controller.signal.aborted) {
+          setClients(nextClients);
+        }
+      })
+      .catch((reason) => {
+        if (!controller.signal.aborted && !isAbortError(reason)) {
+          setError(reason instanceof Error ? reason.message : "Erro ao carregar clientes.");
+        }
+      });
+
+    return () => controller.abort();
+  }, [fetchClients]);
 
   const createClient = async (e: FormEvent) => {
     e.preventDefault();
@@ -36,7 +52,7 @@ export default function ClientsPage() {
       });
       setName("");
       setMessage("Cliente criado com sucesso.");
-      await loadClients();
+      setClients(await fetchClients());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao criar cliente.");
     }
@@ -50,7 +66,7 @@ export default function ClientsPage() {
         method: "PATCH",
         body: JSON.stringify({ active: !client.active })
       });
-      await loadClients();
+      setClients(await fetchClients());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao atualizar cliente.");
     }

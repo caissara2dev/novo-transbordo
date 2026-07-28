@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Timestamp } from "firebase-admin/firestore";
 import { z } from "zod";
 import { analyzeGap, TimelineInterval } from "@/lib/domain/gaps";
@@ -109,7 +110,7 @@ export async function previewEventGap(raw: unknown): Promise<GapPreview> {
     throw new HttpError(409, "O início informado sobrepõe um lançamento existente.");
   }
 
-  return analyzeGap({
+  const preview = analyzeGap({
     shiftDate: parsed.shiftDate,
     shiftType: parsed.shiftType,
     targetStartMs,
@@ -118,6 +119,192 @@ export async function previewEventGap(raw: unknown): Promise<GapPreview> {
     eventId: parsed.eventId,
     intervals
   });
+  if (!parsed.eventId) return preview;
+
+  const existingSnap = await adminDb.collection("events").doc(parsed.eventId).get();
+  if (!existingSnap.exists) {
+    throw new HttpError(404, "Lançamento não encontrado.");
+  }
+  const existing = existingSnap.data() as EventDoc;
+  const override: EventDoc = {
+    ...existing,
+    pump: parsed.pump,
+    shiftDate: parsed.shiftDate,
+    shiftType: parsed.shiftType,
+    startTime: parsed.startTime,
+    endTime: parsed.endTime || existing.endTime,
+    startAt: Timestamp.fromDate(
+      resolveTimelineDate(
+        parsed.shiftDate,
+        parsed.shiftType,
+        parsed.startTime
+      ).toJSDate()
+    ),
+    endAt: Timestamp.fromDate(
+      resolveTimelineDate(
+        parsed.shiftDate,
+        parsed.shiftType,
+        parsed.endTime || existing.endTime
+      ).toJSDate()
+    ),
+    deleted: false
+  };
+  const following = await prepareFollowingGapsAfterOverride({
+    eventId: parsed.eventId,
+    existing,
+    override
+  });
+  if (!following.length) return preview;
+
+  return {
+    ...preview,
+    gapVersion: createHash("sha256")
+      .update(
+        JSON.stringify([
+          preview.gapVersion,
+          following.map(({ target, preview: nextPreview }) => [
+            target.id,
+            nextPreview.gapVersion
+          ])
+        ])
+      )
+      .digest("hex")
+      .slice(0, 24),
+    reconciliations: following.map(({ target, preview: nextPreview }) => ({
+      eventId: target.id,
+      preview: nextPreview
+    }))
+  };
+}
+
+export async function previewGapAfterEventOverride(params: {
+  targetId: string;
+  target: EventDoc;
+  overrideId: string;
+  override: EventDoc;
+}): Promise<GapPreview> {
+  const [settings, intervals, lockSnap] = await Promise.all([
+    getOperationalSettings(),
+    loadTimeline(params.target),
+    timelineLockRef(
+      params.target.shiftDate,
+      params.target.shiftType,
+      params.target.pump
+    ).get()
+  ]);
+  const simulated = intervals
+    .filter(
+      (item) =>
+        item.id !== params.overrideId &&
+        item.generatedForEventId !== params.overrideId
+    );
+  if (
+    params.override.shiftDate === params.target.shiftDate &&
+    params.override.shiftType === params.target.shiftType &&
+    params.override.pump === params.target.pump &&
+    !params.override.deleted
+  ) {
+    simulated.push({
+      id: params.overrideId,
+      startMs: timestampMillis(params.override.startAt),
+      endMs: timestampMillis(params.override.endAt),
+      productive:
+        params.override.productive ??
+        params.override.category === "PRODUTIVO",
+      deleted: false,
+      origin: params.override.origin || "MANUAL",
+      generatedForEventId: params.override.generatedForEventId || null,
+      updatedAtMs: timestampMillis(params.override.updatedAt)
+    });
+  }
+
+  return analyzeGap({
+    shiftDate: params.target.shiftDate,
+    shiftType: params.target.shiftType,
+    targetStartMs: timestampMillis(params.target.startAt),
+    toleranceMinutes: settings.idleToleranceMinutes,
+    lockVersion: Number(lockSnap.data()?.version || 0),
+    eventId: params.targetId,
+    intervals: simulated
+  });
+}
+
+export async function prepareFollowingGapsAfterOverride(params: {
+  eventId: string;
+  existing: EventDoc;
+  override: EventDoc;
+}): Promise<Array<{
+  target: { id: string } & EventDoc;
+  preview: GapPreview;
+}>> {
+  const timelines = [
+    {
+      shiftDate: params.existing.shiftDate,
+      shiftType: params.existing.shiftType,
+      pump: params.existing.pump,
+      anchorMs: timestampMillis(params.existing.startAt)
+    },
+    {
+      shiftDate: params.override.shiftDate,
+      shiftType: params.override.shiftType,
+      pump: params.override.pump,
+      anchorMs: timestampMillis(params.override.startAt)
+    }
+  ].filter(
+    (timeline, index, all) =>
+      all.findIndex(
+        (candidate) =>
+          candidate.shiftDate === timeline.shiftDate &&
+          candidate.shiftType === timeline.shiftType &&
+          candidate.pump === timeline.pump
+      ) === index
+  );
+  const targetById = new Map<string, { id: string } & EventDoc>();
+
+  for (const timeline of timelines) {
+    const daySnap = await adminDb
+      .collection("events")
+      .where("shiftDate", "==", timeline.shiftDate)
+      .where("deleted", "==", false)
+      .get();
+    const next =
+      daySnap.docs
+        .flatMap((doc) => {
+          const data = doc.data() as EventDoc;
+          if (
+            doc.id === params.eventId ||
+            data.pump !== timeline.pump ||
+            data.shiftType !== timeline.shiftType ||
+            !(data.productive ?? data.category === "PRODUTIVO")
+          ) {
+            return [];
+          }
+          return [{
+            id: doc.id,
+            ...data,
+            startMs: timestampMillis(data.startAt)
+          }];
+        })
+        .filter((event) => event.startMs > timeline.anchorMs)
+        .sort((left, right) => left.startMs - right.startMs)[0] || null;
+    if (next) {
+      const { startMs: _startMs, ...target } = next;
+      void _startMs;
+      targetById.set(target.id, target);
+    }
+  }
+
+  return Promise.all(
+    Array.from(targetById.values()).map(async (target) => ({
+      target,
+      preview: await previewGapAfterEventOverride({
+        targetId: target.id,
+        target,
+        overrideId: params.eventId,
+        override: params.override
+      })
+    }))
+  );
 }
 
 export async function prepareDeletionGap(eventId: string): Promise<{

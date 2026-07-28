@@ -82,25 +82,38 @@ export function filterAndSortOperationalHistory<T extends FilterableTimelineItem
     limit?: number;
   }
 ): T[] {
+  const filtered = items.filter((event) =>
+    matchesOperationalHistory(event, params)
+  );
+
+  const sorted = sortByOperationalTimeline(filtered);
+  return params.limit === undefined ? sorted : sorted.slice(0, params.limit);
+}
+
+export function matchesOperationalHistory(
+  event: FilterableTimelineItem,
+  params: {
+    role: string;
+    uid: string;
+    filters: OperationalHistoryFilters;
+  }
+): boolean {
   const { role, uid, filters } = params;
 
-  const filtered = items.filter((event) => {
-    if (role === "OPERATOR" && event.createdByUid !== uid) return false;
-    if (!filters.includeDeleted && event.deleted) return false;
-    if (filters.dateFrom && event.shiftDate < filters.dateFrom) return false;
-    if (filters.dateTo && event.shiftDate > filters.dateTo) return false;
-    if (filters.pump && event.pump !== filters.pump) return false;
-    if (filters.shiftType && event.shiftType !== filters.shiftType) return false;
-    if (filters.category && event.category !== filters.category) return false;
-    if (filters.clientId && event.clientId !== filters.clientId) return false;
-    if (
-      filters.containerStatus &&
-      event.containerStatus !== filters.containerStatus
-    ) {
-      return false;
-    }
-    return true;
-  });
+  if (role === "OPERATOR" && event.createdByUid !== uid) return false;
+  if (!filters.includeDeleted && event.deleted) return false;
+  if (filters.dateFrom && event.shiftDate < filters.dateFrom) return false;
+  if (filters.dateTo && event.shiftDate > filters.dateTo) return false;
+  if (filters.pump && event.pump !== filters.pump) return false;
+  if (filters.shiftType && event.shiftType !== filters.shiftType) return false;
+  if (filters.category && event.category !== filters.category) return false;
+  if (filters.clientId && event.clientId !== filters.clientId) return false;
+  if (
+    filters.containerStatus &&
+    event.containerStatus !== filters.containerStatus
+  ) {
+    return false;
+  }
 
-  return sortByOperationalTimeline(filtered).slice(0, params.limit ?? 200);
+  return true;
 }

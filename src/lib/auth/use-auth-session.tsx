@@ -1,8 +1,22 @@
 "use client";
 
 import { onAuthStateChanged, signOut, User } from "firebase/auth";
-import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from "react";
+import {
+  createContext,
+  ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState
+} from "react";
+import {
+  authenticatedFetch,
+  readApiResponse
+} from "@/lib/auth/api-fetch";
 import { auth } from "@/lib/firebase/client";
+import { createLatestRequestCoordinator } from "@/lib/ui/latest-request";
 import { UserDoc } from "@/types/domain";
 
 type SessionState = {
@@ -23,59 +37,61 @@ async function fetchWithTimeout(
   timeoutMs = 8000
 ): Promise<Response> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const upstreamSignal = init.signal;
+  const abortFromUpstream = () => controller.abort();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+
+  if (upstreamSignal?.aborted) {
+    controller.abort();
+  } else {
+    upstreamSignal?.addEventListener("abort", abortFromUpstream, { once: true });
+  }
 
   try {
-    return await fetch(input, {
+    return await authenticatedFetch(input, {
       ...init,
       signal: controller.signal
     });
+  } catch (error) {
+    if (timedOut && !upstreamSignal?.aborted) {
+      throw new Error("A solicitação demorou demais. Tente novamente.");
+    }
+
+    throw error;
   } finally {
     clearTimeout(timer);
+    upstreamSignal?.removeEventListener("abort", abortFromUpstream);
   }
 }
 
-async function fetchMe(user: User): Promise<{
+export async function fetchSessionProfile(signal: AbortSignal): Promise<{
   profile: UserDoc;
   approvalContactPhone: string | null;
 }> {
-  const token = await user.getIdToken();
   const res = await fetchWithTimeout("/api/me", {
-    headers: {
-      Authorization: `Bearer ${token}`
-    }
+    signal
   });
 
   if (res.status === 404) {
     const syncRes = await fetchWithTimeout("/api/auth/sync", {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`
-      }
+      signal
     });
 
-    if (!syncRes.ok) {
-      throw new Error("Não foi possível sincronizar o perfil do usuário.");
-    }
+    await readApiResponse(syncRes);
 
     const retry = await fetchWithTimeout("/api/me", {
-      headers: {
-        Authorization: `Bearer ${token}`
-      }
+      signal
     });
 
-    if (!retry.ok) {
-      throw new Error("Não foi possível carregar o perfil.");
-    }
-
-    return retry.json();
+    return readApiResponse(retry);
   }
 
-  if (!res.ok) {
-    throw new Error("Falha ao carregar perfil.");
-  }
-
-  return res.json();
+  return readApiResponse(res);
 }
 
 export function SessionProvider({ children }: { children: ReactNode }) {
@@ -84,51 +100,93 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [approvalContactPhone, setApprovalContactPhone] = useState<string | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const profileRequests = useRef(createLatestRequestCoordinator());
 
-  const refreshProfile = async () => {
-    if (!auth.currentUser) {
+  const refreshProfile = useCallback(async () => {
+    const user = auth.currentUser;
+
+    if (!user) {
+      profileRequests.current.cancel();
       setProfile(null);
+      setApprovalContactPhone(null);
       setProfileError(null);
+      setLoading(false);
       return;
     }
 
+    const request = profileRequests.current.begin();
+    setLoading(true);
+    setProfileError(null);
+
     try {
-      const payload = await fetchMe(auth.currentUser);
+      const payload = await fetchSessionProfile(request.signal);
+      if (!request.isCurrent() || auth.currentUser?.uid !== user.uid) {
+        return;
+      }
+
       setProfile(payload.profile);
       setApprovalContactPhone(payload.approvalContactPhone);
       setProfileError(null);
     } catch (error) {
+      if (!request.isCurrent()) {
+        return;
+      }
+
       setProfile(null);
+      setApprovalContactPhone(null);
       setProfileError(error instanceof Error ? error.message : "Falha ao carregar perfil.");
+    } finally {
+      if (request.isCurrent()) {
+        setLoading(false);
+      }
     }
-  };
+  }, []);
 
   useEffect(() => {
+    const requests = profileRequests.current;
     const unsub = onAuthStateChanged(auth, async (user) => {
       setFirebaseUser(user);
+      setProfile(null);
+      setApprovalContactPhone(null);
+      setProfileError(null);
 
       if (!user) {
-        setProfile(null);
-        setApprovalContactPhone(null);
-        setProfileError(null);
+        profileRequests.current.cancel();
         setLoading(false);
         return;
       }
 
+      const request = profileRequests.current.begin();
+      setLoading(true);
+
       try {
-        const payload = await fetchMe(user);
+        const payload = await fetchSessionProfile(request.signal);
+        if (!request.isCurrent() || auth.currentUser?.uid !== user.uid) {
+          return;
+        }
+
         setProfile(payload.profile);
         setApprovalContactPhone(payload.approvalContactPhone);
         setProfileError(null);
       } catch (error) {
+        if (!request.isCurrent()) {
+          return;
+        }
+
         setProfile(null);
+        setApprovalContactPhone(null);
         setProfileError(error instanceof Error ? error.message : "Falha ao carregar perfil.");
       } finally {
-        setLoading(false);
+        if (request.isCurrent()) {
+          setLoading(false);
+        }
       }
     });
 
-    return () => unsub();
+    return () => {
+      requests.cancel();
+      unsub();
+    };
   }, []);
 
   const value = useMemo<SessionState>(
@@ -141,7 +199,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       refreshProfile,
       logout: () => signOut(auth)
     }),
-    [firebaseUser, profile, approvalContactPhone, profileError, loading]
+    [firebaseUser, profile, approvalContactPhone, profileError, loading, refreshProfile]
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

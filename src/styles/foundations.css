@@ -1,0 +1,124 @@
+:root {
+  color-scheme: light;
+  --brand-pradaria: #3f6262;
+  --brand-paprika-light: #a91c47;
+  --brand-paprika-dark: #77001e;
+  --bg: #f4f6f8;
+  --surface: #ffffff;
+  --line: #d6dde3;
+  --text: #1f2933;
+  --muted: #5d6b78;
+  --heading: var(--brand-pradaria);
+  --primary: var(--brand-pradaria);
+  --primary-soft: #eaf0f0;
+  --accent: var(--brand-paprika-light);
+  --accent-strong: var(--brand-paprika-dark);
+  --accent-soft: #f8e8ee;
+  --danger: var(--brand-paprika-light);
+  --warn: var(--brand-paprika-dark);
+  --success: #35635b;
+  --success-soft: #edf7f4;
+  --success-line: #a9cec6;
+  --radius: 14px;
+  --shadow: 0 8px 24px rgba(20, 40, 60, 0.06);
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+    sans-serif;
+}
+
+html[data-brand-theme="a"] {
+  --heading: var(--brand-pradaria);
+  --primary: var(--brand-pradaria);
+  --primary-soft: #eaf0f0;
+  --accent: var(--brand-paprika-light);
+  --accent-strong: var(--brand-paprika-dark);
+  --accent-soft: #f8e8ee;
+  --danger: var(--brand-paprika-light);
+  --warn: var(--brand-paprika-dark);
+}
+
+html[data-brand-theme="b"] {
+  --heading: var(--brand-pradaria);
+  --primary: var(--brand-paprika-light);
+  --primary-soft: #f8e8ee;
+  --accent: var(--brand-pradaria);
+  --accent-strong: var(--brand-pradaria);
+  --accent-soft: #eaf0f0;
+  --danger: var(--brand-paprika-dark);
+  --warn: var(--brand-paprika-dark);
+}
+
+html[data-brand-theme="c"] {
+  --heading: var(--brand-pradaria);
+  --primary: var(--brand-paprika-dark);
+  --primary-soft: #f4e4ea;
+  --accent: var(--brand-paprika-light);
+  --accent-strong: var(--brand-paprika-dark);
+  --accent-soft: #f8e8ee;
+  --danger: var(--brand-paprika-dark);
+  --warn: var(--brand-paprika-light);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  min-height: 100vh;
+  font-family: var(--font-body);
+  color: var(--text);
+  background: var(--bg);
+}
+
+.site-root {
+  min-height: 100vh;
+}
+
+.site-frame {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.site-content {
+  flex: 1;
+}
+
+.site-footer {
+  padding: 0.65rem 1rem 0.95rem;
+  text-align: center;
+}
+
+.site-footer p {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+h1,
+h2,
+h3,
+.display-text {
+  font-family: var(--font-body);
+  letter-spacing: 0;
+}
+
+a {
+  color: inherit;
+}
+
+@media (max-width: 900px) {
+  .site-footer {
+    padding: 0.55rem 0.75rem 0.8rem;
+  }
+
+  .site-footer p {
+    font-size: 0.69rem;
+  }
+}

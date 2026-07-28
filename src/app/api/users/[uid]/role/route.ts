@@ -1,9 +1,15 @@
 import { NextRequest } from "next/server";
+import { z } from "zod";
 import { ensureApproved, ensureRole, requireAuth } from "@/lib/server/auth";
-import { HttpError } from "@/lib/domain/errors";
-import { fail, ok } from "@/lib/server/http";
+import { fail, ok, parseJsonBody } from "@/lib/server/http";
 import { toPlain } from "@/lib/server/serialize";
 import { setRole } from "@/lib/server/users";
+
+const roleBodySchema = z
+  .object({
+    role: z.enum(["OPERATOR", "SUPERVISOR", "DISPLAY", "ADMIN"])
+  })
+  .strict();
 
 export async function POST(
   req: NextRequest,
@@ -16,14 +22,11 @@ export async function POST(
     ensureApproved(profile);
     ensureRole(profile, ["ADMIN"]);
 
-    const body = (await req.json()) as { role: string };
-    if (!["OPERATOR", "SUPERVISOR", "DISPLAY", "ADMIN"].includes(body.role)) {
-      throw new HttpError(400, "Role inválido.");
-    }
+    const body = await parseJsonBody(req, roleBodySchema);
 
     const updated = await setRole({
       targetUid,
-      role: body.role as "OPERATOR" | "SUPERVISOR" | "DISPLAY" | "ADMIN",
+      role: body.role,
       actorUid: uid
     });
 

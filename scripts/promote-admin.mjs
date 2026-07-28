@@ -1,6 +1,21 @@
 import fs from "node:fs";
 import path from "node:path";
-import { cert, getApps, initializeApp } from "firebase-admin/app";
+import { fileURLToPath } from "node:url";
+import { cert, deleteApp, getApps, initializeApp } from "firebase-admin/app";
+import {
+  PRODUCTION_CONFIRMATION,
+  buildPromotionPatch,
+  parseArgs,
+  validatePromotionRequest
+} from "./lib/promote-admin-policy.mjs";
+
+export {
+  PRODUCTION_CONFIRMATION,
+  PRODUCTION_PROJECT_ID,
+  buildPromotionPatch,
+  parseArgs,
+  validatePromotionRequest
+} from "./lib/promote-admin-policy.mjs";
 
 function cleanEnv(value) {
   if (!value) return undefined;
@@ -33,137 +48,189 @@ function loadLocalEnv() {
   }
 }
 
-function getProjectId() {
-  return (
-    cleanEnv(process.env.FIREBASE_PROJECT_ID) ||
-    cleanEnv(process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID) ||
-    cleanEnv(process.env.GCLOUD_PROJECT)
-  );
+function firestoreValue(value) {
+  if (typeof value === "boolean") {
+    return { booleanValue: value };
+  }
+  return value === null || value === undefined
+    ? { nullValue: null }
+    : { stringValue: String(value) };
 }
 
-async function promoteViaEmulator({ uid, projectId, emulatorHost }) {
-  const baseUrl = `http://${emulatorHost}/v1/projects/${projectId}/databases/(default)/documents/users/${uid}`;
-  const ownerHeaders = {
-    Authorization: "Bearer owner"
+function summarizeEmulatorDocument(payload) {
+  const fields = payload?.fields || {};
+  return {
+    role: fields.role?.stringValue || null,
+    approved: fields.approved?.booleanValue === true
   };
+}
+
+async function promoteViaEmulator({ uid, projectId, emulatorHost, execute, patch }) {
+  const baseUrl =
+    `http://${emulatorHost}/v1/projects/${projectId}` +
+    `/databases/(default)/documents/users/${encodeURIComponent(uid)}`;
+  const ownerHeaders = { Authorization: "Bearer owner" };
 
   let checkRes;
   try {
-    checkRes = await fetch(baseUrl, {
-      headers: ownerHeaders
-    });
+    checkRes = await fetch(baseUrl, { headers: ownerHeaders });
   } catch {
     throw new Error(
-      `Nao foi possivel conectar ao Firestore Emulator em ${emulatorHost}. ` +
-        `Confirme se 'npx firebase emulators:start' esta rodando.`
+      `Não foi possível conectar ao Firestore Emulator em ${emulatorHost}. ` +
+        "Confirme se 'npx firebase emulators:start' está rodando."
     );
   }
   if (checkRes.status === 404) {
-    throw new Error(`Usuario ${uid} nao encontrado em users/{uid}.`);
+    throw new Error(`Usuário ${uid} não encontrado em users/{uid}.`);
   }
   if (!checkRes.ok) {
-    const payload = await checkRes.text();
-    throw new Error(`Falha ao consultar usuario no emulador: ${payload}`);
+    throw new Error(`Falha ao consultar usuário no emulador: ${await checkRes.text()}`);
   }
 
-  const now = new Date().toISOString();
+  const current = summarizeEmulatorDocument(await checkRes.json());
+  if (!execute) {
+    return { current, executed: false };
+  }
+
   const patchUrl =
     `${baseUrl}?updateMask.fieldPaths=role` +
-    `&updateMask.fieldPaths=approved` +
-    `&updateMask.fieldPaths=approvedAt` +
-    `&updateMask.fieldPaths=updatedAt`;
-
+    "&updateMask.fieldPaths=approved" +
+    "&updateMask.fieldPaths=approvedAt" +
+    "&updateMask.fieldPaths=updatedAt";
   let patchRes;
   try {
     patchRes = await fetch(patchUrl, {
       method: "PATCH",
-      headers: {
-        ...ownerHeaders,
-        "Content-Type": "application/json"
-      },
+      headers: { ...ownerHeaders, "Content-Type": "application/json" },
       body: JSON.stringify({
-        fields: {
-          role: { stringValue: "ADMIN" },
-          approved: { booleanValue: true },
-          approvedAt: { timestampValue: now },
-          updatedAt: { timestampValue: now }
-        }
+        fields: Object.fromEntries(
+          Object.entries(patch).map(([key, value]) => [
+            key,
+            key.endsWith("At") ? { timestampValue: value } : firestoreValue(value)
+          ])
+        )
       })
     });
   } catch {
-    throw new Error(`Conexao perdida com o Firestore Emulator em ${emulatorHost}.`);
+    throw new Error(`Conexão perdida com o Firestore Emulator em ${emulatorHost}.`);
   }
 
   if (!patchRes.ok) {
-    const payload = await patchRes.text();
-    throw new Error(`Falha ao atualizar usuario no emulador: ${payload}`);
+    throw new Error(`Falha ao atualizar usuário no emulador: ${await patchRes.text()}`);
   }
+  return { current, executed: true };
 }
 
 function bootAdminForCloud(projectId) {
-  if (getApps().length) {
-    return;
-  }
+  const appName = `promote-admin-${projectId}`;
+  const existing = getApps().find((app) => app.name === appName);
+  if (existing) return existing;
 
   const clientEmail = cleanEnv(process.env.FIREBASE_CLIENT_EMAIL);
   const privateKey = cleanEnv(process.env.FIREBASE_PRIVATE_KEY)?.replace(/\\n/g, "\n");
-
   if (clientEmail && privateKey) {
-    initializeApp({
-      credential: cert({ projectId, clientEmail, privateKey })
+    return initializeApp(
+      { credential: cert({ projectId, clientEmail, privateKey }), projectId },
+      appName
+    );
+  }
+  return initializeApp({ projectId }, appName);
+}
+
+async function promoteViaCloud({ uid, projectId, execute }) {
+  const app = bootAdminForCloud(projectId);
+  try {
+    const { FieldValue, getFirestore } = await import("firebase-admin/firestore");
+    const ref = getFirestore(app).collection("users").doc(uid);
+    const snap = await ref.get();
+    if (!snap.exists) {
+      throw new Error(`Usuário ${uid} não encontrado em users/{uid}.`);
+    }
+
+    const data = snap.data() || {};
+    const current = {
+      role: typeof data.role === "string" ? data.role : null,
+      approved: data.approved === true
+    };
+    if (!execute) {
+      return { current, executed: false };
+    }
+
+    await ref.update({
+      role: "ADMIN",
+      approved: true,
+      approvedAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp()
     });
+    return { current, executed: true };
+  } finally {
+    await deleteApp(app);
+  }
+}
+
+function printHelp() {
+  console.log(`Uso:
+  npm run promote-admin -- <uid> --project=<project-id> --dry-run
+  npm run promote-admin -- <uid> --project=<project-id> --execute --confirm-project=<project-id>
+
+Produção também exige:
+  --allow-production --confirm-production=${PRODUCTION_CONFIRMATION}
+
+O modo padrão é dry-run. Credenciais são lidas do ambiente; o projeto nunca é inferido.`);
+}
+
+export async function main(argv = process.argv.slice(2)) {
+  const options = parseArgs(argv);
+  if (options.help) {
+    printHelp();
     return;
   }
 
-  initializeApp({ projectId });
-}
-
-async function promoteViaCloud(uid, projectId) {
-  bootAdminForCloud(projectId);
-
-  const { getFirestore, FieldValue } = await import("firebase-admin/firestore");
-  const db = getFirestore();
-  const ref = db.collection("users").doc(uid);
-  const snap = await ref.get();
-
-  if (!snap.exists) {
-    throw new Error(`Usuario ${uid} nao encontrado em users/{uid}.`);
-  }
-
-  await ref.update({
-    role: "ADMIN",
-    approved: true,
-    approvedAt: FieldValue.serverTimestamp(),
-    updatedAt: FieldValue.serverTimestamp()
-  });
-}
-
-async function main() {
-  const uid = process.argv[2];
-
-  if (!uid) {
-    throw new Error("Uso: npm run promote-admin -- <uid>");
-  }
-
+  validatePromotionRequest(options);
   loadLocalEnv();
 
-  const projectId = getProjectId();
-  if (!projectId) {
-    throw new Error("Project ID nao encontrado. Defina FIREBASE_PROJECT_ID no .env.local.");
-  }
-
+  const patch = buildPromotionPatch(new Date().toISOString());
   const emulatorHost = cleanEnv(process.env.FIRESTORE_EMULATOR_HOST);
+  const result = emulatorHost
+    ? await promoteViaEmulator({
+        uid: options.uid,
+        projectId: options.projectId,
+        emulatorHost,
+        execute: options.execute,
+        patch
+      })
+    : await promoteViaCloud({
+        uid: options.uid,
+        projectId: options.projectId,
+        execute: options.execute
+      });
 
-  if (emulatorHost) {
-    await promoteViaEmulator({ uid, projectId, emulatorHost });
-  } else {
-    await promoteViaCloud(uid, projectId);
+  console.log(
+    JSON.stringify(
+      {
+        mode: options.dryRun ? "dry-run" : "execute",
+        projectId: options.projectId,
+        uid: options.uid,
+        current: result.current,
+        intended: { role: patch.role, approved: patch.approved },
+        executed: result.executed
+      },
+      null,
+      2
+    )
+  );
+  if (!result.executed) {
+    console.log("Simulação concluída. Nenhum dado foi alterado.");
   }
-
-  console.log(`Usuario ${uid} promovido para ADMIN e aprovado.`);
 }
 
-main().catch((error) => {
-  console.error(error.message);
-  process.exit(1);
-});
+const isDirectInvocation =
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (isDirectInvocation) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : error);
+    process.exitCode = 1;
+  });
+}

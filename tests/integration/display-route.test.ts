@@ -53,7 +53,12 @@ describe("GET /api/display/overview", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toContain("no-store");
-    expect(body.finalizedTotal).toBe(3);
+    expect(body).toMatchObject({
+      ok: true,
+      data: {
+        finalizedTotal: 3
+      }
+    });
   });
 
   it("allows ADMIN", async () => {

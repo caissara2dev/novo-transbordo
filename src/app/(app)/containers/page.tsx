@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/auth/api-fetch";
 import {
   containerStatusLabelMap,
@@ -8,9 +8,20 @@ import {
   shiftLabelMap
 } from "@/lib/domain/options";
 import {
+  createLatestRequestCoordinator,
+  isAbortError
+} from "@/lib/ui/latest-request";
+import { appendUniqueContainers } from "@/lib/ui/container-pagination";
+import {
   ContainerHistoryItem,
-  ContainerStateApiItem
+  ContainerStateApiItem,
+  PaginatedResponse
 } from "@/types/api";
+
+type ContainerListSelection = {
+  scope: "open" | "all";
+  query: string;
+};
 
 function toDateTime(value: string): string {
   return value ? new Date(value).toLocaleString("pt-BR") : "—";
@@ -21,54 +32,141 @@ export default function ContainersPage() {
   const [history, setHistory] = useState<ContainerHistoryItem[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [appliedList, setAppliedList] = useState<ContainerListSelection>({
+    scope: "open",
+    query: ""
+  });
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [incomplete, setIncomplete] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadingHistory, setLoadingHistory] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const listRequests = useRef(createLatestRequestCoordinator());
+  const historyRequests = useRef(createLatestRequestCoordinator());
 
-  const loadOpen = useCallback(async () => {
+  const loadList = useCallback(async ({
+    append,
+    cursor,
+    selection
+  }: {
+    append: boolean;
+    cursor?: string;
+    selection: ContainerListSelection;
+  }) => {
+    const request = listRequests.current.begin();
     setLoading(true);
     setError(null);
+
     try {
-      const data = await apiFetch<{ items: ContainerStateApiItem[] }>(
-        "/api/containers?scope=open"
+      const searchParams = new URLSearchParams({ scope: selection.scope });
+      if (selection.query) {
+        searchParams.set("query", selection.query);
+      }
+      if (cursor) {
+        searchParams.set("cursor", cursor);
+      }
+
+      const data = await apiFetch<PaginatedResponse<ContainerStateApiItem>>(
+        `/api/containers?${searchParams.toString()}`,
+        { signal: request.signal }
       );
-      setItems(data.items || []);
+
+      if (!request.isCurrent()) {
+        return;
+      }
+
+      setItems((current) =>
+        append
+          ? appendUniqueContainers(current, data.items || [])
+          : data.items || []
+      );
+      setAppliedList(selection);
+      setNextCursor(data.nextCursor);
+      setIncomplete(data.incomplete);
     } catch (err) {
+      if (!request.isCurrent() || isAbortError(err)) {
+        return;
+      }
+
       setError(err instanceof Error ? err.message : "Erro ao carregar containers.");
     } finally {
-      setLoading(false);
+      if (request.isCurrent()) {
+        setLoading(false);
+      }
     }
   }, []);
 
+  const loadOpen = useCallback(
+    () =>
+      loadList({
+        append: false,
+        selection: { scope: "open", query: "" }
+      }),
+    [loadList]
+  );
+
   useEffect(() => {
-    void loadOpen();
+    const lists = listRequests.current;
+    const histories = historyRequests.current;
+    const scheduledLoad = window.setTimeout(() => {
+      void loadOpen();
+    }, 0);
+
+    return () => {
+      window.clearTimeout(scheduledLoad);
+      lists.cancel();
+      histories.cancel();
+    };
   }, [loadOpen]);
 
   const search = async (event: FormEvent) => {
     event.preventDefault();
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await apiFetch<{ items: ContainerStateApiItem[] }>(
-        `/api/containers?scope=all&query=${encodeURIComponent(query)}`
-      );
-      setItems(data.items || []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Erro ao pesquisar container.");
-    } finally {
-      setLoading(false);
+    await loadList({
+      append: false,
+      selection: { scope: "all", query: query.trim() }
+    });
+  };
+
+  const loadMore = () => {
+    if (!nextCursor || loading) {
+      return;
     }
+
+    void loadList({
+      append: true,
+      cursor: nextCursor,
+      selection: appliedList
+    });
   };
 
   const openHistory = async (container: string) => {
+    const request = historyRequests.current.begin();
     setSelected(container);
+    setHistory([]);
+    setLoadingHistory(true);
     setError(null);
+
     try {
       const data = await apiFetch<{ items: ContainerHistoryItem[] }>(
-        `/api/containers/history?container=${encodeURIComponent(container)}`
+        `/api/containers/history?container=${encodeURIComponent(container)}`,
+        { signal: request.signal }
       );
+
+      if (!request.isCurrent()) {
+        return;
+      }
+
       setHistory(data.items || []);
     } catch (err) {
+      if (!request.isCurrent() || isAbortError(err)) {
+        return;
+      }
+
       setError(err instanceof Error ? err.message : "Erro ao carregar histórico.");
+    } finally {
+      if (request.isCurrent()) {
+        setLoadingHistory(false);
+      }
     }
   };
 
@@ -144,9 +242,27 @@ export default function ContainersPage() {
               <span>Ajuste a busca ou volte para os containers abertos.</span>
             </div>
           ) : null}
+          {nextCursor ? (
+            <button
+              className="btn-soft"
+              disabled={loading}
+              onClick={loadMore}
+              type="button"
+            >
+              {loading
+                ? "Carregando..."
+                : incomplete
+                  ? "Continuar busca"
+                  : "Carregar mais"}
+            </button>
+          ) : null}
         </section>
 
-        <aside className="container-timeline-panel">
+        <aside
+          aria-busy={loadingHistory}
+          aria-live="polite"
+          className="container-timeline-panel"
+        >
           <div className="container-timeline-heading">
             <span>Histórico do ciclo</span>
             <strong>{selected || "Selecione um container"}</strong>
@@ -169,7 +285,10 @@ export default function ContainersPage() {
               </div>
             </article>
           ))}
-          {selected && !history.length ? (
+          {loadingHistory ? (
+            <p className="containers-empty">Carregando histórico...</p>
+          ) : null}
+          {selected && !loadingHistory && !history.length ? (
             <p className="containers-empty">Sem histórico válido para este container.</p>
           ) : null}
         </aside>

@@ -4,6 +4,7 @@ import { ensureApproved, requireAuth } from "@/lib/server/auth";
 import { listContainerStates } from "@/lib/server/container-states";
 import { HttpError } from "@/lib/domain/errors";
 import { fail, ok } from "@/lib/server/http";
+import { parsePagination } from "@/lib/server/pagination";
 import { toPlain } from "@/lib/server/serialize";
 
 export async function GET(req: NextRequest) {
@@ -16,13 +17,15 @@ export async function GET(req: NextRequest) {
       throw new HttpError(400, "Estado do container inválido.");
     }
 
-    const items = await listContainerStates({
+    const pagination = parsePagination(req.nextUrl.searchParams);
+    const page = await listContainerStates({
       query: req.nextUrl.searchParams.get("query") || undefined,
       openOnly: req.nextUrl.searchParams.get("scope") !== "all",
-      status: (rawStatus as ContainerStatus | null) || undefined
+      status: (rawStatus as ContainerStatus | null) || undefined,
+      pagination
     });
 
-    return ok(toPlain({ items }));
+    return ok(toPlain(page));
   } catch (error) {
     return fail(error);
   }

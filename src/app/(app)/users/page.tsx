@@ -1,22 +1,39 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { RoleGuard } from "@/components/role-guard";
 import { apiFetch } from "@/lib/auth/api-fetch";
+import { isAbortError } from "@/lib/ui/latest-request";
 import { UserApiItem } from "@/types/api";
 
 export default function UsersPage() {
   const [users, setUsers] = useState<UserApiItem[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  const loadUsers = async () => {
-    const data = await apiFetch<{ items: UserApiItem[] }>("/api/users");
-    setUsers(data.items || []);
-  };
+  const fetchUsers = useCallback(async (signal?: AbortSignal) => {
+    const data = await apiFetch<{ items: UserApiItem[] }>("/api/users", {
+      signal
+    });
+    return data.items || [];
+  }, []);
 
   useEffect(() => {
-    loadUsers().catch((err) => setError(err.message));
-  }, []);
+    const controller = new AbortController();
+
+    void fetchUsers(controller.signal)
+      .then((nextUsers) => {
+        if (!controller.signal.aborted) {
+          setUsers(nextUsers);
+        }
+      })
+      .catch((reason) => {
+        if (!controller.signal.aborted && !isAbortError(reason)) {
+          setError(reason instanceof Error ? reason.message : "Falha ao carregar usuários.");
+        }
+      });
+
+    return () => controller.abort();
+  }, [fetchUsers]);
 
   const setApproval = async (uid: string, approved: boolean) => {
     try {
@@ -24,7 +41,7 @@ export default function UsersPage() {
         method: "POST",
         body: JSON.stringify({ approved })
       });
-      await loadUsers();
+      setUsers(await fetchUsers());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao atualizar aprovação.");
     }
@@ -36,7 +53,7 @@ export default function UsersPage() {
         method: "POST",
         body: JSON.stringify({ role })
       });
-      await loadUsers();
+      setUsers(await fetchUsers());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao atualizar perfil.");
     }

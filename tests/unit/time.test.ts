@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { DateTime } from "luxon";
 import { canEdit, validateEventInput } from "@/lib/domain/validation";
-import { currentShiftFromNow, resolveTimelineDate } from "@/lib/domain/time";
+import {
+  calculateDurationMinutes,
+  computeWindowCheck,
+  currentShiftFromNow,
+  isValidHHMM,
+  normalizeUpper,
+  parseTimeToMinutes,
+  resolveTimelineDate
+} from "@/lib/domain/time";
 import {
   assertExpectedContainerStateVersion,
   compareOperationalOrder,
@@ -19,6 +27,47 @@ describe("domain time rules", () => {
     const shift = currentShiftFromNow(now);
     expect(shift.shiftType).toBe("NOITE");
     expect(shift.shiftDate).toBe("2026-02-06");
+  });
+
+  it("covers morning, evening and time-format boundaries", () => {
+    const morning = DateTime.fromISO("2026-02-07T10:00:00", {
+      zone: "America/Sao_Paulo"
+    });
+    const evening = DateTime.fromISO("2026-02-07T18:00:00", {
+      zone: "America/Sao_Paulo"
+    });
+
+    expect(currentShiftFromNow(morning)).toEqual({
+      shiftDate: "2026-02-07",
+      shiftType: "MANHA"
+    });
+    expect(currentShiftFromNow(evening)).toEqual({
+      shiftDate: "2026-02-07",
+      shiftType: "NOITE"
+    });
+    expect(isValidHHMM("23:59")).toBe(true);
+    expect(isValidHHMM("24:00")).toBe(false);
+    expect(parseTimeToMinutes("01:30")).toBe(90);
+    expect(computeWindowCheck("MANHA", "06:00")).toBe(true);
+    expect(computeWindowCheck("MANHA", "05:59")).toBe(false);
+    expect(computeWindowCheck("NOITE", "23:00")).toBe(true);
+    expect(computeWindowCheck("NOITE", "00:30")).toBe(true);
+    expect(computeWindowCheck("NOITE", "10:00")).toBe(false);
+  });
+
+  it("normalizes optional text and calculates cross-midnight duration", () => {
+    expect(normalizeUpper(null)).toBeNull();
+    expect(normalizeUpper("   ")).toBeNull();
+    expect(normalizeUpper(" abc ")).toBe("ABC");
+    expect(
+      calculateDurationMinutes(
+        "2026-02-06T23:50:00-03:00",
+        "2026-02-07T00:10:00-03:00"
+      )
+    ).toBe(20);
+    expect(
+      resolveTimelineDate("2026-02-06", "NOITE", "23:00").toISODate()
+    ).toBe("2026-02-06");
   });
 
   it("enforces duration bounds", () => {

@@ -46,3 +46,31 @@ env:
 
   - variable: APPROVAL_CONTACT_PHONE
     value: "+55-13-99711-2838"
+
+  # NEXT_PUBLIC_FIREBASE_APP_CHECK_SITE_KEY is intentionally omitted until the
+  # real reCAPTCHA Enterprise site key is configured at BUILD and RUNTIME.
+  # App Check remains non-blocking until staging smoke tests are successful.
+  - variable: NEXT_PUBLIC_APP_CHECK_FAIL_CLOSED
+    value: "false"
+    availability:
+      - BUILD
+      - RUNTIME
+
+  - variable: APP_CHECK_MODE
+    value: "observe"
+
+  - variable: APP_CHECK_ALLOWED_APP_IDS
+    value: "1:382612530713:web:0c4c0f7c8f8e2b4e5a7b8c"
+
+  - variable: RATE_LIMIT_MODE
+    value: "observe"
+
+  # Create this secret interactively with Firebase CLI. Never commit its value.
+  - variable: RATE_LIMIT_HMAC_SECRET
+    secret: RATE_LIMIT_HMAC_SECRET
+
+  - variable: RATE_LIMIT_KEY_VERSION
+    value: "v1"
+
+  - variable: TRUSTED_PROXY_MODE
+    value: "google-lb"

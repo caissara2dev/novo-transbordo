@@ -1,7 +1,8 @@
 import { DecodedIdToken } from "firebase-admin/auth";
 import { NextRequest } from "next/server";
-import { adminAuth, adminDb } from "@/lib/firebase/admin";
+import { adminDb } from "@/lib/firebase/admin";
 import { HttpError } from "@/lib/domain/errors";
+import { protectApiRequest } from "@/lib/server/request-protection";
 import { UserDoc } from "@/types/domain";
 
 export type RequestContext = {
@@ -22,15 +23,20 @@ export function ensureDisplayApiAccess(profile: UserDoc, pathname: string): void
   }
 }
 
-export async function requireAuth(req: NextRequest): Promise<RequestContext> {
-  const authHeader = req.headers.get("authorization") || "";
-  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+export async function requireVerifiedToken(req: NextRequest): Promise<DecodedIdToken> {
+  const decoded = await protectApiRequest(req);
 
-  if (!token) {
-    throw new HttpError(401, "Token de autenticação ausente.");
+  if (decoded.email_verified !== true) {
+    throw new HttpError(403, "Verifique seu e-mail antes de continuar.", {
+      code: "EMAIL_UNVERIFIED"
+    });
   }
 
-  const decoded = await adminAuth.verifyIdToken(token);
+  return decoded;
+}
+
+export async function requireAuth(req: NextRequest): Promise<RequestContext> {
+  const decoded = await requireVerifiedToken(req);
   const uid = decoded.uid;
 
   const userRef = adminDb.collection("users").doc(uid);

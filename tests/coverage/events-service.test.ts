@@ -1,0 +1,471 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { inMemoryAdminDb } from "./in-memory-firestore";
+
+vi.mock("@/lib/firebase/admin", () => ({
+  adminDb: inMemoryAdminDb
+}));
+
+import {
+  createEvent,
+  listEvents,
+  previewEventRestore,
+  restoreEvent,
+  softDeleteEvent,
+  updateEvent
+} from "@/lib/server/events";
+import { prepareDeletionGap } from "@/lib/server/gaps";
+
+const actor = {
+  uid: "operator-1",
+  email: "operator@example.com"
+};
+
+function eventInput(
+  overrides: Record<string, unknown> = {}
+): Record<string, unknown> {
+  return {
+    pump: "BOMBA_1",
+    shiftDate: "2026-07-27",
+    shiftType: "MANHA",
+    startTime: "06:00",
+    endTime: "06:10",
+    category: "OUTROS",
+    clientId: null,
+    plate: null,
+    container: null,
+    containerStatus: null,
+    containerReason: null,
+    startsNewContainerCycle: false,
+    blendConfirmed: false,
+    expectedContainerStateVersion: null,
+    notes: "Preparação operacional",
+    ...overrides
+  };
+}
+
+describe("public event command service", () => {
+  beforeEach(() => {
+    inMemoryAdminDb.reset();
+    inMemoryAdminDb.seed("settings", "operations", {
+      idleToleranceMinutes: 10
+    });
+  });
+
+  it("creates a manual event and returns its normalized public representation", async () => {
+    const created = await createEvent(eventInput(), actor);
+
+    expect(created).toMatchObject({
+      id: "generated-1",
+      pump: "BOMBA_1",
+      category: "OUTROS",
+      productive: false,
+      origin: "MANUAL",
+      deleted: false,
+      notes: "Preparação operacional",
+      warnings: []
+    });
+    expect(inMemoryAdminDb.read("timelineLocks", "2026-07-27_MANHA_BOMBA_1"))
+      .toMatchObject({ version: 1 });
+  });
+
+  it("creates a productive event with client validation and an automatic tolerated gap", async () => {
+    inMemoryAdminDb.seed("clients", "client-1", {
+      active: true,
+      name: "Cliente 1"
+    });
+    await createEvent(
+      eventInput({
+        startTime: "06:00",
+        endTime: "06:10"
+      }),
+      actor
+    );
+
+    const previewInput = eventInput({
+      startTime: "06:15",
+      endTime: "06:30",
+      category: "PRODUTIVO",
+      clientId: "client-1",
+      plate: "abc1234",
+      container: "ABCU1234560",
+      containerStatus: "FULL",
+      expectedContainerStateVersion: 0,
+      notes: null
+    });
+    const { previewEventGap } = await import("@/lib/server/gaps");
+    const preview = await previewEventGap(previewInput);
+    const productive = await createEvent(
+      {
+        ...previewInput,
+        gapVersion: preview.gapVersion
+      },
+      actor
+    );
+
+    expect(productive).toMatchObject({
+      productive: true,
+      clientNameSnapshot: "Cliente 1",
+      plate: "ABC-1234"
+    });
+    const generated = inMemoryAdminDb
+      .entries("events")
+      .map(([id, data]) => ({ id, ...data }))
+      .find((item) => Reflect.get(item, "origin") === "AUTO_GAP");
+    expect(generated).toMatchObject({
+      category: "INTERVALO_OPERACIONAL",
+      startTime: "06:10",
+      endTime: "06:15",
+      generatedForEventId: productive.id,
+      justificationWaived: true
+    });
+  });
+
+  it("rejects invalid creation commands before committing any writes", async () => {
+    await expect(
+      createEvent(
+        eventInput({ category: "INTERVALO_OPERACIONAL" }),
+        actor
+      )
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      createEvent(
+        eventInput({
+          category: "PRODUTIVO",
+          clientId: "missing",
+          plate: "ABC1234",
+          container: "ABCU1234560"
+        }),
+        actor
+      )
+    ).rejects.toMatchObject({ status: 400 });
+    expect(inMemoryAdminDb.entries("events")).toHaveLength(0);
+  });
+
+  it("detects overlap and stale gap previews without a partial commit", async () => {
+    await createEvent(eventInput(), actor);
+
+    await expect(
+      createEvent(
+        eventInput({
+          startTime: "06:05",
+          endTime: "06:20",
+          notes: "Sobreposição"
+        }),
+        actor
+      )
+    ).rejects.toMatchObject({ status: 409 });
+
+    inMemoryAdminDb.seed("clients", "client-1", {
+      active: true,
+      name: "Cliente"
+    });
+    await expect(
+      createEvent(
+        eventInput({
+          startTime: "06:20",
+          endTime: "06:30",
+          category: "PRODUTIVO",
+          clientId: "client-1",
+          plate: "ABC1234",
+          container: "ABCU1234560",
+          expectedContainerStateVersion: 0,
+          notes: null,
+          gapVersion: "stale"
+        }),
+        actor
+      )
+    ).rejects.toMatchObject({ status: 409 });
+    expect(inMemoryAdminDb.entries("events")).toHaveLength(1);
+  });
+
+  it("requires independently valid justifications for material idle gaps", async () => {
+    inMemoryAdminDb.seed("clients", "client-1", {
+      active: true,
+      name: "Cliente 1"
+    });
+    const firstInput = eventInput({
+      category: "PRODUTIVO",
+      clientId: "client-1",
+      plate: "ABC1234",
+      container: "ABCU1234560",
+      expectedContainerStateVersion: 0,
+      notes: null
+    });
+    const { previewEventGap } = await import("@/lib/server/gaps");
+    const firstPreview = await previewEventGap(firstInput);
+    await createEvent(
+      { ...firstInput, gapVersion: firstPreview.gapVersion },
+      actor
+    );
+
+    const nextInput = eventInput({
+      startTime: "06:30",
+      endTime: "06:45",
+      category: "PRODUTIVO",
+      clientId: "client-1",
+      plate: "ABC1234",
+      container: "ABCU1234560",
+      startsNewContainerCycle: true,
+      expectedContainerStateVersion: 1,
+      notes: null
+    });
+    const preview = await previewEventGap(nextInput);
+    const segment = preview.uncoveredSegments[0];
+    expect(preview.requiresJustification).toBe(true);
+
+    await expect(
+      createEvent({ ...nextInput, gapVersion: preview.gapVersion }, actor)
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      createEvent(
+        {
+          ...nextInput,
+          gapVersion: preview.gapVersion,
+          gapJustifications: [null]
+        },
+        actor
+      )
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      createEvent(
+        {
+          ...nextInput,
+          gapVersion: preview.gapVersion,
+          gapJustifications: [
+            {
+              ...segment,
+              category: "PRODUTIVO"
+            }
+          ]
+        },
+        actor
+      )
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      createEvent(
+        {
+          ...nextInput,
+          gapVersion: preview.gapVersion,
+          gapJustifications: [
+            {
+              ...segment,
+              category: "EM_TRANSITO",
+              clientId: null,
+              plate: null,
+              notes: null
+            }
+          ]
+        },
+        actor
+      )
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      createEvent(
+        {
+          ...nextInput,
+          gapVersion: preview.gapVersion,
+          gapJustifications: [
+            {
+              ...segment,
+              category: "EM_TRANSITO",
+              clientId: "client-1",
+              plate: null,
+              notes: null
+            }
+          ]
+        },
+        actor
+      )
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(
+      createEvent(
+        {
+          ...nextInput,
+          gapVersion: preview.gapVersion,
+          gapJustifications: [
+            {
+              ...segment,
+              category: "EM_TRANSITO",
+              clientId: "client-1",
+              plate: "XYZ1234",
+              notes: null
+            }
+          ]
+        },
+        actor
+      )
+    ).rejects.toMatchObject({ status: 400 });
+
+    const created = await createEvent(
+      {
+        ...nextInput,
+        gapVersion: preview.gapVersion,
+        gapJustifications: [
+          {
+            ...segment,
+            category: "EM_TRANSITO",
+            clientId: " client-1 ",
+            plate: " xyz1234 ",
+            notes: " deslocamento "
+          }
+        ]
+      },
+      actor
+    );
+    const automatic = inMemoryAdminDb
+      .entries("events")
+      .map(([, data]) => data)
+      .find(
+        (data) =>
+          data.origin === "AUTO_GAP" &&
+          data.generatedForEventId === created.id
+      );
+    expect(automatic).toMatchObject({
+      category: "EM_TRANSITO",
+      clientId: "client-1",
+      plate: "XYZ1234",
+      notes: "deslocamento",
+      justificationWaived: false,
+      clientNameSnapshot: "Cliente 1"
+    });
+  });
+
+  it("rejects inactive clients at the domain boundary", async () => {
+    inMemoryAdminDb.seed("clients", "inactive", {
+      active: false,
+      name: "Inativo"
+    });
+    await expect(
+      createEvent(
+        eventInput({
+          category: "PRODUTIVO",
+          clientId: "inactive",
+          plate: "ABC1234",
+          container: "ABCU1234560",
+          notes: null
+        }),
+        actor
+      )
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("updates a manual event and records an audit revision atomically", async () => {
+    const created = await createEvent(eventInput(), actor);
+    const updated = await updateEvent(
+      created.id,
+      eventInput({ notes: "Preparação concluída" }),
+      { ...actor, role: "ADMIN" }
+    );
+
+    expect(updated).toMatchObject({
+      id: created.id,
+      notes: "Preparação concluída"
+    });
+    const revisions = inMemoryAdminDb.entries(
+      `events/${created.id}/revisions`
+    );
+    expect(revisions).toHaveLength(1);
+    expect(revisions[0][1]).toMatchObject({
+      editedByUid: actor.uid,
+      changedFields: expect.arrayContaining(["notes"])
+    });
+  });
+
+  it("requires a revision reason when an edit changes timeline fields", async () => {
+    const created = await createEvent(eventInput(), actor);
+
+    await expect(
+      updateEvent(
+        created.id,
+        eventInput({ startTime: "06:01", endTime: "06:10" }),
+        { ...actor, role: "ADMIN" }
+      )
+    ).rejects.toMatchObject({ status: 400 });
+    expect(inMemoryAdminDb.read("events", created.id)).toMatchObject({
+      startTime: "06:00"
+    });
+  });
+
+  it("deletes and restores an event through the reconciliation preview", async () => {
+    const created = await createEvent(
+      eventInput({ pump: "BOMBA_2" }),
+      actor
+    );
+    const deletion = await prepareDeletionGap(created.id);
+
+    await expect(
+      softDeleteEvent(
+        created.id,
+        "Registro duplicado",
+        actor,
+        { gapVersion: deletion.preview.gapVersion }
+      )
+    ).resolves.toEqual({ ok: true });
+    expect(inMemoryAdminDb.read("events", created.id)).toMatchObject({
+      deleted: true,
+      deletedReason: "Registro duplicado"
+    });
+
+    const preview = await previewEventRestore(created.id);
+    expect(preview).toMatchObject({
+      changedSinceDeletion: false,
+      expectedContainerStateVersion: null,
+      reconciliations: []
+    });
+
+    await expect(
+      restoreEvent(created.id, actor, { gapVersion: preview.gapVersion })
+    ).resolves.toEqual({ ok: true });
+    expect(inMemoryAdminDb.read("events", created.id)).toMatchObject({
+      deleted: false,
+      deletedReason: null,
+      deletionTimelineVersion: null
+    });
+  });
+
+  it("guards deletion and restoration invalid states", async () => {
+    await expect(
+      softDeleteEvent("missing", "motivo", actor)
+    ).rejects.toMatchObject({ status: 404 });
+
+    const created = await createEvent(
+      eventInput({ pump: "BOMBA_3" }),
+      actor
+    );
+    await expect(
+      softDeleteEvent(created.id, "   ", actor)
+    ).rejects.toMatchObject({ status: 400 });
+    await expect(previewEventRestore(created.id)).rejects.toMatchObject({
+      status: 400
+    });
+  });
+
+  it("lists role-scoped events and container passage history through the public query", async () => {
+    const own = await createEvent(eventInput(), actor);
+    await createEvent(
+      eventInput({
+        pump: "BOMBA_2",
+        createdByUid: undefined,
+        notes: "Outro evento"
+      }),
+      { uid: "operator-2", email: "second@example.com" }
+    );
+
+    const ownEvents = await listEvents({
+      role: "OPERATOR",
+      uid: actor.uid,
+      filters: {},
+      pagination: { limit: 20 }
+    });
+    expect(ownEvents.items.map((event) => event.id)).toEqual([own.id]);
+    expect(ownEvents.items[0].previousContainerPassages).toEqual([]);
+
+    const adminEvents = await listEvents({
+      role: "ADMIN",
+      uid: "admin",
+      filters: {},
+      pagination: { limit: 20 }
+    });
+    expect(adminEvents.items).toHaveLength(2);
+  });
+});

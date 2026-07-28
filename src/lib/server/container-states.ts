@@ -1,13 +1,18 @@
 import { randomUUID } from "node:crypto";
 import {
   DocumentData,
-  DocumentReference,
+  FieldPath,
   FieldValue,
   Timestamp,
   Transaction
 } from "firebase-admin/firestore";
 import { normalizeContainer } from "@/lib/domain/identifiers";
 import { HttpError } from "@/lib/domain/errors";
+import {
+  assertTimelineTransactionWriteBudget,
+  ContainerTimelineEvent,
+  planContainerTimeline
+} from "@/lib/domain/container-timeline";
 import { adminDb } from "@/lib/firebase/admin";
 import {
   ContainerStateDoc,
@@ -15,6 +20,13 @@ import {
   containerStatuses,
   EventDoc
 } from "@/types/domain";
+import {
+  decodePaginationCursor,
+  encodePaginationCursor,
+  paginationScope,
+  PaginationInput,
+  scanFilteredPage
+} from "@/lib/server/pagination";
 
 export const OPEN_CONTAINER_STATUSES: ContainerStatus[] = [
   "PARTIAL",
@@ -49,6 +61,31 @@ function toMillis(value: unknown): number {
     return Number.isFinite(parsed) ? parsed : 0;
   }
   return 0;
+}
+
+function toTimelineEvent(
+  id: string,
+  data: EventDoc
+): ContainerTimelineEvent | null {
+  const status = eventContainerStatus(data);
+  const container = normalizeContainer(data.container);
+
+  if (!status || !container || !data.clientId || !data.plate) {
+    return null;
+  }
+
+  return {
+    id,
+    container,
+    status,
+    clientId: data.clientId,
+    plate: data.plate,
+    pump: data.pump,
+    operationalAtMs: toMillis(data.endAt),
+    createdAtMs: toMillis(data.createdAt),
+    startsNewCycle: Boolean(data.startsNewContainerCycle),
+    existingCycleId: data.containerCycleId || null
+  };
 }
 
 export function containerDocumentKey(container: string): string {
@@ -242,172 +279,218 @@ export function resolveContainerTransition(params: {
   };
 }
 
-export async function persistEventWithContainerState(params: {
-  eventRef: DocumentReference;
-  eventPayload: Omit<
-    EventDoc,
-    "containerCycleId" | "previousContainerEventId" | "containerStateVersion"
-  > & {
-    expectedContainerStateVersion: number | null;
-  };
-}): Promise<{
+type ContainerTimelineReconciliation = {
   cycleId: string | null;
   previousEventId: string | null;
   stateVersion: number | null;
-}> {
-  const { eventPayload, eventRef } = params;
-  if (!eventPayload.container || !eventPayload.containerStatus || !eventPayload.clientId) {
-    const {
-      expectedContainerStateVersion: _expectedContainerStateVersion,
-      ...storedEventPayload
-    } = eventPayload;
-    void _expectedContainerStateVersion;
-    await eventRef.set({
-      ...storedEventPayload,
-      containerCycleId: null,
-      previousContainerEventId: null,
-      containerStateVersion: null
+};
+
+type ContainerTimelineChange = {
+  rawContainer: string | null;
+  override?: { id: string; data: EventDoc | null };
+  expectedVersion?: number | null;
+};
+
+export async function reconcileContainerTimelinesInTransaction(params: {
+  transaction: Transaction;
+  changes: ContainerTimelineChange[];
+  reservedWrites?: number;
+}): Promise<ContainerTimelineReconciliation[]> {
+  const normalizedChanges = params.changes.map((change) => ({
+    ...change,
+    container: normalizeContainer(change.rawContainer)
+  }));
+  const loaded = await Promise.all(
+    normalizedChanges.map(async (change) => {
+      if (!change.container) return null;
+      const stateRef = adminDb
+        .collection("containerStates")
+        .doc(containerDocumentKey(change.container));
+      const eventsQuery = adminDb
+        .collection("events")
+        .where("container", "==", change.container)
+        .where("deleted", "==", false);
+      const [stateSnap, eventsSnap] = await Promise.all([
+        params.transaction.get(stateRef),
+        params.transaction.get(eventsQuery)
+      ]);
+      return { change, stateRef, stateSnap, eventsSnap };
+    })
+  );
+
+  const prepared = loaded.map((entry) => {
+    if (!entry) {
+      return null;
+    }
+
+    const { change, stateRef, stateSnap, eventsSnap } = entry;
+    const observedVersion = Number(stateSnap.data()?.version || 0);
+    if (change.expectedVersion !== undefined) {
+      assertExpectedContainerStateVersion(
+        change.expectedVersion,
+        observedVersion
+      );
+    }
+
+    const eventsById = new Map(
+      eventsSnap.docs.map((doc) => [doc.id, doc.data() as EventDoc])
+    );
+    if (change.override) {
+      if (
+        change.override.data &&
+        !change.override.data.deleted &&
+        normalizeContainer(change.override.data.container) === change.container
+      ) {
+        eventsById.set(change.override.id, change.override.data);
+      } else {
+        eventsById.delete(change.override.id);
+      }
+    }
+
+    const plan = planContainerTimeline({
+      events: Array.from(eventsById, ([id, data]) =>
+        toTimelineEvent(id, data)
+      ).filter((event): event is ContainerTimelineEvent => Boolean(event)),
+      createCycleId: randomUUID
     });
-    return { cycleId: null, previousEventId: null, stateVersion: null };
+    const nextVersion = observedVersion + 1;
+    const linksById = new Map(plan.events.map((event) => [event.id, event]));
+    const linkUpdates = Array.from(eventsById, ([id, data]) => {
+      if (change.override?.id === id) return null;
+      const link = linksById.get(id);
+      if (
+        !link ||
+        (
+          data.containerCycleId === link.containerCycleId &&
+          data.previousContainerEventId === link.previousContainerEventId
+        )
+      ) {
+        return null;
+      }
+      return link;
+    }).filter((link): link is NonNullable<typeof link> => Boolean(link));
+    const overrideLink = change.override
+      ? linksById.get(change.override.id)
+      : null;
+
+    return {
+      change,
+      stateRef,
+      eventsById,
+      plan,
+      nextVersion,
+      linksById,
+      linkUpdates,
+      result: {
+        cycleId: overrideLink?.containerCycleId || null,
+        previousEventId: overrideLink?.previousContainerEventId || null,
+        stateVersion: nextVersion
+      } satisfies ContainerTimelineReconciliation
+    };
+  });
+
+  assertTimelineTransactionWriteBudget({
+    lifecycleWrites: prepared.reduce(
+      (total, entry) => total + (entry ? entry.linkUpdates.length + 1 : 0),
+      0
+    ),
+    reservedWrites: params.reservedWrites || 0
+  });
+
+  for (const entry of prepared) {
+    if (!entry) continue;
+    for (const link of entry.linkUpdates) {
+      params.transaction.update(adminDb.collection("events").doc(link.id), {
+        containerCycleId: link.containerCycleId,
+        previousContainerEventId: link.previousContainerEventId
+      });
+    }
+
+    if (!entry.plan.current) {
+      params.transaction.delete(entry.stateRef);
+      continue;
+    }
+    const currentData = entry.eventsById.get(entry.plan.current.id);
+    const currentLink = entry.linksById.get(entry.plan.current.id);
+    if (!currentData || !currentLink) {
+      throw new HttpError(500, "Não foi possível reconstruir o estado do container.");
+    }
+    const nextState = stateFromEvent(
+      entry.plan.current.id,
+      {
+        ...currentData,
+        containerCycleId: currentLink.containerCycleId,
+        previousContainerEventId: currentLink.previousContainerEventId
+      },
+      entry.nextVersion
+    );
+    if (!nextState) {
+      throw new HttpError(500, "Não foi possível reconstruir o estado do container.");
+    }
+    params.transaction.set(entry.stateRef, nextState);
   }
 
-  const container = eventPayload.container;
-  const fallbackState = await latestEventState(container);
-
-  return adminDb.runTransaction((transaction) =>
-    persistEventWithContainerStateInTransaction({
-      transaction,
-      eventRef,
-      eventPayload,
-      fallbackState
-    })
+  return prepared.map(
+    (entry): ContainerTimelineReconciliation =>
+      entry?.result || {
+        cycleId: null,
+        previousEventId: null,
+        stateVersion: null
+      }
   );
 }
 
-export async function persistEventWithContainerStateInTransaction(params: {
-  transaction: Transaction;
-  eventRef: DocumentReference;
-  eventPayload: Omit<
-    EventDoc,
-    "containerCycleId" | "previousContainerEventId" | "containerStateVersion"
-  > & {
-    expectedContainerStateVersion: number | null;
-  };
-  fallbackState: ContainerStateView | null;
-}): Promise<{
-  cycleId: string | null;
-  previousEventId: string | null;
-  stateVersion: number | null;
-}> {
-  const { transaction, eventPayload, eventRef, fallbackState } = params;
-  const { expectedContainerStateVersion, ...storedEventPayload } = eventPayload;
-
-  if (!eventPayload.container || !eventPayload.containerStatus || !eventPayload.clientId) {
-    transaction.set(eventRef, {
-      ...storedEventPayload,
-      containerCycleId: null,
-      previousContainerEventId: null,
-      containerStateVersion: null
-    });
-    return { cycleId: null, previousEventId: null, stateVersion: null };
-  }
-
-  const container = eventPayload.container;
-  const stateRef = adminDb
-    .collection("containerStates")
-    .doc(containerDocumentKey(container));
-  const stateSnap = await transaction.get(stateRef);
-  const current = stateSnap.exists
-    ? (stateSnap.data() as ContainerStateView)
-    : fallbackState;
-  const observedVersion = current?.version ?? 0;
-  const expectedVersion = expectedContainerStateVersion;
-
-  assertExpectedContainerStateVersion(expectedVersion, observedVersion);
-
-  const transition = resolveContainerTransition({
-    current,
-    status: eventPayload.containerStatus,
-    clientId: eventPayload.clientId,
-    startsNewCycle: eventPayload.startsNewContainerCycle
+export async function reconcileContainerTimelineInTransaction(
+  params: {
+    transaction: Transaction;
+    reservedWrites?: number;
+  } & ContainerTimelineChange
+): Promise<ContainerTimelineReconciliation> {
+  const [result] = await reconcileContainerTimelinesInTransaction({
+    transaction: params.transaction,
+    changes: [params],
+    reservedWrites: params.reservedWrites
   });
-
-  const candidateIsCurrent =
-    !current ||
-    compareOperationalOrder(
-      eventPayload.endAt,
-      eventPayload.createdAt,
-      current
-    ) >= 0;
-  const nextVersion = candidateIsCurrent ? observedVersion + 1 : observedVersion;
-  const persistedPayload = {
-    ...storedEventPayload,
-    containerCycleId: transition.cycleId,
-    previousContainerEventId: transition.previousEventId,
-    containerStateVersion: nextVersion
-  };
-
-  transaction.set(eventRef, persistedPayload);
-
-  if (candidateIsCurrent) {
-    const nextState = stateFromEvent(eventRef.id, persistedPayload, nextVersion);
-    if (nextState) transaction.set(stateRef, nextState);
-  } else if (!stateSnap.exists && current) {
-    transaction.set(stateRef, {
-      ...current,
-      version: Math.max(1, current.version),
-      updatedAt: FieldValue.serverTimestamp()
-    });
-  }
-
-  return {
-    cycleId: transition.cycleId,
-    previousEventId: transition.previousEventId,
-    stateVersion: nextVersion
-  };
+  return result;
 }
 
 export async function rebuildContainerState(rawContainer: string | null): Promise<void> {
   const container = normalizeContainer(rawContainer);
   if (!container) return;
 
-  const stateRef = adminDb
-    .collection("containerStates")
-    .doc(containerDocumentKey(container));
-  const latest = await adminDb
-    .collection("events")
-    .where("container", "==", container)
-    .where("deleted", "==", false)
-    .orderBy("endAt", "desc")
-    .orderBy("createdAt", "desc")
-    .limit(200)
-    .get();
-  const latestState = latest.docs
-    .map((doc) => stateFromEvent(doc.id, doc.data(), 0))
-    .find((state): state is ContainerStateDoc => Boolean(state));
+  await adminDb.runTransaction((transaction: Transaction) =>
+    reconcileContainerTimelineInTransaction({
+      transaction,
+      rawContainer: container
+    })
+  );
+}
 
-  await adminDb.runTransaction(async (transaction: Transaction) => {
-    const currentSnap = await transaction.get(stateRef);
-    const nextVersion = Number(currentSnap.data()?.version || 0) + 1;
+type ContainerListPosition = {
+  operationalAt: Timestamp;
+  documentId: string;
+};
 
-    if (!latestState) {
-      transaction.delete(stateRef);
-      return;
-    }
-
-    transaction.set(stateRef, {
-      ...latestState,
-      version: nextVersion,
-      updatedAt: FieldValue.serverTimestamp()
-    });
-  });
+function containerListPosition(
+  doc: FirebaseFirestore.QueryDocumentSnapshot
+): ContainerListPosition {
+  const data = doc.data() as ContainerStateView;
+  return {
+    operationalAt: data.operationalAt as Timestamp,
+    documentId: doc.id
+  };
 }
 
 export async function listContainerStates(params: {
   query?: string;
   openOnly: boolean;
   status?: ContainerStatus;
-}): Promise<ContainerStateView[]> {
+  pagination: PaginationInput;
+}): Promise<{
+  items: ContainerStateView[];
+  nextCursor: string | null;
+  incomplete: boolean;
+}> {
   let firestoreQuery: FirebaseFirestore.Query = adminDb.collection("containerStates");
 
   if (params.status) {
@@ -416,18 +499,84 @@ export async function listContainerStates(params: {
     firestoreQuery = firestoreQuery.where("status", "in", OPEN_CONTAINER_STATUSES);
   }
 
-  const snap = await firestoreQuery
-    .orderBy("operationalAt", "desc")
-    .limit(200)
-    .get();
   const needle = params.query?.replace(/[^A-Z0-9]/gi, "").toUpperCase();
+  const scope = paginationScope("containers", [
+    params.status || null,
+    params.openOnly,
+    needle || null
+  ]);
+  firestoreQuery = firestoreQuery
+    .orderBy("operationalAt", "desc")
+    .orderBy(FieldPath.documentId(), "desc");
 
-  return snap.docs
-    .map((doc) => doc.data() as ContainerStateView)
-    .filter((state) => {
-      if (!needle) return true;
-      return containerDocumentKey(state.container).includes(needle);
-    });
+  const decodedCursor = params.pagination.cursor
+    ? decodePaginationCursor({
+        cursor: params.pagination.cursor,
+        kind: "containers",
+        scope,
+        valueTypes: ["timestamp-millis"]
+      })
+    : null;
+  const initialPosition: ContainerListPosition | null = decodedCursor
+    ? {
+        operationalAt: Timestamp.fromMillis(Number(decodedCursor.values[0])),
+        documentId: decodedCursor.documentId
+      }
+    : null;
+  const scanBatchSize = Math.min(
+    Math.max(params.pagination.limit * 2, 50),
+    200
+  );
+  const scan = await scanFilteredPage({
+    limit: params.pagination.limit,
+    batchSize: scanBatchSize,
+    initialPosition,
+    fetchPage: async (after, limit) => {
+      const pageQuery = after
+        ? firestoreQuery.startAfter(
+            after.operationalAt,
+            after.documentId
+          )
+        : firestoreQuery;
+      const snap = await pageQuery.limit(limit).get();
+      return snap.docs;
+    },
+    positionForDocument: containerListPosition,
+    matchDocument: (doc) => {
+      const state = doc.data() as ContainerStateView;
+      if (
+        needle &&
+        !containerDocumentKey(state.container).includes(needle)
+      ) {
+        return undefined;
+      }
+      return {
+        position: containerListPosition(doc),
+        state
+      };
+    }
+  });
+  const pageEntries = scan.matches.slice(0, params.pagination.limit);
+  const lastReturned = pageEntries.at(-1);
+  const nextPosition = scan.incomplete
+    ? scan.lastScannedPosition
+    : scan.matches.length > params.pagination.limit
+      ? lastReturned?.position || null
+      : null;
+
+  return {
+    items: pageEntries.map((entry) => entry.state),
+    nextCursor:
+      nextPosition
+        ? encodePaginationCursor({
+            kind: "containers",
+            scope,
+            values: [nextPosition.operationalAt.toMillis()],
+            documentId: nextPosition.documentId
+          })
+        : null,
+    incomplete: scan.incomplete
+  };
 }
 
 export async function getContainerHistory(rawContainer: string): Promise<Array<{

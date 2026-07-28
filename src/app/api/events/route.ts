@@ -1,8 +1,10 @@
 import { NextRequest } from "next/server";
 import { createEvent, listEvents } from "@/lib/server/events";
 import { ensureApproved, requireAuth } from "@/lib/server/auth";
-import { fail, ok } from "@/lib/server/http";
+import { eventMutationBodySchema } from "@/lib/server/event-request-schemas";
+import { fail, ok, parseJsonBody } from "@/lib/server/http";
 import { parseEventFilters } from "@/lib/server/filters";
+import { parsePagination } from "@/lib/server/pagination";
 import { toPlain } from "@/lib/server/serialize";
 
 export async function GET(req: NextRequest) {
@@ -11,13 +13,15 @@ export async function GET(req: NextRequest) {
     ensureApproved(profile);
 
     const filters = parseEventFilters(req.nextUrl.searchParams);
-    const rows = await listEvents({
+    const pagination = parsePagination(req.nextUrl.searchParams);
+    const page = await listEvents({
       role: profile.role,
       uid,
-      filters
+      filters,
+      pagination
     });
 
-    return ok({ items: toPlain(rows) });
+    return ok(toPlain(page));
   } catch (error) {
     return fail(error);
   }
@@ -28,7 +32,7 @@ export async function POST(req: NextRequest) {
     const { profile, uid, email } = await requireAuth(req);
     ensureApproved(profile);
 
-    const body = await req.json();
+    const body = await parseJsonBody(req, eventMutationBodySchema);
     const result = await createEvent(body, {
       uid,
       email

@@ -3,8 +3,15 @@ import {
   ContainerStateDoc,
   ContainerStatus,
   EventDoc,
+  GapPreview,
   UserDoc
 } from "@/types/domain";
+
+export type PaginatedResponse<T> = {
+  items: T[];
+  nextCursor: string | null;
+  incomplete: boolean;
+};
 
 export type EventApiItem = Omit<EventDoc, "createdAt" | "updatedAt" | "startAt" | "endAt"> & {
   id: string;
@@ -34,6 +41,13 @@ export type ContainerLookupResponse = {
 
 export type ContainerHistoryItem = EventApiItem & {
   status: ContainerStatus;
+};
+
+export type RestoreEventPreviewResponse = {
+  gapVersion: string;
+  changedSinceDeletion: boolean;
+  expectedContainerStateVersion: number | null;
+  reconciliations: NonNullable<GapPreview["reconciliations"]>;
 };
 
 export type ClientApiItem = {

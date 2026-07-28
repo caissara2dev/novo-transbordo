@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DisplayGate } from "@/components/display-gate";
 import { apiFetch } from "@/lib/auth/api-fetch";
+import { isAbortError } from "@/lib/ui/latest-request";
 import { DisplayOverviewResponse } from "@/types/api";
 
 const DISPLAY_ZONE = "America/Sao_Paulo";
@@ -46,25 +47,47 @@ function DisplayContent() {
   const [page, setPage] = useState(0);
   const hasOverview = useRef(false);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (signal?: AbortSignal) => {
     try {
       const next = await apiFetch<DisplayOverviewResponse>("/api/display/overview", {
-        cache: "no-store"
+        cache: "no-store",
+        signal
       });
+      const nextPageCount = Math.max(
+        1,
+        Math.ceil(next.clients.length / CLIENTS_PER_PAGE)
+      );
+
       hasOverview.current = true;
       setOverview(next);
+      setPage((current) => Math.min(current, nextPageCount - 1));
       setStale(false);
       setInitialError(false);
-    } catch {
+    } catch (reason) {
+      if (isAbortError(reason)) {
+        return;
+      }
+
       setStale(true);
       setInitialError(!hasOverview.current);
     }
   }, []);
 
   useEffect(() => {
-    void refresh();
-    const interval = window.setInterval(() => void refresh(), REFRESH_INTERVAL_MS);
-    return () => window.clearInterval(interval);
+    let activeController: AbortController | null = null;
+    const runRefresh = () => {
+      activeController?.abort();
+      activeController = new AbortController();
+      void refresh(activeController.signal);
+    };
+    const initialRefresh = window.setTimeout(runRefresh, 0);
+    const interval = window.setInterval(runRefresh, REFRESH_INTERVAL_MS);
+
+    return () => {
+      window.clearTimeout(initialRefresh);
+      window.clearInterval(interval);
+      activeController?.abort();
+    };
   }, [refresh]);
 
   useEffect(() => {
@@ -75,7 +98,6 @@ function DisplayContent() {
   const pageCount = Math.max(1, Math.ceil((overview?.clients.length || 0) / CLIENTS_PER_PAGE));
 
   useEffect(() => {
-    setPage((current) => Math.min(current, pageCount - 1));
     if (pageCount <= 1) return;
     const interval = window.setInterval(
       () => setPage((current) => (current + 1) % pageCount),

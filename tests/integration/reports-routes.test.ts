@@ -104,7 +104,7 @@ describe("reports API routes", () => {
     const body = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body.kpis.totalMinutes.current).toBe(1);
+    expect(body.data.kpis.totalMinutes.current).toBe(1);
     expect(getReportsOverviewMock).toHaveBeenCalled();
   });
 
@@ -169,7 +169,10 @@ describe("reports API routes", () => {
     const body = await res.json();
 
     expect(res.status).toBe(400);
-    expect(body.error).toContain("10000");
+    expect(body.error).toMatchObject({
+      code: "VALIDATION_ERROR",
+      message: expect.stringContaining("10000")
+    });
   });
 
   it("GET /api/reports/drilldown returns cursor payload", async () => {
@@ -182,7 +185,7 @@ describe("reports API routes", () => {
     const body = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body.nextCursor).toBe("20");
+    expect(body.data.nextCursor).toBe("20");
   });
 
   it("GET /api/reports/export returns csv", async () => {

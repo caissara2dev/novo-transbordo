@@ -23,6 +23,14 @@ type ContainerFields = {
   expectedContainerStateVersion: number | null;
 };
 
+type ContainerLookupState = {
+  lookupKey: string | null;
+  requestKey: string | null;
+  data: ContainerLookupResponse | null;
+  error: string | null;
+  loading: boolean;
+};
+
 function isCompleteContainer(value: string): boolean {
   return value.replace(/[^A-Z0-9]/gi, "").length === 11;
 }
@@ -87,33 +95,73 @@ export function ContainerStatusFields({
   onChange: (patch: Partial<ContainerFields>) => void;
   preserveStatus?: boolean;
 }) {
-  const [lookup, setLookup] = useState<ContainerLookupResponse | null>(null);
-  const [lookupError, setLookupError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [lookupState, setLookupState] = useState<ContainerLookupState>({
+    lookupKey: null,
+    requestKey: null,
+    data: null,
+    error: null,
+    loading: false
+  });
   const onChangeRef = useRef(onChange);
+  const lookupEnabled =
+    fields.category === "PRODUTIVO" &&
+    isCompleteContainer(fields.container);
+  const lookupKey = lookupEnabled ? fields.container : null;
+  const requestKey = lookupEnabled
+    ? JSON.stringify([
+        fields.container,
+        fields.startsNewContainerCycle,
+        preserveStatus
+      ])
+    : null;
 
   useEffect(() => {
     onChangeRef.current = onChange;
   }, [onChange]);
 
   useEffect(() => {
-    if (fields.category !== "PRODUTIVO" || !isCompleteContainer(fields.container)) {
-      setLookup(null);
-      setLookupError(null);
-      onChangeRef.current({ expectedContainerStateVersion: null });
+    if (lookupEnabled || fields.expectedContainerStateVersion === null) {
       return;
     }
 
-    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      onChangeRef.current({ expectedContainerStateVersion: null });
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [fields.expectedContainerStateVersion, lookupEnabled]);
+
+  useEffect(() => {
+    if (!requestKey) {
+      return;
+    }
+
+    const controller = new AbortController();
     const timer = window.setTimeout(async () => {
-      setLoading(true);
-      setLookupError(null);
+      setLookupState((current) => ({
+        lookupKey,
+        requestKey,
+        data: current.lookupKey === lookupKey ? current.data : null,
+        error: null,
+        loading: true
+      }));
+
       try {
         const result = await apiFetch<ContainerLookupResponse>(
-          `/api/containers/lookup?container=${encodeURIComponent(fields.container)}`
+          `/api/containers/lookup?container=${encodeURIComponent(fields.container)}`,
+          { signal: controller.signal }
         );
-        if (cancelled) return;
-        setLookup(result);
+        if (controller.signal.aborted) return;
+
+        setLookupState({
+          lookupKey,
+          requestKey,
+          data: result,
+          error: null,
+          loading: false
+        });
         const patch: Partial<ContainerFields> = {
           expectedContainerStateVersion: result.current?.version ?? 0
         };
@@ -129,28 +177,39 @@ export function ContainerStatusFields({
         }
         onChangeRef.current(patch);
       } catch (error) {
-        if (!cancelled) {
-          setLookup(null);
-          setLookupError(
-            error instanceof Error ? error.message : "Não foi possível consultar o container."
-          );
+        if (!controller.signal.aborted) {
+          setLookupState({
+            lookupKey,
+            requestKey,
+            data: null,
+            error:
+              error instanceof Error
+                ? error.message
+                : "Não foi possível consultar o container.",
+            loading: false
+          });
         }
-      } finally {
-        if (!cancelled) setLoading(false);
       }
     }, 350);
 
     return () => {
-      cancelled = true;
       window.clearTimeout(timer);
+      controller.abort();
     };
   }, [
-    fields.category,
     fields.container,
     fields.startsNewContainerCycle,
-    preserveStatus
+    lookupKey,
+    preserveStatus,
+    requestKey
   ]);
 
+  const lookup =
+    lookupState.lookupKey === lookupKey ? lookupState.data : null;
+  const lookupError =
+    lookupState.requestKey === requestKey ? lookupState.error : null;
+  const loading =
+    lookupState.requestKey === requestKey && lookupState.loading;
   const current = lookup?.current ?? null;
   const partial = isPartial(fields.containerStatus);
   const buffer = fields.containerStatus === "BUFFER";

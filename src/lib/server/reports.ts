@@ -8,6 +8,7 @@ import {
   containerStatusLabelMap
 } from "@/lib/domain/options";
 import { eventContainerStatus } from "@/lib/server/container-states";
+import { resolveTimelineDate } from "@/lib/domain/time";
 import {
   MAX_REPORT_EVENTS_PROCESSED,
   MAX_REPORT_PERIOD_DAYS,
@@ -39,6 +40,7 @@ type ReportEvent = {
   notes: string | null;
   createdByEmail: string;
   updatedByEmail: string;
+  startAtMs: number;
   createdAtMs: number;
   updatedAtMs: number;
   deleted: boolean;
@@ -83,8 +85,14 @@ function toMillis(value: unknown): number {
 
 function csvEscape(value: string | number | boolean | null | undefined): string {
   if (value === null || value === undefined) return "";
-  const text = String(value);
-  if (!text.includes(";") && !text.includes('"') && !text.includes("\n")) {
+  const raw = String(value);
+  const text = /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw;
+  if (
+    !text.includes(";") &&
+    !text.includes('"') &&
+    !text.includes("\n") &&
+    !text.includes("\r")
+  ) {
     return text;
   }
 
@@ -130,15 +138,29 @@ export function previousWindow(dateFrom: string, dateTo: string): {
 }
 
 function reportEventFromDoc(id: string, data: DocumentData): ReportEvent {
+  const category = (data.category || "OUTROS") as Category;
+  const shiftDate = String(data.shiftDate || "");
+  const shiftType = (data.shiftType || "MANHA") as ShiftType;
+  const startTime = String(data.startTime || "");
+  const persistedStartAtMs = toMillis(data.startAt);
+  const resolvedStartAtMs = resolveTimelineDate(
+    shiftDate,
+    shiftType,
+    startTime
+  ).toMillis();
+
   return {
     id,
-    shiftDate: String(data.shiftDate || ""),
-    shiftType: (data.shiftType || "MANHA") as ShiftType,
+    shiftDate,
+    shiftType,
     pump: (data.pump || "BOMBA_1") as Pump,
-    category: (data.category || "OUTROS") as Category,
-    productive: Boolean(data.productive),
+    category,
+    productive:
+      typeof data.productive === "boolean"
+        ? data.productive
+        : category === "PRODUTIVO",
     durationMinutes: Number(data.durationMinutes || 0),
-    startTime: String(data.startTime || ""),
+    startTime,
     endTime: String(data.endTime || ""),
     clientId: (data.clientId as string | null) || null,
     clientNameSnapshot: (data.clientNameSnapshot as string | null) || null,
@@ -149,6 +171,9 @@ function reportEventFromDoc(id: string, data: DocumentData): ReportEvent {
     notes: (data.notes as string | null) || null,
     createdByEmail: String(data.createdByEmail || "-"),
     updatedByEmail: String(data.updatedByEmail || "-"),
+    startAtMs:
+      persistedStartAtMs ||
+      (Number.isFinite(resolvedStartAtMs) ? resolvedStartAtMs : 0),
     createdAtMs: toMillis(data.createdAt),
     updatedAtMs: toMillis(data.updatedAt),
     deleted: Boolean(data.deleted),
@@ -182,7 +207,14 @@ async function fetchEventsByShiftDate(params: {
     query = query.where("deleted", "==", false);
   }
 
-  const snap = await query.get();
+  const snap = await query.limit(MAX_REPORT_EVENTS_PROCESSED + 1).get();
+  if (snap.docs.length > MAX_REPORT_EVENTS_PROCESSED) {
+    throw new HttpError(
+      400,
+      `Consulta excede ${MAX_REPORT_EVENTS_PROCESSED} eventos. Refine os filtros.`
+    );
+  }
+
   return snap.docs.map((doc) => reportEventFromDoc(doc.id, doc.data()));
 }
 
@@ -259,8 +291,7 @@ export function buildTrendBucket(shiftDate: string, granularity: ReportsFilters[
 
 function sortDrilldown(events: ReportEvent[]): ReportEvent[] {
   return [...events].sort((a, b) => {
-    if (a.shiftDate !== b.shiftDate) return a.shiftDate < b.shiftDate ? 1 : -1;
-    if (a.startTime !== b.startTime) return a.startTime < b.startTime ? 1 : -1;
+    if (a.startAtMs !== b.startAtMs) return b.startAtMs - a.startAtMs;
     return b.createdAtMs - a.createdAtMs;
   });
 }
@@ -305,7 +336,15 @@ async function countEditedActions(params: {
     .collectionGroup("revisions")
     .where("editedAt", ">=", start)
     .where("editedAt", "<=", end)
+    .limit(MAX_REPORT_EVENTS_PROCESSED + 1)
     .get();
+
+  if (snap.docs.length > MAX_REPORT_EVENTS_PROCESSED) {
+    throw new HttpError(
+      400,
+      `Consulta excede ${MAX_REPORT_EVENTS_PROCESSED} revisões. Refine os filtros.`
+    );
+  }
 
   let count = 0;
   for (const doc of snap.docs) {
@@ -331,7 +370,15 @@ async function countDeletedActions(params: {
     .where("deleted", "==", true)
     .where("deletedAt", ">=", start)
     .where("deletedAt", "<=", end)
+    .limit(MAX_REPORT_EVENTS_PROCESSED + 1)
     .get();
+
+  if (snap.docs.length > MAX_REPORT_EVENTS_PROCESSED) {
+    throw new HttpError(
+      400,
+      `Consulta excede ${MAX_REPORT_EVENTS_PROCESSED} exclusões. Refine os filtros.`
+    );
+  }
 
   const events = snap.docs.map((doc) => reportEventFromDoc(doc.id, doc.data()));
   return applyDimensionFilters(events, params.filters).length;

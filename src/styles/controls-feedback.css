@@ -1,0 +1,216 @@
+.panel {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 0.9rem;
+}
+
+.panel-title {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--heading);
+}
+
+.settings-hero {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-top: 4px solid var(--brand-paprika-light);
+  border-radius: 12px;
+  padding: 1.15rem 1.25rem 1.2rem;
+  background:
+    linear-gradient(115deg, rgba(63, 98, 98, 0.07), transparent 46%),
+    repeating-linear-gradient(90deg, transparent 0 47px, rgba(63, 98, 98, 0.035) 48px),
+    var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.settings-hero h1 {
+  margin: 0;
+  color: var(--heading);
+  font-size: clamp(1.65rem, 3vw, 2.25rem);
+  font-weight: 750;
+  line-height: 1.08;
+}
+
+.settings-eyebrow {
+  margin: 0 0 0.3rem;
+  color: var(--brand-paprika-light);
+  font-size: 0.7rem;
+  font-weight: 850;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.settings-description {
+  margin: 0.65rem 0 0;
+  max-width: 680px;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.65;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.field-label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: #344250;
+}
+
+.field-label input,
+.field-label select,
+.field-label textarea,
+.input-ui,
+.select-ui,
+.textarea-ui {
+  margin-top: 0.35rem;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.56rem 0.7rem;
+  background: #fff;
+  color: var(--text);
+  font: inherit;
+}
+
+.field-label textarea,
+.textarea-ui {
+  resize: vertical;
+  min-height: 88px;
+}
+
+.field-label input:focus,
+.field-label select:focus,
+.field-label textarea:focus,
+.input-ui:focus,
+.select-ui:focus,
+.textarea-ui:focus {
+  outline: 2px solid rgba(63, 98, 98, 0.2);
+  border-color: var(--primary);
+}
+
+.choice-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+}
+
+.category-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.choice-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.6rem 0.55rem;
+  background: #fff;
+  font-size: 0.86rem;
+  font-weight: 700;
+  text-align: center;
+  color: #344250;
+}
+
+.choice-card-detail {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted);
+  line-height: 1.25;
+}
+
+.choice-card.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.choice-card.active .choice-card-detail {
+  color: var(--accent-strong);
+}
+
+.btn-primary,
+.btn-ghost,
+.btn-danger,
+.btn-soft {
+  border-radius: 10px;
+  padding: 0.55rem 0.9rem;
+  font-size: 0.84rem;
+  font-weight: 700;
+  border: 1px solid transparent;
+}
+
+.btn-primary {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+
+.btn-soft {
+  border-color: var(--accent);
+  background: #fff;
+  color: var(--accent-strong);
+}
+
+.btn-ghost {
+  border-color: var(--accent);
+  background: #fff;
+  color: var(--accent-strong);
+}
+
+.btn-danger {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--danger);
+}
+
+.notice {
+  border-radius: 10px;
+  border: 1px solid;
+  padding: 0.52rem 0.7rem;
+  font-size: 0.84rem;
+}
+
+.notice.error {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--danger);
+}
+
+.notice.success {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  border-color: var(--success-line);
+  background: var(--success-soft);
+  color: var(--success);
+  font-weight: 650;
+}
+
+.notice.success::before {
+  content: "✓";
+  display: grid;
+  flex: 0 0 1.15rem;
+  width: 1.15rem;
+  height: 1.15rem;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--success);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.notice.warn {
+  border-color: #edd4ad;
+  background: #fff7ea;
+  color: var(--warn);
+}

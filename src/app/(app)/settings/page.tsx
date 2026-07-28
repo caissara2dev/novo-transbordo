@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { RoleGuard } from "@/components/role-guard";
 import { apiFetch } from "@/lib/auth/api-fetch";
 import { useAuthSession } from "@/lib/auth/use-auth-session";
+import { isAbortError } from "@/lib/ui/latest-request";
 
 type OperationsSettings = {
   idleToleranceMinutes: number;
@@ -17,17 +18,40 @@ export default function SettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    const settings = await apiFetch<OperationsSettings>("/api/settings/operations");
-    setMinutes(settings.idleToleranceMinutes);
-  }, []);
+  const load = useCallback(
+    (signal?: AbortSignal) =>
+      apiFetch<OperationsSettings>("/api/settings/operations", { signal }),
+    []
+  );
 
   useEffect(() => {
     if (profile?.role !== "ADMIN") return;
-    setLoading(true);
-    load()
-      .catch((reason) => setError(reason instanceof Error ? reason.message : "Falha ao carregar."))
-      .finally(() => setLoading(false));
+
+    const controller = new AbortController();
+    const scheduledLoad = window.setTimeout(() => {
+      setLoading(true);
+      void load(controller.signal)
+        .then((settings) => {
+          if (!controller.signal.aborted) {
+            setMinutes(settings.idleToleranceMinutes);
+          }
+        })
+        .catch((reason) => {
+          if (!controller.signal.aborted && !isAbortError(reason)) {
+            setError(reason instanceof Error ? reason.message : "Falha ao carregar.");
+          }
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) {
+            setLoading(false);
+          }
+        });
+    }, 0);
+
+    return () => {
+      window.clearTimeout(scheduledLoad);
+      controller.abort();
+    };
   }, [load, profile?.role]);
 
   const save = async (event: FormEvent) => {

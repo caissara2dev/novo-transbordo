@@ -4,9 +4,46 @@ import Link from "next/link";
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useState } from "react";
-import { signInWithEmailAndPassword } from "firebase/auth";
+import {
+  sendEmailVerification,
+  signInWithEmailAndPassword,
+  signOut
+} from "firebase/auth";
+import {
+  authenticatedFetch,
+  readApiResponse
+} from "@/lib/auth/api-fetch";
 import { auth } from "@/lib/firebase/client";
 import { useAuthSession } from "@/lib/auth/use-auth-session";
+
+async function syncProfileBestEffort(): Promise<void> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
+
+  try {
+    const response = await authenticatedFetch(
+      "/api/auth/sync",
+      {
+        method: "POST",
+        signal: controller.signal
+      }
+    );
+    await readApiResponse(response);
+  } catch {
+    // Sync is retried by session loading flow.
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchLoginProfileRole(): Promise<string | undefined> {
+  const response = await authenticatedFetch("/api/me");
+  const payload = await readApiResponse<{
+    profile?: { role?: string };
+  }>(response);
+
+  return payload?.profile?.role;
+}
 
 export default function LoginPage() {
   const router = useRouter();
@@ -14,29 +51,11 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const syncProfileBestEffort = async (token: string) => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 5000);
-
-    try {
-      await fetch("/api/auth/sync", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`
-        },
-        signal: controller.signal
-      });
-    } catch {
-      // Sync is retried by session loading flow.
-    } finally {
-      clearTimeout(timer);
-    }
-  };
-
   useEffect(() => {
-    if (!sessionLoading && firebaseUser && profile) {
+    if (!sessionLoading && firebaseUser?.emailVerified && profile) {
       router.replace((profile.role === "DISPLAY" ? "/display" : "/dashboard") as Route);
     }
   }, [sessionLoading, firebaseUser, profile, router]);
@@ -44,19 +63,28 @@ export default function LoginPage() {
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
+    setNotice(null);
     setSubmitting(true);
 
     try {
       const credentials = await signInWithEmailAndPassword(auth, email.trim(), password);
-      const token = await credentials.user.getIdToken();
-      await syncProfileBestEffort(token);
-      const meResponse = await fetch("/api/me", {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      const me = meResponse.ok
-        ? ((await meResponse.json()) as { profile?: { role?: string } })
-        : null;
-      router.replace((me?.profile?.role === "DISPLAY" ? "/display" : "/dashboard") as Route);
+
+      if (!credentials.user.emailVerified) {
+        try {
+          await sendEmailVerification(credentials.user);
+        } finally {
+          await signOut(auth);
+        }
+
+        setNotice(
+          "Seu email ainda não foi verificado. Enviamos um novo link de verificação."
+        );
+        return;
+      }
+
+      await syncProfileBestEffort();
+      const role = await fetchLoginProfileRole();
+      router.replace((role === "DISPLAY" ? "/display" : "/dashboard") as Route);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Falha ao autenticar.");
     } finally {
@@ -90,6 +118,11 @@ export default function LoginPage() {
             value={password}
           />
         </label>
+        {notice ? (
+          <p className="notice" role="status">
+            {notice}
+          </p>
+        ) : null}
         {error ? <p className="notice error">{error}</p> : null}
         <button
           className="btn-primary w-full"

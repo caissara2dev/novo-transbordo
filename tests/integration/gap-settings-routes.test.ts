@@ -54,8 +54,11 @@ describe("gap preview and operations settings routes", () => {
     }));
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
-      gapVersion: "timeline-v1",
-      requiresJustification: true
+      ok: true,
+      data: {
+        gapVersion: "timeline-v1",
+        requiresJustification: true
+      }
     });
   });
 
@@ -65,7 +68,10 @@ describe("gap preview and operations settings routes", () => {
       new NextRequest("http://localhost/api/settings/operations")
     );
     expect(getResponse.status).toBe(200);
-    await expect(getResponse.json()).resolves.toEqual({ idleToleranceMinutes: 10 });
+    await expect(getResponse.json()).resolves.toEqual({
+      ok: true,
+      data: { idleToleranceMinutes: 10 }
+    });
 
     const patchResponse = await route.PATCH(
       new NextRequest("http://localhost/api/settings/operations", {
@@ -74,6 +80,39 @@ describe("gap preview and operations settings routes", () => {
       })
     );
     expect(patchResponse.status).toBe(200);
-    await expect(patchResponse.json()).resolves.toEqual({ idleToleranceMinutes: 12 });
+    await expect(patchResponse.json()).resolves.toEqual({
+      ok: true,
+      data: { idleToleranceMinutes: 12 }
+    });
+  });
+
+  it("rejects malformed and unknown settings fields as validation errors", async () => {
+    const route = await import("@/app/api/settings/operations/route");
+    const malformedResponse = await route.PATCH(
+      new NextRequest("http://localhost/api/settings/operations", {
+        method: "PATCH",
+        body: "{"
+      })
+    );
+    const unknownFieldResponse = await route.PATCH(
+      new NextRequest("http://localhost/api/settings/operations", {
+        method: "PATCH",
+        body: JSON.stringify({
+          idleToleranceMinutes: 12,
+          admin: true
+        })
+      })
+    );
+
+    expect(malformedResponse.status).toBe(400);
+    await expect(malformedResponse.json()).resolves.toMatchObject({
+      ok: false,
+      error: { code: "VALIDATION_ERROR" }
+    });
+    expect(unknownFieldResponse.status).toBe(400);
+    await expect(unknownFieldResponse.json()).resolves.toMatchObject({
+      ok: false,
+      error: { code: "VALIDATION_ERROR" }
+    });
   });
 });

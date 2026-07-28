@@ -1,4 +1,5 @@
 import { App, cert, getApp, getApps, initializeApp } from "firebase-admin/app";
+import type { AppCheck } from "firebase-admin/app-check";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
 
@@ -43,3 +44,8 @@ const app = buildApp();
 
 export const adminAuth = getAuth(app);
 export const adminDb = getFirestore(app);
+
+export async function getAdminAppCheck(): Promise<AppCheck> {
+  const { getAppCheck } = await import("firebase-admin/app-check");
+  return getAppCheck(app);
+}
