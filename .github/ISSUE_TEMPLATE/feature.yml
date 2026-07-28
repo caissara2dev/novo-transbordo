@@ -1,0 +1,56 @@
+name: Solicitar funcionalidade
+description: Proponha uma melhoria com valor e critérios de aceite claros.
+title: "[Feature]: "
+labels:
+  - enhancement
+  - needs-triage
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problema
+      description: Qual necessidade operacional deve ser resolvida?
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Resultado desejado
+      description: Descreva o comportamento esperado sem prescrever a implementação.
+    validations:
+      required: true
+  - type: textarea
+    id: users
+    attributes:
+      label: Usuários e fluxo afetados
+      placeholder: OPERATOR, SUPERVISOR, DISPLAY, ADMIN; telas e etapas.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Critérios de aceite
+      placeholder: |
+        - [ ] …
+        - [ ] …
+    validations:
+      required: true
+  - type: textarea
+    id: risks
+    attributes:
+      label: Riscos, dependências e dados
+      description: Considere permissões, Firestore, índices, migração e rollback.
+  - type: input
+    id: milestone
+    attributes:
+      label: Milestone sugerido
+      placeholder: 2.3.0
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Confirmações
+      options:
+        - label: Pesquisei issues abertas e não encontrei uma solicitação equivalente.
+          required: true
+        - label: A proposta não contém credenciais nem dados pessoais.
+          required: true

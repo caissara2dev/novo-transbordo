@@ -7,8 +7,18 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o 
 
 ## [2.2.0] - 2026-07-27
 
+Esta release incorpora integralmente o trabalho desenvolvido para a linha 2.1.
+Não existe release nem tag `v2.1.0` separada.
+
 ### Adicionado
 
+- Bomba 3 com as mesmas regras operacionais, filtros e indicadores das bombas existentes.
+- Estados de container Cheio, Parcial, Pulmão, Blend cheio e Blend parcial.
+- Estado atual materializado, histórico encadeado e proteção contra atualizações concorrentes.
+- Tela de consulta de containers abertos, ciclos, motivos e placas relacionadas.
+- Backfill protegido e idempotente para materializar containers legados como Cheio.
+- Display operacional `/display`, otimizado para TVs 16:9, com atualização a cada 30 segundos e rotação automática de clientes.
+- Papel `DISPLAY` gerenciável por administradores e endpoint exclusivo `GET /api/display/overview`.
 - Ociosidade automática para todo trecho descoberto antes de um lançamento produtivo.
 - Categoria interna `INTERVALO_OPERACIONAL` para intervalos dispensados de justificativa.
 - Preview versionado da linha do tempo em `POST /api/events/gap-preview`.
@@ -17,6 +27,10 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o 
 
 ### Alterado
 
+- Lançamentos produtivos passam a consultar o ciclo atual do container antes da gravação.
+- O estado do container usa uma interface compacta, otimizada para o fluxo atual e para operação em celulares.
+- Relatórios, detalhamento e CSV passam a aceitar filtros e campos de estado do container.
+- O login direciona contas `DISPLAY` diretamente para a tela de TV, sem menu, rodapé ou controles operacionais.
 - O formulário passa a iniciar no modo produtivo e mantém o lançamento ocioso manual atrás de
   `Registrar ociosidade`.
 - Intervalos acima do limite exigem uma causa para cada trecho não coberto por ociosidades manuais.
@@ -35,34 +49,12 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o 
 
 ### Segurança
 
+- A coleção `containerStates` permanece inacessível diretamente pelo cliente; leitura e escrita passam pelas APIs autenticadas.
+- Contas `DISPLAY` ficam bloqueadas em todas as APIs operacionais, mantendo acesso apenas à autenticação, ao próprio perfil e ao resumo do display.
 - Preview e gravação validam a mesma versão da linha do tempo e retornam conflito quando há alteração
   concorrente.
 - O produtivo, seus intervalos automáticos e o estado do container são persistidos em uma única
   transação.
-
-## [2.1.0] - 2026-07-23
-
-### Adicionado
-
-- Bomba 3 com as mesmas regras operacionais, filtros e indicadores das bombas existentes.
-- Estados de container Cheio, Parcial, Pulmão, Blend cheio e Blend parcial.
-- Estado atual materializado, histórico encadeado e proteção contra atualizações concorrentes.
-- Tela de consulta de containers abertos, ciclos, motivos e placas relacionadas.
-- Backfill protegido e idempotente para materializar containers legados como Cheio.
-- Display operacional `/display`, otimizado para TVs 16:9, com atualização a cada 30 segundos e rotação automática de clientes.
-- Papel `DISPLAY` gerenciável por administradores e endpoint exclusivo `GET /api/display/overview`.
-
-### Alterado
-
-- Lançamentos produtivos passam a consultar o ciclo atual do container antes da gravação.
-- O estado do container usa uma interface compacta, otimizada para o fluxo atual e para operação em celulares.
-- Relatórios, detalhamento e CSV passam a aceitar filtros e campos de estado do container.
-- O login direciona contas `DISPLAY` diretamente para a tela de TV, sem menu, rodapé ou controles operacionais.
-
-### Segurança
-
-- A coleção `containerStates` permanece inacessível diretamente pelo cliente; leitura e escrita passam pelas APIs autenticadas.
-- Contas `DISPLAY` ficam bloqueadas em todas as APIs operacionais, mantendo acesso apenas à autenticação, ao próprio perfil e ao resumo do display.
 
 ## [2.0.0] - 2026-07-21
 
@@ -84,5 +76,4 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o 
 - Alterações de aprovação e papel permanecem restritas às APIs administrativas.
 
 [2.0.0]: https://github.com/caissara2dev/novo-transbordo/releases/tag/v2.0.0
-[2.1.0]: https://github.com/caissara2dev/novo-transbordo/releases/tag/v2.1.0
 [2.2.0]: https://github.com/caissara2dev/novo-transbordo/releases/tag/v2.2.0

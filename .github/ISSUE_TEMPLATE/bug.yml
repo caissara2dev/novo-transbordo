@@ -1,0 +1,78 @@
+name: Relatar bug
+description: Registre um comportamento incorreto e reproduzível.
+title: "[Bug]: "
+labels:
+  - bug
+  - needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Não inclua senhas, tokens, dados pessoais ou credenciais Firebase.
+  - type: textarea
+    id: context
+    attributes:
+      label: Contexto
+      description: Onde o problema ocorreu e qual impacto operacional ele causa?
+      placeholder: Ambiente, tela, perfil do usuário e impacto.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Passos para reproduzir
+      description: Liste a sequência mínima que reproduz o problema.
+      placeholder: |
+        1. Acesse…
+        2. Selecione…
+        3. Observe…
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Resultado esperado
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Resultado atual
+    validations:
+      required: true
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Ambiente
+      options:
+        - Local
+        - Preview Vercel / staging
+        - Produção
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Versão, tag ou URL do deploy
+      placeholder: v2.2.0 ou URL do preview
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidências sem dados sensíveis
+      description: Inclua screenshots, mensagens de erro ou logs sanitizados.
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Critérios de aceite
+      description: Como confirmaremos que o bug foi corrigido?
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Confirmações
+      options:
+        - label: Pesquisei issues abertas e não encontrei uma duplicata.
+          required: true
+        - label: Removi credenciais e dados pessoais das evidências.
+          required: true

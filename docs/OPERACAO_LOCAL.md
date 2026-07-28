@@ -1,27 +1,57 @@
-# Operacao Local - Controle Transbordo V1
+# Operação local, rollout e rollback
 
-## 1) Pre-requisitos
+## Pré-requisitos
 
-- Node.js 20+
-- npm 10+
-- Java instalado (`java -version`)
-
-## 2) Setup inicial
+- Node.js 22.x
+- npm 10 ou 11
+- Java 21 recomendado
+- Firebase CLI instalada nas dependências do projeto
+- Google Cloud CLI para configurar políticas TTL
 
 ```bash
-cd /Users/mathrai/Desktop/transbordo_new
-npm install
+node --version
+npm --version
+java -version
+npx firebase --version
+gcloud --version
+```
+
+Use o caminho atual do clone; não copie caminhos absolutos de outra máquina.
+
+## Setup
+
+```bash
+nvm use
+npm ci
 cp .env.example .env.local
 ```
 
-Preencher `.env.local` com os dados do seu projeto Firebase.
+Preencha as configurações Firebase. Para emuladores:
 
-## 3) Subir ambiente local
+```dotenv
+NEXT_PUBLIC_APP_ENV=development
+APP_CHECK_MODE=off
+APP_CHECK_ALLOWED_APP_IDS=
+RATE_LIMIT_MODE=off
+RATE_LIMIT_HMAC_SECRET=
+RATE_LIMIT_KEY_VERSION=v1
+TRUSTED_PROXY_MODE=local
+NEXT_PUBLIC_USE_FIREBASE_EMULATOR=true
+NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099
+FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099
+FIRESTORE_EMULATOR_HOST=127.0.0.1:8080
+```
+
+`APP_CHECK_MODE=off`, `RATE_LIMIT_MODE=off` e `TRUSTED_PROXY_MODE=local` não
+devem ser usados em produção. O servidor recusa configuração `off` em produção
+fora dos emuladores.
+
+## Execução local
 
 Terminal 1:
 
 ```bash
-npx firebase emulators:start
+npx firebase emulators:start --project demo-transbordo
 ```
 
 Terminal 2:
@@ -30,74 +60,431 @@ Terminal 2:
 npm run dev
 ```
 
-URLs:
-- app: `http://localhost:3000`
-- emulator UI: `http://localhost:4000`
+- Aplicação: `http://localhost:3000`
+- Emulator UI: `http://localhost:4000`
 
-## 4) Fluxo de bootstrap de usuarios
+## Cadastro, verificação e aprovação
 
-1. Registrar usuario em `/register`
-2. Capturar `uid` desse usuario
-3. Promover para admin:
+O acesso possui duas barreiras independentes:
+
+1. `email_verified=true` no token do Firebase Auth;
+2. `approved=true` e `active=true` em `users/{uid}`.
+
+Fluxo:
+
+1. A pessoa cria a conta em `/register`.
+2. A aplicação envia o email de verificação e encerra a sessão.
+3. A pessoa abre o link e entra novamente.
+4. Somente então `/api/auth/sync` cria ou atualiza o perfil.
+5. Até a aprovação por um admin, a conta permanece pendente.
+
+Se uma conta não verificada tentar entrar, a aplicação reenvia o link e encerra
+a sessão. As APIs também validam o claim; manipular o estado do cliente não
+remove a barreira.
+
+### Bootstrap e promoção de administrador
+
+Consulte as opções exatas:
 
 ```bash
-npm run promote-admin -- <uid>
+npm run promote-admin -- --help
 ```
 
-4. Entrar no app com esse usuario
-5. Aprovar/promover demais usuarios em `/users`
+O script é dry-run por padrão e sempre exige `--project`. Primeiro registre,
+verifique e entre com a conta para que `users/{uid}` exista.
 
-## 5) Rotina recomendada de validacao
+Emulador:
 
-- lint:
+```bash
+npm run promote-admin -- <uid> --project=demo-transbordo --dry-run
+npm run promote-admin -- <uid> --project=demo-transbordo \
+  --execute --confirm-project=demo-transbordo
+```
+
+Staging, com Application Default Credentials:
+
+```bash
+npm run promote-admin -- <uid> \
+  --project=line-transbordo-staging-382612 --dry-run
+npm run promote-admin -- <uid> \
+  --project=line-transbordo-staging-382612 \
+  --execute --confirm-project=line-transbordo-staging-382612
+```
+
+Produção possui duas confirmações extras:
+
+```bash
+npm run promote-admin -- <uid> --project=line-transbordo --dry-run
+npm run promote-admin -- <uid> --project=line-transbordo \
+  --execute --confirm-project=line-transbordo \
+  --allow-production \
+  --confirm-production=PROMOTE_ADMIN_IN_PRODUCTION
+```
+
+Antes de executar, confira no JSON do dry-run: projeto, UID, papel atual e patch
+pretendido. O script nunca infere o projeto e nunca promove uma conta
+inexistente.
+
+## Verificação de qualidade
+
+Comandos individuais:
 
 ```bash
 npm run lint
-```
-
-- testes:
-
-```bash
+npm run typecheck
 npm test
+npm run test:coverage
+npm run test:rules
+npm run test:e2e
+npm run build
+npm run audit:prod
 ```
 
-- testes de integracao:
+Verificação completa:
 
 ```bash
-npm run test:integration
+npm run verify
 ```
 
-## 6) Troubleshooting rapido
+Critérios:
 
-## Erro `auth/network-request-failed`
+- ESLint sem warnings;
+- TypeScript sem erro;
+- testes unitários e de integração aprovados;
+- cobertura de branches, funções, linhas e statements igual ou superior a 80%;
+- Firestore Rules aprovadas no Emulator;
+- fluxos E2E aprovados no Chromium;
+- build de produção aprovado;
+- nenhuma vulnerabilidade `high` ou `critical` em dependências de produção.
 
-Causa comum:
-- emulador Auth parado
-- `NEXT_PUBLIC_USE_FIREBASE_EMULATOR` incorreto
-- hosts de emulador inconsistentes
+Os artefatos do Playwright ficam em `tmp/playwright*`; o relatório de cobertura
+fica em `coverage/`.
 
-Checklist:
-1. confirmar `npx firebase emulators:start` ativo
-2. revisar `.env.local`
-3. reiniciar `npm run dev`
+## Variáveis de proteção por ambiente
 
-## Erro ao subir emulador pedindo Java
+| Variável | Local | Preview Vercel | App Hosting |
+| --- | --- | --- | --- |
+| `NEXT_PUBLIC_FIREBASE_APP_CHECK_SITE_KEY` | vazia | site key do staging | site key real de produção |
+| `NEXT_PUBLIC_APP_CHECK_FAIL_CLOSED` | `false` | `false` durante `observe` | `false` durante `observe` |
+| `APP_CHECK_MODE` | `off` | `observe` → `enforce` | `observe` → `enforce` |
+| `APP_CHECK_ALLOWED_APP_IDS` | vazia | App ID do staging | App ID de produção |
+| `RATE_LIMIT_MODE` | `off` | `observe` → `enforce` | `observe` → `enforce` |
+| `RATE_LIMIT_HMAC_SECRET` | vazia | segredo do staging | Secret Manager |
+| `RATE_LIMIT_KEY_VERSION` | `v1` | versão ativa | versão ativa |
+| `TRUSTED_PROXY_MODE` | `local` | `vercel` | `google-lb` |
 
-Instalar JRE/JDK e validar:
+`NEXT_PUBLIC_FIREBASE_APP_CHECK_SITE_KEY` é pública e incorporada durante o
+build. Alterá-la exige novo build. `RATE_LIMIT_HMAC_SECRET` é privada, deve ter
+pelo menos 32 caracteres e nunca pode usar prefixo `NEXT_PUBLIC_`.
+
+O `apphosting.yaml` mantém:
+
+- `APP_CHECK_MODE=observe`;
+- `RATE_LIMIT_MODE=observe`;
+- `TRUSTED_PROXY_MODE=google-lb`;
+- `APP_CHECK_ALLOWED_APP_IDS` igual ao App ID web público já configurado;
+- `RATE_LIMIT_KEY_VERSION=v1`;
+- referência ao segredo `RATE_LIMIT_HMAC_SECRET`, sem o valor.
+
+O repositório não contém
+`NEXT_PUBLIC_FIREBASE_APP_CHECK_SITE_KEY` de produção porque o site key real
+ainda deve ser criado/copiado do reCAPTCHA Enterprise. Não use um placeholder
+em um deploy. Quando ele existir, adicione a variável real ao App Hosting com
+disponibilidade `BUILD` e `RUNTIME`.
+
+## Rollout de App Check e rate limiting
+
+### 1. Preparar staging
+
+1. No Firebase Console, registre o web app de staging em App Check com o
+   provedor reCAPTCHA Enterprise.
+2. Configure o site key público real como
+   `NEXT_PUBLIC_FIREBASE_APP_CHECK_SITE_KEY`.
+3. Configure o App ID de staging em `APP_CHECK_ALLOWED_APP_IDS`.
+4. Configure `TRUSTED_PROXY_MODE=vercel`.
+5. Mantenha `APP_CHECK_MODE=observe` e `RATE_LIMIT_MODE=observe`.
+6. Crie uma chave HMAC diferente da produção e mantenha-a nos secrets da
+   plataforma.
+7. Refaça o build do preview.
+
+### 2. Criar o segredo de produção
+
+O Firebase CLI local confirma que `apphosting:secrets:set` cria ou atualiza um
+segredo do App Hosting. Execute interativamente; não informe o valor na linha de
+comando, em arquivo versionado ou nesta documentação:
+
+```bash
+npx firebase apphosting:secrets:set RATE_LIMIT_HMAC_SECRET \
+  --project line-transbordo
+```
+
+Confirme que o backend do App Hosting possui acesso ao segredo. O
+`apphosting.yaml` já referencia `RATE_LIMIT_HMAC_SECRET`.
+
+Para rotacionar:
+
+1. crie uma nova versão do segredo;
+2. incremente `RATE_LIMIT_KEY_VERSION`, por exemplo de `v1` para `v2`;
+3. publique em `observe`;
+4. valide os novos buckets;
+5. retorne ao modo anterior de enforcement.
+
+Nunca reutilize a chave de staging em produção.
+
+### 3. Ativar TTL
+
+Os buckets escrevem `expiresAt` 24 horas à frente. Ative o TTL no projeto de
+produção:
+
+```bash
+gcloud firestore fields ttls update expiresAt \
+  --collection-group=_requestRateLimits \
+  --database='(default)' \
+  --enable-ttl \
+  --project=line-transbordo
+```
+
+Repita no staging:
+
+```bash
+gcloud firestore fields ttls update expiresAt \
+  --collection-group=_requestRateLimits \
+  --database='(default)' \
+  --enable-ttl \
+  --project=line-transbordo-staging-382612
+```
+
+TTL é assíncrono: documentos expirados podem permanecer visíveis por algum
+tempo. Não use a remoção física como decisão de autorização.
+
+### 4. Publicar regras e índices
+
+Este é um gate de lançamento: não publique a aplicação enquanto o manifesto
+falhar, o dry-run apontar problemas ou algum índice estiver em construção.
+Valide o manifesto, faça o dry-run e revise o diff antes do deploy:
+
+```bash
+npm run verify:firestore-indexes
+npx firebase deploy --only firestore:rules,firestore:indexes \
+  --project line-transbordo-staging-382612 --dry-run
+npx firebase deploy --only firestore:rules,firestore:indexes \
+  --project line-transbordo-staging-382612
+```
+
+Depois do smoke test em staging:
+
+```bash
+npx firebase deploy --only firestore:rules,firestore:indexes \
+  --project line-transbordo --dry-run
+npx firebase deploy --only firestore:rules,firestore:indexes \
+  --project line-transbordo
+```
+
+Índices podem levar alguns minutos para ficar prontos. Não publique a aplicação
+dependente enquanto o Firebase Console indicar construção. O deploy deve ser
+aditivo: não use `--force` e não confirme a remoção de índices remotos durante
+este fluxo.
+
+### 5. Observar
+
+Em `observe`, requisições continuam:
+
+- token App Check ausente, inválido ou emitido por app não permitido gera log;
+- bucket excedido gera log com política e `retryAfterSeconds`;
+- ausência temporária da store de rate limiting gera log.
+
+Observe ao menos um ciclo operacional representativo. Antes de enforcement:
+
+- clientes web enviam `X-Firebase-AppCheck`;
+- não existem apps legítimos fora da allowlist;
+- o proxy resolve IPs reais sem aceitar o primeiro valor controlável de
+  `X-Forwarded-For`;
+- limites não bloqueiam uso normal;
+- o segredo e o TTL estão ativos;
+- respostas `503` de proteção estão ausentes.
+
+### 6. Aplicar enforcement gradualmente
+
+1. Altere somente `APP_CHECK_MODE` para `enforce`.
+2. Refaça o smoke test e acompanhe `401`, `403` e `503`.
+3. Depois de estabilizar, altere somente `RATE_LIMIT_MODE` para `enforce`.
+4. Acompanhe `429`, `Retry-After`, latência e erros transacionais.
+
+Nunca ative os dois controles de uma só vez. Configuração ausente ou inválida em
+`enforce` falha fechada.
+
+## Smoke test de staging
+
+Execute depois de regras/índices estarem prontos e novamente após cada mudança
+de modo:
+
+1. Registrar uma conta nova.
+2. Confirmar que a sessão encerra e nenhum perfil é criado antes da verificação.
+3. Tentar login não verificado e confirmar o reenvio do link.
+4. Verificar o email, entrar e confirmar o estado pendente de aprovação.
+5. Aprovar a conta por admin e confirmar o papel correto.
+6. Como `OPERATOR`, confirmar que somente eventos próprios aparecem.
+7. Criar, editar e excluir um evento; conferir gap, revisão e estado do
+   contêiner.
+8. Como `ADMIN`, visualizar dados globais e testar a prévia/restauração.
+9. Abrir contêineres, relatórios, exportação CSV, configurações e display.
+10. Aplicar filtros rapidamente e confirmar ausência de dados de uma seleção
+    anterior.
+11. Navegar com teclado pelo drawer e formulários.
+12. Confirmar no navegador o header `X-Firebase-AppCheck`.
+13. Conferir logs de App Check/rate limiting e ausência de PII nos IDs de
+    `_requestRateLimits`.
+
+Também execute:
+
+```bash
+npm run verify
+```
+
+## Rollback
+
+### App Check ou rate limiting
+
+Se usuários legítimos forem bloqueados:
+
+1. retorne somente o controle afetado de `enforce` para `observe`;
+2. publique a configuração;
+3. confirme recuperação no smoke test;
+4. investigue site key, allowlist, segredo, proxy, TTL e limites;
+5. não use `off` em produção.
+
+Se a versão da aplicação estiver defeituosa, use o rollback de release do
+Firebase App Hosting ou reverta o commit em um novo PR. Preserve a configuração
+`observe` e os segredos.
+
+### Firestore Rules
+
+Restaure a última versão conhecida como segura no Git, revise o diff e republique:
+
+```bash
+npx firebase deploy --only firestore:rules \
+  --project line-transbordo --dry-run
+npx firebase deploy --only firestore:rules \
+  --project line-transbordo
+```
+
+Nunca faça rollback abrindo leitura/escrita pública. Índices adicionais podem
+permanecer; remova somente depois de confirmar que nenhuma versão ativa os usa.
+
+### Segredo HMAC
+
+Se uma chave for exposta:
+
+1. crie imediatamente uma nova versão no Secret Manager;
+2. incremente `RATE_LIMIT_KEY_VERSION`;
+3. publique em `observe`;
+4. revogue a versão comprometida;
+5. valide e retorne a `enforce`.
+
+Buckets antigos não revelam a identidade original e expiram pelo TTL.
+
+## Cópia anonimizada para staging
+
+O script é dry-run por padrão, aceita somente:
+
+- origem: `line-transbordo`;
+- destino: `line-transbordo-staging-382612`.
+
+Ele copia `clients`, `events` e `events/{id}/revisions`, pseudonimiza
+deterministicamente IDs e PII, não copia `users` nem Firebase Auth e recusa
+destino com dados operacionais.
+
+Autentique Application Default Credentials com acesso mínimo de leitura na
+origem e escrita no destino:
+
+```bash
+gcloud auth application-default login
+```
+
+Simule:
+
+```bash
+npm run copy:staging -- --dry-run
+```
+
+Na execução, leia a chave sem eco e sem colocá-la no histórico:
+
+```bash
+read -s COPY_ANONYMIZATION_KEY
+export COPY_ANONYMIZATION_KEY
+npm run copy:staging -- --execute \
+  --confirm-target=line-transbordo-staging-382612
+unset COPY_ANONYMIZATION_KEY
+```
+
+A chave deve ter pelo menos 32 caracteres e permanecer estável durante a cópia.
+Cada documento recebe `expiresAt` sete dias à frente. Ative TTL para os três
+collection groups no staging:
+
+```bash
+gcloud firestore fields ttls update expiresAt \
+  --collection-group=clients --database='(default)' --enable-ttl \
+  --project=line-transbordo-staging-382612
+gcloud firestore fields ttls update expiresAt \
+  --collection-group=events --database='(default)' --enable-ttl \
+  --project=line-transbordo-staging-382612
+gcloud firestore fields ttls update expiresAt \
+  --collection-group=revisions --database='(default)' --enable-ttl \
+  --project=line-transbordo-staging-382612
+```
+
+O script verifica contagens ao final. Se uma execução falhar depois de commits
+parciais, não force nova cópia: o destino deixa de estar vazio. Investigue os
+documentos escritos e aguarde o TTL ou faça uma limpeza de staging
+explicitamente autorizada. Nunca execute limpeza contra produção.
+
+## Troubleshooting
+
+### `auth/network-request-failed`
+
+1. confirme que o Auth Emulator está ativo;
+2. revise `NEXT_PUBLIC_USE_FIREBASE_EMULATOR`;
+3. confira os hosts `127.0.0.1:9099`;
+4. reinicie `npm run dev`.
+
+### Emulator solicita Java
 
 ```bash
 java -version
 ```
 
-## Erro no `promote-admin` com `PERMISSION_DENIED`
+Use Java 21 quando possível.
 
-Checklist:
-1. confirmar `FIRESTORE_EMULATOR_HOST=127.0.0.1:8080`
-2. confirmar `FIREBASE_PROJECT_ID` no `.env.local`
-3. garantir que o usuario ja existe em `users/{uid}`
+### `promote-admin` informa usuário inexistente
 
-## 7) Observacoes operacionais
+1. verifique a conta por email;
+2. entre uma vez para sincronizar `users/{uid}`;
+3. confira UID e `--project`;
+4. no emulador, confira `FIRESTORE_EMULATOR_HOST=127.0.0.1:8080`.
 
-- Nao comitar `.env.local`.
-- Nao comitar logs locais (`firestore-debug.log` etc).
-- Para cloud/producao, validar regras/indexes antes de liberar acesso operacional.
+### APIs retornam `503` de proteção
+
+Revise:
+
+- modos válidos;
+- allowlist do App Check;
+- segredo HMAC com no mínimo 32 caracteres;
+- `RATE_LIMIT_KEY_VERSION`;
+- `TRUSTED_PROXY_MODE` do ambiente;
+- acesso do backend ao Secret Manager e Firestore.
+
+Retorne o controle afetado para `observe` enquanto investiga.
+
+### Firestore pede índice
+
+Confirme que o índice existe em `firestore.indexes.json`, publique primeiro em
+staging e aguarde o status Ready antes de publicar a aplicação.
+
+## Higiene operacional
+
+- Não commitar `.env.local`, credenciais, site keys ainda não provisionados ou
+  valores de secrets.
+- Revisar `git diff` antes de qualquer deploy.
+- Usar dry-run antes de promoções, cópias e deploys.
+- Manter staging e produção com chaves HMAC diferentes.
+- Conceder acesso mínimo necessário às credenciais operacionais.

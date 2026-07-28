@@ -2,28 +2,48 @@
 
 Base local: `http://localhost:3000`
 
-Todas as rotas exigem sessao autenticada (cookie Firebase) e retornam JSON.
+As rotas autenticadas recebem o Firebase ID token em
+`Authorization: Bearer <token>`. Quando App Check estiver habilitado, o cliente
+também envia `X-Firebase-AppCheck`.
+
+Falhas ao adquirir o token de App Check no navegador são encaminhadas sem esse
+header para que o servidor aplique `APP_CHECK_MODE`. Defina
+`NEXT_PUBLIC_APP_CHECK_FAIL_CLOSED=true` apenas quando o cliente também precisar
+bloquear localmente a requisição.
 
 ## Convencoes
 
-- Sucesso:
-  - `{ "ok": true, ... }`
+- Sucesso: `{ "ok": true, "data": <payload>, "meta"?: <metadados> }`
 - Erro:
-  - `{ "ok": false, "message": "..." }`
+  - `{ "ok": false, "error": { "code": "...", "message": "...", "details"?: ... } }`
+- Códigos de erro estáveis:
+  - `VALIDATION_ERROR`
+  - `UNAUTHENTICATED`
+  - `EMAIL_UNVERIFIED`
+  - `FORBIDDEN`
+  - `NOT_FOUND`
+  - `CONFLICT`
+  - `RATE_LIMITED`
+  - `INTERNAL_ERROR`
+- Respostas `429` incluem `Retry-After` em segundos.
+- Corpos JSON malformados, campos desconhecidos nos schemas estritos e tipos
+  inválidos retornam `400 VALIDATION_ERROR`.
+- `GET /api/reports/export` é a exceção ao envelope de sucesso e retorna o CSV
+  diretamente. Seus erros continuam usando o envelope JSON.
 - Datas de Firestore sao serializadas para formato JSON consumivel no cliente.
 
 ## GET /api/me
 
 Retorna perfil atual.
 
-Resposta:
-- `uid`
-- `email`
-- `profile` (`role`, `approved`, `active`, etc)
+`data`:
+- `profile` (`email`, `role`, `approved`, `active`, etc.)
 - `approvalContactPhone`
 
 Contas `DISPLAY` podem acessar apenas autenticação, esta rota e
 `GET /api/display/overview`. Todas as APIs operacionais retornam `403`.
+
+Contas sem email verificado retornam `403 EMAIL_UNVERIFIED`.
 
 ## GET /api/display/overview
 
@@ -33,7 +53,7 @@ Permissao:
 - `DISPLAY`
 - `ADMIN`
 
-Resposta:
+`data`:
 - `operationalDate`
 - `generatedAt`
 - `finalizedTotal`
@@ -54,6 +74,14 @@ Query params suportados:
 - `clientId=<id>`
 - `containerStatus=FULL|PARTIAL|BUFFER|BLEND_FULL|BLEND_PARTIAL`
 - `includeDeleted=true|false`
+- `limit=1..200` (padrão: `50`)
+- `cursor=<cursor opaco retornado pela API>`
+
+`data`:
+- `items`
+- `nextCursor`
+- `incomplete` — `true` quando o teto seguro de documentos escaneados foi
+  atingido; o cliente deve continuar usando `nextCursor`.
 
 Regra de visibilidade:
 - `OPERATOR`: apenas eventos proprios
@@ -87,6 +115,8 @@ Validacoes relevantes:
 - sobreposicao por bomba
 - transicoes de ciclo e Blend somente para o mesmo cliente
 - concorrencia otimista pelo estado atual do container
+- schema JSON estrito, incluindo justificativas de gaps; campos desconhecidos e
+  tipos incorretos retornam `400 VALIDATION_ERROR`
 
 ## PATCH /api/events/:id
 
@@ -100,6 +130,8 @@ Payload:
 - mesmo formato do POST
 - `revisionReason` opcional
 
+O mesmo schema JSON estrito do `POST` é aplicado.
+
 Efeito colateral:
 - grava item em `events/{id}/revisions` quando houver diff.
 - recalcula o estado atual dos containers de origem e destino.
@@ -107,7 +139,10 @@ Efeito colateral:
 ## GET /api/containers
 
 Lista estados materializados. `scope=open` retorna Parcial, Pulmao e Blend parcial.
-Aceita `query=<codigo>` e `status=<estado>`.
+Aceita `query=<codigo>`, `status=<estado>`, `limit=1..200` e
+`cursor=<cursor opaco>`.
+
+`data` contém `items`, `nextCursor` e `incomplete`.
 
 ## GET /api/containers/lookup
 
@@ -126,7 +161,9 @@ Permissao:
 - `ADMIN` (sem limite)
 
 Payload:
-- `{ "reason": "motivo obrigatorio" }`
+- `{ "reason": "motivo obrigatorio", "gapVersion"?: "...", "gapJustifications"?: [...] }`
+
+O objeto e cada justificativa são estritos.
 
 ## POST /api/events/:id/restore
 
@@ -134,6 +171,14 @@ Restaura lancamento deletado logicamente.
 
 Permissao:
 - somente `ADMIN`
+
+Fluxo:
+1. `GET /api/events/:id/restore` retorna em `data` a prévia atual,
+   `gapVersion`, `expectedContainerStateVersion` e as reconciliações.
+2. `POST /api/events/:id/restore` confirma essas versões e envia
+   `gapJustificationsByEvent`.
+
+Uma mudança concorrente retorna `409 CONFLICT` e exige uma nova prévia.
 
 ## GET /api/clients
 
@@ -153,6 +198,9 @@ Permissao:
 Payload:
 - `{ "name": "..." }`
 
+O objeto é estrito: campos adicionais e `name` com tipo diferente de string
+retornam `400 VALIDATION_ERROR`.
+
 ## PATCH /api/clients/:id
 
 Atualiza cliente.
@@ -162,6 +210,8 @@ Permissao:
 
 Payload:
 - `{ "name"?: "...", "active"?: true|false }`
+
+O objeto é estrito e não converte strings em booleanos.
 
 ## GET /api/users
 
@@ -180,6 +230,8 @@ Permissao:
 Payload:
 - `{ "approved": true|false }`
 
+Somente booleanos JSON reais são aceitos; por exemplo, `"false"` é inválido.
+
 ## POST /api/users/:uid/role
 
 Altera role.
@@ -189,3 +241,21 @@ Permissao:
 
 Payload:
 - `{ "role": "OPERATOR" | "SUPERVISOR" | "DISPLAY" | "ADMIN" }`
+
+## POST /api/auth/sync
+
+Cria o perfil de uma conta Firebase verificada, quando ainda não existe.
+
+Payload opcional:
+- `{ "name"?: string|null }`
+
+O corpo vazio é aceito. JSON malformado, campos desconhecidos e tipos inválidos
+retornam `400 VALIDATION_ERROR`.
+
+## GET e PATCH /api/settings/operations
+
+Permissão:
+- somente `ADMIN`
+
+O `PATCH` aceita exclusivamente:
+- `{ "idleToleranceMinutes": <inteiro entre 0 e 60> }`
