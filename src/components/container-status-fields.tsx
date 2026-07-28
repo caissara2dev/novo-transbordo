@@ -261,7 +261,6 @@ export function ContainerStatusFields({
         <label className={`container-state-choice ${partial ? "active" : ""}`}>
           <input
             checked={partial}
-            disabled={buffer}
             onChange={(event) => togglePartial(event.target.checked)}
             type="checkbox"
           />
