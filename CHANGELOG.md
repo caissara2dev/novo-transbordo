@@ -55,6 +55,10 @@ Não existe release nem tag `v2.1.0` separada.
   concorrente.
 - O produtivo, seus intervalos automáticos e o estado do container são persistidos em uma única
   transação.
+- Dependências de runtime foram atualizadas e o lockfile da release não possui vulnerabilidades
+  conhecidas no `npm audit --omit=dev`.
+- O Dependabot passa a propor semanalmente atualizações menores e de correção, agrupadas entre
+  dependências de produção e desenvolvimento.
 
 ## [2.0.0] - 2026-07-21
 
