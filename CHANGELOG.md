@@ -48,6 +48,8 @@ Não existe release nem tag `v2.1.0` separada.
 - Avisos de sucesso passam a usar uma aparência positiva, distinta das mensagens de erro.
 - O Firebase Admin passa a ser empacotado no servidor para evitar falhas ESM/CJS nas APIs do
   preview e do App Hosting.
+- A configuração pública do App Hosting passa a usar o App ID e a API key reais do app Web de
+  produção.
 
 ### Segurança
 

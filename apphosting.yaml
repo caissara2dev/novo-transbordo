@@ -6,7 +6,7 @@ env:
       - RUNTIME
 
   - variable: NEXT_PUBLIC_FIREBASE_API_KEY
-    value: "AIzaSyArVRUCA7aKarpd70yqkz7NGOl3ja0f3_o"
+    value: "AIzaSyAjPDTl4hGdIOVvumoPdoysTMeFGWx_zY0"
     availability:
       - BUILD
       - RUNTIME
@@ -36,7 +36,7 @@ env:
       - RUNTIME
 
   - variable: NEXT_PUBLIC_FIREBASE_APP_ID
-    value: "1:382612530713:web:0c4c0f7c8f8e2b4e5a7b8c"
+    value: "1:382612530713:web:fea8995134ab67f3caec88"
     availability:
       - BUILD
       - RUNTIME
@@ -60,7 +60,7 @@ env:
     value: "observe"
 
   - variable: APP_CHECK_ALLOWED_APP_IDS
-    value: "1:382612530713:web:0c4c0f7c8f8e2b4e5a7b8c"
+    value: "1:382612530713:web:fea8995134ab67f3caec88"
 
   - variable: RATE_LIMIT_MODE
     value: "observe"
