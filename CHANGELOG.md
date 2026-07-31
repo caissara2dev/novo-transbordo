@@ -50,6 +50,8 @@ Não existe release nem tag `v2.1.0` separada.
   preview e do App Hosting.
 - A configuração pública do App Hosting passa a usar o App ID e a API key reais do app Web de
   produção.
+- O App Hosting passa a inicializar App Check com a site key reCAPTCHA Enterprise registrada para
+  o app Web de produção.
 
 ### Segurança
 

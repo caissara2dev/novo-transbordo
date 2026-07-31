@@ -47,9 +47,13 @@ env:
   - variable: APPROVAL_CONTACT_PHONE
     value: "+55-13-99711-2838"
 
-  # NEXT_PUBLIC_FIREBASE_APP_CHECK_SITE_KEY is intentionally omitted until the
-  # real reCAPTCHA Enterprise site key is configured at BUILD and RUNTIME.
-  # App Check remains non-blocking until staging smoke tests are successful.
+  - variable: NEXT_PUBLIC_FIREBASE_APP_CHECK_SITE_KEY
+    value: "6LdgAG8tAAAAAArs8dpVhOE3MWy2E31y0JfUtrja"
+    availability:
+      - BUILD
+      - RUNTIME
+
+  # App Check remains non-blocking during the initial production observation.
   - variable: NEXT_PUBLIC_APP_CHECK_FAIL_CLOSED
     value: "false"
     availability:

@@ -130,8 +130,9 @@ A promoção é sempre progressiva:
 7. smoke test dos fluxos críticos e aprovação da release;
 8. repetição do gate de regras e índices em produção;
 9. espera dos índices de produção ficarem `Ready`;
-10. merge em `main`, publicação pelo Firebase App Hosting e smoke test;
-11. criação da tag e da GitHub Release.
+10. dry-run e execução confirmada do backfill idempotente de `containerStates`;
+11. merge em `main`, publicação pelo Firebase App Hosting e smoke test;
+12. criação da tag e da GitHub Release.
 
 Nunca publique a aplicação antes dos índices exigidos pelo build estarem
 `Ready`. A Vercel é usada apenas para branches de trabalho com o projeto Firebase

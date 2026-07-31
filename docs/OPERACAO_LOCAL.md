@@ -183,14 +183,14 @@ O `apphosting.yaml` mantém:
 - `RATE_LIMIT_MODE=observe`;
 - `TRUSTED_PROXY_MODE=google-lb`;
 - `APP_CHECK_ALLOWED_APP_IDS` igual ao App ID web público já configurado;
+- `NEXT_PUBLIC_FIREBASE_APP_CHECK_SITE_KEY` com a site key pública registrada
+  no App Check de produção;
 - `RATE_LIMIT_KEY_VERSION=v1`;
 - referência ao segredo `RATE_LIMIT_HMAC_SECRET`, sem o valor.
 
-O repositório não contém
-`NEXT_PUBLIC_FIREBASE_APP_CHECK_SITE_KEY` de produção porque o site key real
-ainda deve ser criado/copiado do reCAPTCHA Enterprise. Não use um placeholder
-em um deploy. Quando ele existir, adicione a variável real ao App Hosting com
-disponibilidade `BUILD` e `RUNTIME`.
+A site key do reCAPTCHA Enterprise é pública e fica disponível em `BUILD` e
+`RUNTIME`. Qualquer rotação exige atualizar o registro do App Check, revisar os
+domínios permitidos e gerar um novo build. Nunca publique um placeholder.
 
 ## Rollout de App Check e rate limiting
 
@@ -285,7 +285,28 @@ dependente enquanto o Firebase Console indicar construção. O deploy deve ser
 aditivo: não use `--force` e não confirme a remoção de índices remotos durante
 este fluxo.
 
-### 5. Observar
+### 5. Materializar estados de containers em produção
+
+Depois que todos os índices estiverem `Ready` e antes do merge, execute primeiro
+o dry-run. Revise as quantidades e só então use as confirmações reforçadas de
+produção:
+
+```bash
+npm run backfill:container-states -- --project=line-transbordo --dry-run
+npm run backfill:container-states -- --project=line-transbordo \
+  --execute --confirm-project=line-transbordo --allow-production \
+  --confirm-production=BACKFILL_CONTAINER_STATES_IN_PRODUCTION
+```
+
+O backfill é idempotente, preserva projeções mais novas e nunca altera a coleção
+`events`. Registre as contagens do dry-run e da execução na issue da release.
+Como `containerStates` é uma projeção derivada, o rollback imediato é restaurar
+a versão anterior da aplicação, que não depende dessa coleção, e preservar os
+documentos para análise. Não apague estados durante um incidente. Corrija a
+lógica, valide novamente em staging e repare a projeção executando o backfill
+idempotente revisado; lotes parciais também podem ser retomados com segurança.
+
+### 6. Observar
 
 Em `observe`, requisições continuam:
 
@@ -303,7 +324,7 @@ Observe ao menos um ciclo operacional representativo. Antes de enforcement:
 - o segredo e o TTL estão ativos;
 - respostas `503` de proteção estão ausentes.
 
-### 6. Aplicar enforcement gradualmente
+### 7. Aplicar enforcement gradualmente
 
 1. Altere somente `APP_CHECK_MODE` para `enforce`.
 2. Refaça o smoke test e acompanhe `401`, `403` e `503`.
