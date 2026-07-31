@@ -1,6 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  typedRoutes: true
+  typedRoutes: true,
+  transpilePackages: ["firebase-admin"]
 };
 
 export default nextConfig;

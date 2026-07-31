@@ -1,3 +1,5 @@
+import "server-only";
+
 import { App, cert, getApp, getApps, initializeApp } from "firebase-admin/app";
 import type { AppCheck } from "firebase-admin/app-check";
 import { getAuth } from "firebase-admin/auth";

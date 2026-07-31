@@ -46,6 +46,8 @@ Não existe release nem tag `v2.1.0` separada.
 - Ordenação do histórico para manter o produtivo acima da ociosidade automática que o antecede.
 - Filtros do histórico deixam de depender de combinações de índices compostos não publicadas.
 - Avisos de sucesso passam a usar uma aparência positiva, distinta das mensagens de erro.
+- O Firebase Admin passa a ser empacotado no servidor para evitar falhas ESM/CJS nas APIs do
+  preview e do App Hosting.
 
 ### Segurança
 
