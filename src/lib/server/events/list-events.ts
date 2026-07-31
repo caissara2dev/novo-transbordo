@@ -2,6 +2,10 @@ import {
   FieldPath,
   Timestamp
 } from "firebase-admin/firestore";
+import {
+  collectPreviousContainerPassages,
+  ContainerCycleHistoryEntry
+} from "@/lib/domain/container-cycle-history";
 import { matchesOperationalHistory } from "@/lib/domain/event-order";
 import { adminDb } from "@/lib/firebase/admin";
 import { eventContainerStatus } from "@/lib/server/container-states";
@@ -14,6 +18,8 @@ import {
   scanFilteredPage
 } from "@/lib/server/pagination";
 import { EventDoc, UserDoc } from "@/types/domain";
+
+const MAX_PREVIOUS_CONTAINER_PASSAGES = 20;
 
 type EventListPosition = {
   shiftDate: string | null;
@@ -53,6 +59,120 @@ function eventListItem(doc: FirebaseFirestore.QueryDocumentSnapshot) {
     startsNewContainerCycle: Boolean(data.startsNewContainerCycle),
     blendConfirmed: Boolean(data.blendConfirmed)
   };
+}
+
+type EventListItem = ReturnType<typeof eventListItem>;
+
+function canReadContainerPassage(
+  data: Pick<EventDoc, "createdByUid">,
+  role: UserDoc["role"],
+  uid: string
+) {
+  return role !== "OPERATOR" || data.createdByUid === uid;
+}
+
+function containerHistoryEntry(
+  id: string,
+  data: EventListItem | EventDoc
+): ContainerCycleHistoryEntry | null {
+  const status = "containerStatus" in data
+    ? data.containerStatus
+    : eventContainerStatus(data);
+  if (!status) {
+    return null;
+  }
+
+  return {
+    id,
+    containerCycleId: data.containerCycleId || null,
+    previousContainerEventId: data.previousContainerEventId || null,
+    startTime: data.startTime,
+    endTime: data.endTime,
+    pump: data.pump,
+    plate: data.plate || null,
+    status,
+    deleted: Boolean(data.deleted)
+  };
+}
+
+async function fetchContainerHistoryEntry(params: {
+  id: string;
+  role: UserDoc["role"];
+  uid: string;
+  cache: Map<string, ContainerCycleHistoryEntry>;
+  missing: Set<string>;
+}) {
+  if (params.cache.has(params.id)) {
+    return params.cache.get(params.id) || null;
+  }
+  if (params.missing.has(params.id)) {
+    return null;
+  }
+
+  const snap = await adminDb.collection("events").doc(params.id).get();
+  const data = snap.exists ? (snap.data() as EventDoc | undefined) : undefined;
+  const entry =
+    data && canReadContainerPassage(data, params.role, params.uid)
+      ? containerHistoryEntry(snap.id, data)
+      : null;
+  if (entry) {
+    params.cache.set(params.id, entry);
+  } else {
+    params.missing.add(params.id);
+  }
+  return entry;
+}
+
+async function previousContainerPassagesForEvents(params: {
+  events: EventListItem[];
+  role: UserDoc["role"];
+  uid: string;
+}) {
+  const cache = new Map<string, ContainerCycleHistoryEntry>();
+  const missing = new Set<string>();
+  const result = new Map<string, ReturnType<typeof collectPreviousContainerPassages>>();
+
+  for (const event of params.events) {
+    const entry = containerHistoryEntry(event.id, event);
+    if (entry) {
+      cache.set(event.id, entry);
+    }
+  }
+
+  for (const event of params.events) {
+    const current = cache.get(event.id);
+    if (!current?.containerCycleId || !current.previousContainerEventId) {
+      result.set(event.id, []);
+      continue;
+    }
+
+    const visited = new Set<string>([event.id]);
+    let previousId: string | null = current.previousContainerEventId;
+    let depth = 0;
+    while (
+      previousId &&
+      !visited.has(previousId) &&
+      depth < MAX_PREVIOUS_CONTAINER_PASSAGES
+    ) {
+      visited.add(previousId);
+      const previous = await fetchContainerHistoryEntry({
+        id: previousId,
+        role: params.role,
+        uid: params.uid,
+        cache,
+        missing
+      });
+      if (!previous || previous.containerCycleId !== current.containerCycleId) {
+        break;
+      }
+      previousId = previous.previousContainerEventId;
+      depth += 1;
+    }
+
+    result.set(event.id, collectPreviousContainerPassages(current, cache));
+  }
+
+  return result;
 }
 
 export async function listEvents(params: {
@@ -158,6 +278,11 @@ export async function listEvents(params: {
   });
   const pageEntries = scan.matches.slice(0, pagination.limit);
   const visibleEvents = pageEntries.map((entry) => entry.event);
+  const previousPassagesByEventId = await previousContainerPassagesForEvents({
+    events: visibleEvents,
+    role,
+    uid
+  });
   const lastReturned = pageEntries.at(-1);
   const nextPosition = scan.incomplete
     ? scan.lastScannedPosition
@@ -181,7 +306,7 @@ export async function listEvents(params: {
   return {
     items: visibleEvents.map((event) => ({
       ...event,
-      previousContainerPassages: []
+      previousContainerPassages: previousPassagesByEventId.get(event.id) || []
     })),
     nextCursor,
     incomplete: scan.incomplete

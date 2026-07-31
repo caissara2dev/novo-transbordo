@@ -8,12 +8,14 @@ type FakeDoc = {
 const firestore = vi.hoisted(() => {
   const timestamp = (value: number) => ({ toMillis: () => value });
   const pageQueue: FakeDoc[][] = [];
+  const docsById = new Map<string, FakeDoc>();
   const query = {
     where: vi.fn(),
     orderBy: vi.fn(),
     startAfter: vi.fn(),
     limit: vi.fn(),
-    get: vi.fn()
+    get: vi.fn(),
+    doc: vi.fn()
   };
 
   for (const method of [
@@ -27,9 +29,20 @@ const firestore = vi.hoisted(() => {
   query.get.mockImplementation(async () => ({
     docs: pageQueue.shift() || []
   }));
+  query.doc.mockImplementation((id: string) => ({
+    get: vi.fn(async () => {
+      const doc = docsById.get(id);
+      return {
+        exists: Boolean(doc),
+        id,
+        data: () => doc?.data()
+      };
+    })
+  }));
 
   return {
     collection: vi.fn(() => query),
+    docsById,
     pageQueue,
     query,
     timestamp
@@ -45,24 +58,34 @@ vi.mock("@/lib/firebase/admin", () => ({
 function eventDoc(params: {
   id: string;
   createdByUid?: string;
+  shiftDate?: string;
   pump?: string;
   startAt?: number;
   deleted?: boolean;
   containerCycleId?: string;
+  previousContainerEventId?: string | null;
+  plate?: string | null;
+  status?: string | null;
+  startTime?: string;
+  endTime?: string;
 }): FakeDoc {
   const startAt = params.startAt ?? 200;
   return {
     id: params.id,
     data: () => ({
-      shiftDate: "2026-07-27",
+      shiftDate: params.shiftDate ?? "2026-07-27",
       pump: params.pump ?? "BOMBA_2",
       shiftType: "MANHA",
       category: "PRODUTIVO",
       clientId: "client-1",
-      containerStatus: "FULL",
+      containerStatus: params.status ?? "FULL",
       createdByUid: params.createdByUid ?? "operator-1",
       deleted: params.deleted ?? false,
+      startTime: params.startTime ?? "06:00",
+      endTime: params.endTime ?? "06:10",
+      plate: params.plate ?? "AAA-1A23",
       containerCycleId: params.containerCycleId ?? null,
+      previousContainerEventId: params.previousContainerEventId ?? null,
       startAt: firestore.timestamp(startAt),
       endAt: firestore.timestamp(startAt + 50),
       createdAt: firestore.timestamp(startAt + 100)
@@ -73,6 +96,7 @@ function eventDoc(params: {
 describe("listEvents pagination", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    firestore.docsById.clear();
     firestore.pageQueue.length = 0;
     firestore.query.get.mockImplementation(async () => ({
       docs: firestore.pageQueue.shift() || []
@@ -219,11 +243,28 @@ describe("listEvents pagination", () => {
     expect(result.nextCursor).toEqual(expect.any(String));
   });
 
-  it("does not load unbounded cycle history while listing events", async () => {
+  it("loads previous container passages by cycle outside the active filters", async () => {
+    firestore.docsById.set(
+      "previous-1",
+      eventDoc({
+        id: "previous-1",
+        shiftDate: "2026-07-26",
+        pump: "BOMBA_1",
+        containerCycleId: "cycle-1",
+        status: "PARTIAL",
+        plate: "ABC-1234",
+        startTime: "07:00",
+        endTime: "07:15"
+      })
+    );
     firestore.pageQueue.push([
       eventDoc({
-        id: "event-1",
-        containerCycleId: "cycle-with-long-history"
+        id: "current",
+        pump: "BOMBA_2",
+        containerCycleId: "cycle-1",
+        previousContainerEventId: "previous-1",
+        status: "FULL",
+        startAt: 500
       })
     ]);
     const { listEvents } = await import("@/lib/server/events");
@@ -236,7 +277,48 @@ describe("listEvents pagination", () => {
     });
 
     expect(result.items).toHaveLength(1);
-    expect(firestore.collection).toHaveBeenCalledTimes(1);
+    expect(result.items[0].previousContainerPassages).toEqual([
+      {
+        id: "previous-1",
+        startTime: "07:00",
+        endTime: "07:15",
+        pump: "BOMBA_1",
+        plate: "ABC-1234",
+        status: "PARTIAL"
+      }
+    ]);
+  });
+
+  it("does not expose previous passages from another operator", async () => {
+    firestore.docsById.set(
+      "other-operator-event",
+      eventDoc({
+        id: "other-operator-event",
+        createdByUid: "operator-2",
+        containerCycleId: "cycle-1",
+        status: "PARTIAL"
+      })
+    );
+    firestore.pageQueue.push([
+      eventDoc({
+        id: "current",
+        createdByUid: "operator-1",
+        containerCycleId: "cycle-1",
+        previousContainerEventId: "other-operator-event",
+        status: "FULL"
+      })
+    ]);
+    const { listEvents } = await import("@/lib/server/events");
+
+    const result = await listEvents({
+      role: "OPERATOR",
+      uid: "operator-1",
+      filters: {},
+      pagination: { limit: 50 }
+    });
+
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].previousContainerPassages).toEqual([]);
   });
 
   it("rejects a malformed opaque cursor", async () => {

@@ -1,33 +1,80 @@
 import { applicationDefault, deleteApp, initializeApp } from "firebase-admin/app";
 import { FieldPath, getFirestore } from "firebase-admin/firestore";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const ALLOWED_PROJECTS = new Set([
   "line-transbordo-staging-382612",
   "line-transbordo"
 ]);
+export const PRODUCTION_BACKFILL_CONFIRMATION =
+  "BACKFILL_CONTAINER_STATES_IN_PRODUCTION";
 const PAGE_SIZE = 300;
 const WRITE_BATCH_SIZE = 400;
 
-function parseArgs(argv) {
+function argumentValue(argv, name) {
+  return argv.find((arg) => arg.startsWith(`${name}=`))?.slice(name.length + 1) || null;
+}
+
+export function parseArgs(argv) {
+  const knownFlags = new Set([
+    "--help",
+    "--dry-run",
+    "--execute",
+    "--allow-production"
+  ]);
+  const knownValuePrefixes = [
+    "--project=",
+    "--confirm-project=",
+    "--confirm-production="
+  ];
+  const unknown = argv.find(
+    (arg) =>
+      arg.startsWith("--") &&
+      !knownFlags.has(arg) &&
+      !knownValuePrefixes.some((prefix) => arg.startsWith(prefix))
+  );
+  if (unknown) {
+    throw new Error(`Argumento desconhecido: ${unknown}.`);
+  }
+  if (argv.includes("--execute") && argv.includes("--dry-run")) {
+    throw new Error("Use apenas --dry-run ou --execute, nunca ambos.");
+  }
+
   const projectArg = argv.find((arg) => arg.startsWith("--project="));
-  const confirmArg = argv.find((arg) => arg.startsWith("--confirm-project="));
   const execute = argv.includes("--execute");
 
   return {
     help: argv.includes("--help"),
     execute,
+    dryRun: !execute,
     projectId: projectArg?.slice("--project=".length) || "",
-    confirmation: confirmArg?.slice("--confirm-project=".length) || ""
+    confirmation: argumentValue(argv, "--confirm-project"),
+    allowProduction: argv.includes("--allow-production"),
+    productionConfirmation: argumentValue(argv, "--confirm-production")
   };
 }
 
-function validate(options) {
+export function validateBackfillRequest(options) {
   if (!ALLOWED_PROJECTS.has(options.projectId)) {
     throw new Error("Projeto recusado. Informe staging ou produção explicitamente.");
   }
   if (options.execute && options.confirmation !== options.projectId) {
     throw new Error(
       `Para executar, informe --confirm-project=${options.projectId}.`
+    );
+  }
+  if (!options.execute || options.projectId !== "line-transbordo") {
+    return;
+  }
+  if (!options.allowProduction) {
+    throw new Error(
+      "Produção bloqueada. Acrescente --allow-production se esta ação for intencional."
+    );
+  }
+  if (options.productionConfirmation !== PRODUCTION_BACKFILL_CONFIRMATION) {
+    throw new Error(
+      `Produção exige --confirm-production=${PRODUCTION_BACKFILL_CONFIRMATION}.`
     );
   }
 }
@@ -59,6 +106,63 @@ function isNewer(candidate, current) {
   const endDelta = toMillis(candidate.endAt) - toMillis(current.endAt);
   if (endDelta !== 0) return endDelta > 0;
   return toMillis(candidate.createdAt) > toMillis(current.createdAt);
+}
+
+function projectionValue(value) {
+  return value && typeof value.toMillis === "function"
+    ? value.toMillis()
+    : value;
+}
+
+function isExistingStateNewer(existing, data) {
+  if (!existing) return false;
+
+  const existingOperationalAt = toMillis(existing.operationalAt);
+  const candidateOperationalAt = toMillis(data.endAt);
+  if (!existingOperationalAt || !candidateOperationalAt) return false;
+
+  const operationalDelta = existingOperationalAt - candidateOperationalAt;
+  if (operationalDelta !== 0) return operationalDelta > 0;
+
+  return toMillis(existing.eventCreatedAt) > toMillis(data.createdAt);
+}
+
+export function buildContainerStateBackfillPatch({
+  existing,
+  eventId,
+  key,
+  status,
+  data
+}) {
+  if (isExistingStateNewer(existing, data)) {
+    return null;
+  }
+
+  const projection = {
+    container: data.container,
+    status,
+    reason: data.containerReason || null,
+    cycleId: data.containerCycleId || `legacy-${key}`,
+    latestEventId: eventId,
+    previousEventId: data.previousContainerEventId || null,
+    clientId: data.clientId,
+    clientNameSnapshot: data.clientNameSnapshot || null,
+    plate: data.plate,
+    pump: data.pump,
+    operationalAt: data.endAt,
+    eventCreatedAt: data.createdAt,
+    updatedAt: data.updatedAt || data.createdAt
+  };
+  const currentVersion = Math.max(1, Number(existing?.version) || 1);
+  const changed = !existing || Object.entries(projection).some(
+    ([field, value]) =>
+      projectionValue(existing[field]) !== projectionValue(value)
+  );
+
+  return {
+    ...projection,
+    version: existing && changed ? currentVersion + 1 : currentVersion
+  };
 }
 
 async function* readEvents(db) {
@@ -119,22 +223,20 @@ async function writeStates(db, latest) {
     const ref = db.collection("containerStates").doc(item.key);
     const existing = await ref.get();
     const data = item.data;
-    batch.set(ref, {
-      container: data.container,
+    const patch = buildContainerStateBackfillPatch({
+      existing: existing.data(),
+      eventId: item.id,
+      key: item.key,
       status: item.status,
-      reason: data.containerReason || null,
-      cycleId: data.containerCycleId || `legacy-${item.key}`,
-      latestEventId: item.id,
-      previousEventId: data.previousContainerEventId || null,
-      clientId: data.clientId,
-      clientNameSnapshot: data.clientNameSnapshot || null,
-      plate: data.plate,
-      pump: data.pump,
-      operationalAt: data.endAt,
-      eventCreatedAt: data.createdAt,
-      version: Number(existing.data()?.version || 1),
-      updatedAt: data.updatedAt || data.createdAt
+      data
     });
+    if (!patch) {
+      continue;
+    }
+    batch.set(
+      ref,
+      patch
+    );
     writes += 1;
     pending += 1;
     if (pending >= WRITE_BATCH_SIZE) await flush();
@@ -148,18 +250,19 @@ function printHelp() {
   console.log(`Uso:
   npm run backfill:container-states -- --project=line-transbordo-staging-382612 --dry-run
   npm run backfill:container-states -- --project=line-transbordo-staging-382612 --execute --confirm-project=line-transbordo-staging-382612
-  npm run backfill:container-states -- --project=line-transbordo --execute --confirm-project=line-transbordo
+  npm run backfill:container-states -- --project=line-transbordo --execute --confirm-project=line-transbordo \
+    --allow-production --confirm-production=${PRODUCTION_BACKFILL_CONFIRMATION}
 
 O script nunca altera events; materializa somente containerStates.`);
 }
 
-async function main() {
-  const options = parseArgs(process.argv.slice(2));
+export async function main(argv = process.argv.slice(2)) {
+  const options = parseArgs(argv);
   if (options.help) {
     printHelp();
     return;
   }
-  validate(options);
+  validateBackfillRequest(options);
 
   const app = initializeApp(
     { credential: applicationDefault(), projectId: options.projectId },
@@ -199,7 +302,13 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : error);
-  process.exitCode = 1;
-});
+const isDirectInvocation =
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (isDirectInvocation) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : error);
+    process.exitCode = 1;
+  });
+}
