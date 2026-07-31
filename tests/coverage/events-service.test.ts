@@ -330,6 +330,93 @@ describe("public event command service", () => {
     });
   });
 
+  it("requires and persists laboratory client, plate and waiting truck count", async () => {
+    inMemoryAdminDb.seed("clients", "client-1", {
+      active: true,
+      name: "Cliente 1"
+    });
+    const firstInput = eventInput({
+      category: "PRODUTIVO",
+      clientId: "client-1",
+      plate: "ABC1234",
+      container: "ABCU1234560",
+      expectedContainerStateVersion: 0,
+      notes: null
+    });
+    const { previewEventGap } = await import("@/lib/server/gaps");
+    const firstPreview = await previewEventGap(firstInput);
+    await createEvent(
+      { ...firstInput, gapVersion: firstPreview.gapVersion },
+      actor
+    );
+
+    const nextInput = eventInput({
+      startTime: "06:30",
+      endTime: "06:45",
+      category: "PRODUTIVO",
+      clientId: "client-1",
+      plate: "ABC1234",
+      container: "ABCU1234560",
+      startsNewContainerCycle: true,
+      expectedContainerStateVersion: 1,
+      notes: null
+    });
+    const preview = await previewEventGap(nextInput);
+    const segment = preview.uncoveredSegments[0];
+
+    await expect(
+      createEvent(
+        {
+          ...nextInput,
+          gapVersion: preview.gapVersion,
+          gapJustifications: [
+            {
+              ...segment,
+              category: "AGUARDANDO_LABORATORIO",
+              clientId: "client-1",
+              plate: null,
+              notes: "3 carretas aguardando"
+            }
+          ]
+        },
+        actor
+      )
+    ).rejects.toMatchObject({ status: 400 });
+
+    const created = await createEvent(
+      {
+        ...nextInput,
+        gapVersion: preview.gapVersion,
+        gapJustifications: [
+          {
+            ...segment,
+            category: "AGUARDANDO_LABORATORIO",
+            clientId: "client-1",
+            plate: "XYZ1234",
+            notes: "3 carretas aguardando"
+          }
+        ]
+      },
+      actor
+    );
+    const automatic = inMemoryAdminDb
+      .entries("events")
+      .map(([, data]) => data)
+      .find(
+        (data) =>
+          data.origin === "AUTO_GAP" &&
+          data.generatedForEventId === created.id
+      );
+
+    expect(automatic).toMatchObject({
+      category: "AGUARDANDO_LABORATORIO",
+      clientId: "client-1",
+      plate: "XYZ1234",
+      notes: "3 carretas aguardando",
+      justificationWaived: false
+    });
+  });
+
   it("rejects inactive clients at the domain boundary", async () => {
     inMemoryAdminDb.seed("clients", "inactive", {
       active: false,

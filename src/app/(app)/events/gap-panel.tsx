@@ -6,7 +6,11 @@ import { formatPlateForInput } from "@/lib/domain/identifiers";
 import { idleCategoryOptions } from "@/lib/domain/options";
 import { ClientApiItem } from "@/types/api";
 import { GapJustification } from "@/types/domain";
-import { EventFormState, formatDuration } from "./event-model";
+import {
+  categoryNotesPlaceholders,
+  EventFormState,
+  formatDuration
+} from "./event-model";
 
 type GapPanelProps = {
   form: EventFormState;
@@ -96,15 +100,39 @@ export function GapPanel({
               Causa
               <select
                 className="select-ui"
-                onChange={(event) =>
-                  patchJustification(item.id, {
-                    category: event.target
-                      .value as GapJustification["category"],
-                    clientId: null,
-                    plate: null,
-                    notes: null
-                  })
-                }
+                onChange={(event) => {
+                  const category = event.target
+                    .value as GapJustification["category"];
+
+                  setForm((current) => {
+                    const currentJustification =
+                      current.gapJustifications.find(
+                        (justification) => justification.id === item.id
+                      );
+                    const copiedPlate = currentJustification?.plate || "";
+                    const shouldClearProductivePlate =
+                      currentJustification?.category === "EM_TRANSITO" &&
+                      category !== "EM_TRANSITO" &&
+                      current.plate === copiedPlate;
+
+                    return {
+                      ...current,
+                      plate: shouldClearProductivePlate ? "" : current.plate,
+                      gapJustifications: current.gapJustifications.map(
+                        (justification) =>
+                          justification.id === item.id
+                            ? {
+                                ...justification,
+                                category,
+                                clientId: null,
+                                plate: null,
+                                notes: null
+                              }
+                            : justification
+                      )
+                    };
+                  });
+                }}
                 value={item.category}
               >
                 {idleCategoryOptions.map((option) => (
@@ -141,12 +169,34 @@ export function GapPanel({
                 Placa *
                 <input
                   className="input-ui"
-                  onChange={(event) =>
-                    patchJustification(item.id, {
-                      plate:
-                        formatPlateForInput(event.target.value) || null
-                    })
-                  }
+                  onChange={(event) => {
+                    const plate = formatPlateForInput(event.target.value);
+
+                    setForm((current) => {
+                      const currentJustification =
+                        current.gapJustifications.find(
+                          (justification) => justification.id === item.id
+                        );
+                      const previousGapPlate =
+                        currentJustification?.plate || "";
+                      const shouldFillProductivePlate =
+                        currentJustification?.category === "EM_TRANSITO" &&
+                        (!current.plate || current.plate === previousGapPlate);
+
+                      return {
+                        ...current,
+                        plate: shouldFillProductivePlate
+                          ? plate
+                          : current.plate,
+                        gapJustifications: current.gapJustifications.map(
+                          (justification) =>
+                            justification.id === item.id
+                              ? { ...justification, plate: plate || null }
+                              : justification
+                        )
+                      };
+                    });
+                  }}
                   required
                   value={item.plate || ""}
                 />
@@ -166,6 +216,7 @@ export function GapPanel({
                       notes: event.target.value || null
                     })
                   }
+                  placeholder={categoryNotesPlaceholders[item.category]}
                   required
                   value={item.notes || ""}
                 />

@@ -63,6 +63,11 @@ export const categoryDescriptions: Record<Category, string> = {
   OUTROS: "Ocorrências fora dos cenários acima."
 };
 
+export const categoryNotesPlaceholders: Partial<Record<Category, string>> = {
+  AGUARDANDO_LABORATORIO:
+    "Informe quantas carretas estão aguardando o laboratório."
+};
+
 export function makeInitialForm(): EventFormState {
   const currentShift = currentShiftFromNow();
 

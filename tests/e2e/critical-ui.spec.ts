@@ -288,6 +288,127 @@ test("event history loads cursor pages without duplicate rows", async ({
   expect(requestedCursors).toEqual([null, "opaque/cursor+token="]);
 });
 
+test("copies the transit justification plate without overriding a manual productive plate", async ({
+  page
+}) => {
+  const preview = {
+    toleranceMinutes: 10,
+    gapVersion: "gap-v1",
+    uncoveredSegments: [
+      {
+        id: "gap-1",
+        startTime: "06:00",
+        endTime: "06:20",
+        durationMinutes: 20
+      }
+    ],
+    uncoveredMinutes: 20,
+    requiresJustification: true,
+    reconciliations: []
+  };
+
+  await page.route("**/api/clients*", (route) =>
+    route.fulfill(
+      json({
+        ok: true,
+        data: { items: [], nextCursor: null, incomplete: false }
+      })
+    )
+  );
+  await page.route("**/api/events?*", (route) =>
+    route.fulfill(
+      json({
+        ok: true,
+        data: { items: [], nextCursor: null, incomplete: false }
+      })
+    )
+  );
+  await page.route("**/api/events/gap-preview", (route) =>
+    route.fulfill(json({ ok: true, data: preview }))
+  );
+
+  await login(page);
+  await page.goto("/events");
+
+  const createForm = page
+    .getByRole("heading", { name: "Novo lançamento" })
+    .locator("..");
+  await createForm.getByLabel("Horário início").fill("06:20");
+
+  const gap = createForm.getByRole("group", { name: /Trecho 1:/ });
+  await expect(gap).toBeVisible();
+  await gap.getByLabel("Causa").selectOption("EM_TRANSITO");
+
+  const gapPlate = gap.getByLabel("Placa *");
+  const productivePlate = createForm.locator(
+    'input[placeholder="AAA1234 ou AAA1A23"]'
+  );
+
+  await gapPlate.fill("ABC1D23");
+  await expect(productivePlate).toHaveValue("ABC-1D23");
+
+  await gap.getByLabel("Causa").selectOption("OUTROS");
+  await expect(productivePlate).toHaveValue("");
+
+  await gap.getByLabel("Causa").selectOption("EM_TRANSITO");
+  await gap.getByLabel("Placa *").fill("DEF2E34");
+  await expect(productivePlate).toHaveValue("DEF-2E34");
+
+  await productivePlate.fill("XYZ9Z99");
+  await gap.getByLabel("Placa *").fill("GHI3F45");
+  await expect(productivePlate).toHaveValue("XYZ-9Z99");
+});
+
+test("requires client, plate and waiting truck count for laboratory idle time", async ({
+  page
+}) => {
+  await page.route("**/api/clients*", (route) =>
+    route.fulfill(
+      json({
+        ok: true,
+        data: { items: [], nextCursor: null, incomplete: false }
+      })
+    )
+  );
+  await page.route("**/api/events?*", (route) =>
+    route.fulfill(
+      json({
+        ok: true,
+        data: { items: [], nextCursor: null, incomplete: false }
+      })
+    )
+  );
+
+  await login(page);
+  await page.goto("/events");
+
+  const createForm = page
+    .getByRole("heading", { name: "Novo lançamento" })
+    .locator("..");
+  await createForm
+    .getByRole("button", { name: "Registrar ociosidade" })
+    .click();
+  await createForm
+    .getByRole("button", { name: /Aguardando Laboratório/ })
+    .click();
+
+  await expect(createForm.getByLabel("Cliente *")).toHaveAttribute(
+    "required",
+    ""
+  );
+  await expect(createForm.getByLabel("Placa *")).toHaveAttribute(
+    "required",
+    ""
+  );
+
+  const notes = createForm.getByLabel("Observações *");
+  await expect(notes).toHaveAttribute("required", "");
+  await expect(notes).toHaveAttribute(
+    "placeholder",
+    "Informe quantas carretas estão aguardando o laboratório."
+  );
+});
+
 test("keeps the saved launch and existing history clear when history refresh fails", async ({
   page
 }) => {

@@ -6,6 +6,7 @@ import { idleCategoryOptions } from "@/lib/domain/options";
 import { ClientApiItem } from "@/types/api";
 import { GapJustification, GapPreview } from "@/types/domain";
 import {
+  categoryNotesPlaceholders,
   DeletePlan,
   formatDuration,
   RestorePlan
@@ -154,6 +155,7 @@ export function ReconciliationPreviewList({
                           notes: event.target.value || null
                         })
                       }
+                      placeholder={categoryNotesPlaceholders[item.category]}
                       required
                       value={item.notes || ""}
                     />
@@ -375,6 +377,7 @@ export function DeleteReconciliationPanel({
                       notes: event.target.value || null
                     })
                   }
+                  placeholder={categoryNotesPlaceholders[item.category]}
                   required
                   value={item.notes || ""}
                 />

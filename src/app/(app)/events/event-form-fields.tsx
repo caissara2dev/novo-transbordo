@@ -21,6 +21,7 @@ import { ClientApiItem } from "@/types/api";
 import { ShiftType } from "@/types/domain";
 import {
   categoryDescriptions,
+  categoryNotesPlaceholders,
   EventFormState
 } from "./event-model";
 import { GapPanel } from "./gap-panel";
@@ -338,6 +339,7 @@ export function EventFormFields({
           onChange={(event) =>
             setForm({ ...form, notes: event.target.value })
           }
+          placeholder={categoryNotesPlaceholders[form.category]}
           required={rules.requiresNotes}
           value={form.notes}
         />
