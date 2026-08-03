@@ -52,6 +52,8 @@ Não existe release nem tag `v2.1.0` separada.
   produção.
 - O App Hosting passa a inicializar App Check com a site key reCAPTCHA Enterprise registrada para
   o app Web de produção.
+- O backfill de containers passa a aguardar a execução completa antes de encerrar o processo e
+  confirmar a contagem materializada.
 
 ### Segurança
 

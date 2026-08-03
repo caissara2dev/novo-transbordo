@@ -307,8 +307,10 @@ const isDirectInvocation =
   path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 
 if (isDirectInvocation) {
-  main().catch((error) => {
+  try {
+    await main();
+  } catch (error) {
     console.error(error instanceof Error ? error.message : error);
     process.exitCode = 1;
-  });
+  }
 }

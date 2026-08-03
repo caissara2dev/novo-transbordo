@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -8,6 +9,12 @@ import {
 } from "../../scripts/backfill-container-states.mjs";
 
 describe("container state backfill CLI policy", () => {
+  it("awaits the direct CLI execution before Node can exit", () => {
+    const source = readFileSync("scripts/backfill-container-states.mjs", "utf8");
+
+    expect(source).toMatch(/if \(isDirectInvocation\) \{\s+try \{\s+await main\(\);/);
+  });
+
   it("defaults to dry-run and rejects ambiguous write requests", () => {
     const options = parseArgs(["--project=line-transbordo-staging-382612"]);
 
