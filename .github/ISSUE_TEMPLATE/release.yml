@@ -1,0 +1,77 @@
+name: Preparar release
+description: Acompanhe gates, promoção, publicação, tag e rollback.
+title: "[Release]: v"
+labels:
+  - release
+  - needs-triage
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Versão
+      placeholder: v2.2.0
+    validations:
+      required: true
+  - type: input
+    id: milestone
+    attributes:
+      label: Milestone
+      placeholder: 2.2.0
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Escopo e issues incluídas
+      placeholder: |
+        - Closes #…
+        - Closes #…
+    validations:
+      required: true
+  - type: checkboxes
+    id: quality
+    attributes:
+      label: Gates de qualidade
+      options:
+        - label: Lint aprovado sem warnings.
+        - label: Typecheck aprovado.
+        - label: Cobertura global igual ou superior a 80%.
+        - label: Testes de regras do Firestore aprovados.
+        - label: E2E dos fluxos críticos aprovados.
+        - label: Manifesto de índices validado.
+        - label: Build de produção aprovado.
+        - label: Auditoria de dependências de produção aprovada.
+  - type: checkboxes
+    id: staging
+    attributes:
+      label: Staging
+      options:
+        - label: Dry-run de regras e índices concluído em staging.
+        - label: Regras e índices publicados em staging.
+        - label: Todos os índices necessários estão Ready.
+        - label: Aplicação/preview publicado apontando exclusivamente para staging.
+        - label: Smoke test e aceite de staging concluídos.
+  - type: checkboxes
+    id: production
+    attributes:
+      label: Produção
+      options:
+        - label: Commit/tag estável anterior registrado para rollback.
+        - label: Dry-run e deploy de regras/índices concluídos em produção.
+        - label: Todos os índices necessários estão Ready em produção.
+        - label: Dry-run e execução confirmada do backfill de containerStates foram registrados.
+        - label: PR aprovado e mergeado em main.
+        - label: Firebase App Hosting publicou a aplicação.
+        - label: Smoke test de produção concluído.
+        - label: Tag imutável e GitHub Release criadas após o smoke test.
+  - type: textarea
+    id: rollback
+    attributes:
+      label: Plano de rollback
+      description: Informe rollout/commit anterior, responsável e sinais para reverter.
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notas, riscos aceitos e acompanhamento

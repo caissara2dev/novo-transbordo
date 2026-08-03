@@ -6,11 +6,20 @@ export default defineConfig({
     globals: true,
     environment: "node",
     include: ["tests/rules/**/*.test.ts"],
-    fileParallelism: false
+    fileParallelism: false,
+    hookTimeout: 20_000,
+    testTimeout: 20_000
   },
   resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src")
-    }
+    alias: [
+      {
+        find: "server-only",
+        replacement: path.resolve(__dirname, "./tests/mocks/server-only.ts")
+      },
+      {
+        find: "@",
+        replacement: path.resolve(__dirname, "./src")
+      }
+    ]
   }
 });

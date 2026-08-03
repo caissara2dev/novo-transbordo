@@ -1,43 +1,73 @@
 {
   "name": "controle-transbordo",
-  "version": "2.0.0",
+  "version": "2.2.0",
   "private": true,
+  "engines": {
+    "node": ">=22.12 <23",
+    "npm": ">=10 <12"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint . --max-warnings=0",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "test:integration": "vitest run tests/integration",
     "test:rules": "firebase emulators:exec --project demo-transbordo --only firestore \"vitest run --config vitest.rules.config.ts\"",
+    "test:e2e": "playwright test --pass-with-no-tests",
+    "audit:all": "npm audit --audit-level=critical",
+    "audit:prod": "npm audit --omit=dev --audit-level=high",
+    "verify:firestore-indexes": "node scripts/verify-firestore-indexes.mjs",
+    "verify:server-bundle": "node scripts/verify-server-bundle.mjs",
+    "verify": "npm run lint && npm run typecheck && npm run verify:firestore-indexes && npm run test:coverage && npm run test:rules && npm run test:e2e && npm run build && npm run verify:server-bundle && npm run audit:all && npm run audit:prod",
     "copy:staging": "node scripts/copy-staging-data.mjs",
+    "backfill:container-states": "node scripts/backfill-container-states.mjs",
     "promote-admin": "node scripts/promote-admin.mjs"
   },
   "dependencies": {
     "clsx": "^2.1.1",
-    "firebase": "^11.10.0",
-    "firebase-admin": "^13.1.0",
+    "firebase": "^12.17.0",
+    "firebase-admin": "14.2.0",
     "luxon": "^3.5.0",
-    "next": "^15.1.0",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
+    "next": "^16.2.12",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "recharts": "^3.7.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {
-    "@firebase/rules-unit-testing": "^4.0.1",
+    "@firebase/rules-unit-testing": "^5.0.1",
+    "@playwright/test": "^1.62.0",
     "@types/luxon": "^3.4.2",
     "@types/node": "^22.10.2",
-    "@types/react": "^19.0.2",
-    "@types/react-dom": "^19.0.2",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitest/coverage-v8": "^4.1.10",
     "autoprefixer": "^10.4.20",
-    "eslint": "^9.16.0",
-    "eslint-config-next": "^15.1.0",
-    "firebase-tools": "^13.31.2",
-    "postcss": "^8.4.49",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.2.12",
+    "firebase-tools": "^15.25.1",
+    "postcss": "8.5.24",
     "tailwindcss": "^3.4.16",
     "typescript": "^5.7.2",
-    "vitest": "^2.1.8"
+    "vitest": "^4.1.10"
+  },
+  "overrides": {
+    "glob": {
+      "minimatch": "9.0.8"
+    },
+    "next": {
+      "postcss": "$postcss",
+      "sharp": "0.35.3"
+    },
+    "gaxios": {
+      "uuid": "11.1.1"
+    },
+    "teeny-request": {
+      "uuid": "11.1.1"
+    }
   }
 }

@@ -3,7 +3,12 @@ import { DocumentData, Query } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebase/admin";
 import { TZ } from "@/lib/domain/constants";
 import { HttpError } from "@/lib/domain/errors";
-import { categoryLabelMap } from "@/lib/domain/options";
+import {
+  categoryLabelMap,
+  containerStatusLabelMap
+} from "@/lib/domain/options";
+import { eventContainerStatus } from "@/lib/server/container-states";
+import { resolveTimelineDate } from "@/lib/domain/time";
 import {
   MAX_REPORT_EVENTS_PROCESSED,
   MAX_REPORT_PERIOD_DAYS,
@@ -14,7 +19,7 @@ import {
   ReportsDrilldownResponse,
   ReportsOverviewResponse
 } from "@/types/api";
-import { Category, Pump, ShiftType } from "@/types/domain";
+import { Category, ContainerStatus, Pump, ShiftType } from "@/types/domain";
 
 type ReportEvent = {
   id: string;
@@ -30,9 +35,12 @@ type ReportEvent = {
   clientNameSnapshot: string | null;
   plate: string | null;
   container: string | null;
+  containerStatus: ContainerStatus | null;
+  containerReason: string | null;
   notes: string | null;
   createdByEmail: string;
   updatedByEmail: string;
+  startAtMs: number;
   createdAtMs: number;
   updatedAtMs: number;
   deleted: boolean;
@@ -41,6 +49,7 @@ type ReportEvent = {
 };
 
 const IDLE_CATEGORIES: Category[] = [
+  "INTERVALO_OPERACIONAL",
   "EM_TRANSITO",
   "AGUARDANDO_LABORATORIO",
   "SEM_CAMINHAO",
@@ -76,8 +85,14 @@ function toMillis(value: unknown): number {
 
 function csvEscape(value: string | number | boolean | null | undefined): string {
   if (value === null || value === undefined) return "";
-  const text = String(value);
-  if (!text.includes(";") && !text.includes('"') && !text.includes("\n")) {
+  const raw = String(value);
+  const text = /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw;
+  if (
+    !text.includes(";") &&
+    !text.includes('"') &&
+    !text.includes("\n") &&
+    !text.includes("\r")
+  ) {
     return text;
   }
 
@@ -123,23 +138,42 @@ export function previousWindow(dateFrom: string, dateTo: string): {
 }
 
 function reportEventFromDoc(id: string, data: DocumentData): ReportEvent {
+  const category = (data.category || "OUTROS") as Category;
+  const shiftDate = String(data.shiftDate || "");
+  const shiftType = (data.shiftType || "MANHA") as ShiftType;
+  const startTime = String(data.startTime || "");
+  const persistedStartAtMs = toMillis(data.startAt);
+  const resolvedStartAtMs = resolveTimelineDate(
+    shiftDate,
+    shiftType,
+    startTime
+  ).toMillis();
+
   return {
     id,
-    shiftDate: String(data.shiftDate || ""),
-    shiftType: (data.shiftType || "MANHA") as ShiftType,
+    shiftDate,
+    shiftType,
     pump: (data.pump || "BOMBA_1") as Pump,
-    category: (data.category || "OUTROS") as Category,
-    productive: Boolean(data.productive),
+    category,
+    productive:
+      typeof data.productive === "boolean"
+        ? data.productive
+        : category === "PRODUTIVO",
     durationMinutes: Number(data.durationMinutes || 0),
-    startTime: String(data.startTime || ""),
+    startTime,
     endTime: String(data.endTime || ""),
     clientId: (data.clientId as string | null) || null,
     clientNameSnapshot: (data.clientNameSnapshot as string | null) || null,
     plate: (data.plate as string | null) || null,
     container: (data.container as string | null) || null,
+    containerStatus: eventContainerStatus(data),
+    containerReason: (data.containerReason as string | null) || null,
     notes: (data.notes as string | null) || null,
     createdByEmail: String(data.createdByEmail || "-"),
     updatedByEmail: String(data.updatedByEmail || "-"),
+    startAtMs:
+      persistedStartAtMs ||
+      (Number.isFinite(resolvedStartAtMs) ? resolvedStartAtMs : 0),
     createdAtMs: toMillis(data.createdAt),
     updatedAtMs: toMillis(data.updatedAt),
     deleted: Boolean(data.deleted),
@@ -154,6 +188,7 @@ function applyDimensionFilters(events: ReportEvent[], filters: ReportsFilters): 
     if (filters.shiftType && event.shiftType !== filters.shiftType) return false;
     if (filters.category && event.category !== filters.category) return false;
     if (filters.clientId && event.clientId !== filters.clientId) return false;
+    if (filters.containerStatus && event.containerStatus !== filters.containerStatus) return false;
     return true;
   });
 }
@@ -172,7 +207,14 @@ async function fetchEventsByShiftDate(params: {
     query = query.where("deleted", "==", false);
   }
 
-  const snap = await query.get();
+  const snap = await query.limit(MAX_REPORT_EVENTS_PROCESSED + 1).get();
+  if (snap.docs.length > MAX_REPORT_EVENTS_PROCESSED) {
+    throw new HttpError(
+      400,
+      `Consulta excede ${MAX_REPORT_EVENTS_PROCESSED} eventos. Refine os filtros.`
+    );
+  }
+
   return snap.docs.map((doc) => reportEventFromDoc(doc.id, doc.data()));
 }
 
@@ -249,8 +291,7 @@ export function buildTrendBucket(shiftDate: string, granularity: ReportsFilters[
 
 function sortDrilldown(events: ReportEvent[]): ReportEvent[] {
   return [...events].sort((a, b) => {
-    if (a.shiftDate !== b.shiftDate) return a.shiftDate < b.shiftDate ? 1 : -1;
-    if (a.startTime !== b.startTime) return a.startTime < b.startTime ? 1 : -1;
+    if (a.startAtMs !== b.startAtMs) return b.startAtMs - a.startAtMs;
     return b.createdAtMs - a.createdAtMs;
   });
 }
@@ -270,6 +311,8 @@ function toDrilldownRow(event: ReportEvent): ReportDrilldownRow {
     notes: event.notes,
     plate: event.plate,
     container: event.container,
+    containerStatus: event.containerStatus,
+    containerReason: event.containerReason,
     createdByEmail: event.createdByEmail,
     updatedByEmail: event.updatedByEmail,
     createdAt: event.createdAtMs ? new Date(event.createdAtMs).toISOString() : "",
@@ -293,7 +336,15 @@ async function countEditedActions(params: {
     .collectionGroup("revisions")
     .where("editedAt", ">=", start)
     .where("editedAt", "<=", end)
+    .limit(MAX_REPORT_EVENTS_PROCESSED + 1)
     .get();
+
+  if (snap.docs.length > MAX_REPORT_EVENTS_PROCESSED) {
+    throw new HttpError(
+      400,
+      `Consulta excede ${MAX_REPORT_EVENTS_PROCESSED} revisões. Refine os filtros.`
+    );
+  }
 
   let count = 0;
   for (const doc of snap.docs) {
@@ -319,7 +370,15 @@ async function countDeletedActions(params: {
     .where("deleted", "==", true)
     .where("deletedAt", ">=", start)
     .where("deletedAt", "<=", end)
+    .limit(MAX_REPORT_EVENTS_PROCESSED + 1)
     .get();
+
+  if (snap.docs.length > MAX_REPORT_EVENTS_PROCESSED) {
+    throw new HttpError(
+      400,
+      `Consulta excede ${MAX_REPORT_EVENTS_PROCESSED} exclusões. Refine os filtros.`
+    );
+  }
 
   const events = snap.docs.map((doc) => reportEventFromDoc(doc.id, doc.data()));
   return applyDimensionFilters(events, params.filters).length;
@@ -351,7 +410,7 @@ export async function getReportsOverview(filters: ReportsFilters): Promise<Repor
   const current = computeAggregate(currentEvents);
   const prior = computeAggregate(previousEvents);
 
-  const byPump = (["BOMBA_1", "BOMBA_2"] as Pump[]).map((pump) => {
+  const byPump = (["BOMBA_1", "BOMBA_2", "BOMBA_3"] as Pump[]).map((pump) => {
     const scoped = currentEvents.filter((event) => event.pump === pump);
     const scopedTotal = scoped.reduce((acc, event) => acc + event.durationMinutes, 0);
     const scopedProductive = scoped
@@ -567,6 +626,8 @@ function detailedCsvRows(events: ReportEvent[]): string {
     "Produtivo",
     "Placa",
     "Container",
+    "Estado do Container",
+    "Motivo do Estado",
     "Observações",
     "Criado por",
     "Criado em",
@@ -592,6 +653,10 @@ function detailedCsvRows(events: ReportEvent[]): string {
         csvEscape(event.productive ? "SIM" : "NÃO"),
         csvEscape(event.plate || ""),
         csvEscape(event.container || ""),
+        csvEscape(
+          event.containerStatus ? containerStatusLabelMap[event.containerStatus] : ""
+        ),
+        csvEscape(event.containerReason || ""),
         csvEscape(event.notes || ""),
         csvEscape(event.createdByEmail),
         csvEscape(formatDateTimePtBr(event.createdAtMs)),
@@ -641,7 +706,7 @@ function aggregatedCsvRows(events: ReportEvent[]): string {
   };
 
   buildRows("CATEGORY", ["PRODUTIVO", ...IDLE_CATEGORIES], (event) => event.category);
-  buildRows("PUMP", ["BOMBA_1", "BOMBA_2"], (event) => event.pump);
+  buildRows("PUMP", ["BOMBA_1", "BOMBA_2", "BOMBA_3"], (event) => event.pump);
   buildRows("SHIFT", ["MANHA", "NOITE"], (event) => event.shiftType);
 
   const header = [

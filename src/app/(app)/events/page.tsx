@@ -1,373 +1,286 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { categoryRules } from "@/lib/domain/constants";
-import { computeWindowCheck, currentShiftFromNow } from "@/lib/domain/time";
-import { formatContainerForInput, formatPlateForInput } from "@/lib/domain/identifiers";
-import { apiFetch } from "@/lib/auth/api-fetch";
+import {
+  Dispatch,
+  FormEvent,
+  SetStateAction,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState
+} from "react";
+import {
+  ApiRequestError,
+  apiFetch,
+  authenticatedFetch,
+  readApiResponse
+} from "@/lib/auth/api-fetch";
 import { useAuthSession } from "@/lib/auth/use-auth-session";
 import {
-  categoryLabelMap,
-  categoryOptions,
-  pumpOptions,
-  shiftLabelMap,
-  shiftOptions
-} from "@/lib/domain/options";
-import { Category, Pump, ShiftType } from "@/types/domain";
-import { ClientApiItem, EventApiItem } from "@/types/api";
+  buildGapJustificationsByEvent,
+  buildRestoreRequestPayload,
+  isRestorePreviewConflict
+} from "@/lib/ui/event-reconciliation";
+import {
+  EventListFilters,
+  filtersAreEqual
+} from "@/lib/ui/filters";
+import {
+  createLatestRequestCoordinator,
+  isAbortError
+} from "@/lib/ui/latest-request";
+import {
+  ClientApiItem,
+  EventApiItem,
+  PaginatedResponse,
+  RestoreEventPreviewResponse
+} from "@/types/api";
+import { GapJustification, GapPreview } from "@/types/domain";
+import { EventFormFields } from "./event-form-fields";
+import {
+  DeletePlan,
+  EventFormState,
+  makeInitialEventFilters,
+  makeInitialForm,
+  mergeEventPageItems,
+  RestorePlan,
+  toEventPageQuery,
+  toPayload
+} from "./event-model";
+import { EventsHistory } from "./events-history";
+import {
+  DeleteReconciliationPanel,
+  RestoreReconciliationPanel
+} from "./reconciliation-panels";
+import { useGapPreview } from "./use-gap-preview";
 
-type EventFormState = {
-  pump: Pump;
-  shiftDate: string;
-  shiftType: ShiftType;
-  startTime: string;
-  endTime: string;
-  category: Category;
-  clientId: string;
-  plate: string;
-  container: string;
-  notes: string;
-  revisionReason?: string;
-};
+class RestoreResponseError extends Error {
+  status: number;
 
-const shiftNow = currentShiftFromNow();
-const categoryDescriptions: Record<Category, string> = {
-  PRODUTIVO: "Transbordo em execução.",
-  EM_TRANSITO: "Movimentação entre pontos.",
-  AGUARDANDO_LABORATORIO: "Parado aguardando liberação.",
-  SEM_CAMINHAO: "Sem veículo disponível.",
-  SEM_CONTAINER: "Sem container para operação.",
-  MANUTENCAO: "Parada para manutenção.",
-  OUTROS: "Ocorrências fora dos cenários acima."
-};
-
-function makeInitialForm(): EventFormState {
-  return {
-    pump: "BOMBA_1",
-    shiftDate: shiftNow.shiftDate,
-    shiftType: shiftNow.shiftType,
-    startTime: "",
-    endTime: "",
-    category: "PRODUTIVO",
-    clientId: "",
-    plate: "",
-    container: "",
-    notes: ""
-  };
-}
-
-function toPayload(form: EventFormState) {
-  return {
-    pump: form.pump,
-    shiftDate: form.shiftDate,
-    shiftType: form.shiftType,
-    startTime: form.startTime,
-    endTime: form.endTime,
-    category: form.category,
-    clientId: form.clientId || null,
-    plate: form.plate || null,
-    container: form.container || null,
-    notes: form.notes || null,
-    revisionReason: form.revisionReason || null
-  };
-}
-
-function toViewDate(iso: string): string {
-  if (!iso) {
-    return "-";
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
   }
-
-  return new Date(iso).toLocaleString("pt-BR");
 }
 
-function formatDuration(durationMinutes: number): string {
-  const hours = Math.floor(durationMinutes / 60);
-  const minutes = durationMinutes % 60;
-
-  if (hours && minutes) {
-    return `${hours}h ${minutes}m`;
-  }
-
-  if (hours) {
-    return `${hours}h`;
-  }
-
-  return `${minutes}m`;
-}
-
-function pumpShortLabel(pump: Pump): string {
-  return pump === "BOMBA_1" ? "B1" : "B2";
-}
-
-function toClockLabel(hhmm: string): string {
-  const [h, m] = hhmm.split(":").map(Number);
-  const date = new Date(2000, 0, 1, h, m);
-  return date.toLocaleTimeString("pt-BR", {
-    hour: "numeric",
-    minute: "2-digit"
-  });
-}
-
-function wasEdited(item: EventApiItem): boolean {
-  const createdMs = Date.parse(item.createdAt);
-  const updatedMs = Date.parse(item.updatedAt);
-
-  if (Number.isFinite(createdMs) && Number.isFinite(updatedMs)) {
-    return updatedMs > createdMs;
-  }
-
-  return item.updatedAt !== item.createdAt;
-}
-
-function EventFormFields({
-  form,
-  setForm,
-  clients,
-  submitLabel,
-  onSubmit,
-  loading
-}: {
-  form: EventFormState;
-  setForm: (next: EventFormState) => void;
-  clients: ClientApiItem[];
-  submitLabel: string;
-  onSubmit: (e: FormEvent) => Promise<void>;
-  loading: boolean;
-}) {
-  const rules = categoryRules[form.category];
-
-  const warningStart = form.startTime
-    ? !computeWindowCheck(form.shiftType, form.startTime)
-    : false;
-  const warningEnd = form.endTime ? !computeWindowCheck(form.shiftType, form.endTime) : false;
-
-  return (
-    <form className="grid grid-cols-2 gap-3" onSubmit={onSubmit}>
-      <div className="field-label col-span-2">
-        Bomba
-        <div className="choice-grid">
-          {pumpOptions.map((pump) => (
-            <button
-              className={`choice-card ${form.pump === pump.value ? "active" : ""}`}
-              key={pump.value}
-              onClick={() => setForm({ ...form, pump: pump.value })}
-              type="button"
-            >
-              {pump.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <label className="field-label">
-        Data do turno
-        <input
-          className="input-ui"
-          onChange={(e) => setForm({ ...form, shiftDate: e.target.value })}
-          required
-          type="date"
-          value={form.shiftDate}
-        />
-      </label>
-
-      <label className="field-label">
-        Turno
-        <select
-          className="select-ui"
-          onChange={(e) => setForm({ ...form, shiftType: e.target.value as ShiftType })}
-          value={form.shiftType}
-        >
-          {shiftOptions.map((shift) => (
-            <option key={shift.value} value={shift.value}>
-              {shift.label}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <label className="field-label">
-        Horário início
-        <input
-          className="input-ui"
-          onChange={(e) => setForm({ ...form, startTime: e.target.value })}
-          required
-          type="time"
-          value={form.startTime}
-        />
-        {warningStart ? (
-          <span className="notice warn mt-1 block normal-case">
-            Aviso: horário fora da janela do turno selecionado.
-          </span>
-        ) : null}
-      </label>
-
-      <label className="field-label">
-        Horário fim
-        <input
-          className="input-ui"
-          onChange={(e) => setForm({ ...form, endTime: e.target.value })}
-          required
-          type="time"
-          value={form.endTime}
-        />
-        {warningEnd ? (
-          <span className="notice warn mt-1 block normal-case">
-            Aviso: horário fora da janela do turno selecionado.
-          </span>
-        ) : null}
-      </label>
-
-      <div className="field-label col-span-2">
-        Categoria
-        <div className="choice-grid category-grid">
-          {categoryOptions.map((cat) => (
-            <button
-              className={`choice-card ${form.category === cat.value ? "active" : ""}`}
-              key={cat.value}
-              onClick={() => setForm({ ...form, category: cat.value as Category })}
-              type="button"
-            >
-              {cat.label}
-              <span className="choice-card-detail">{categoryDescriptions[cat.value]}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <label className="field-label col-span-2">
-        Cliente {rules.requiresClient ? "*" : ""}
-        <select
-          className="select-ui"
-          onChange={(e) => setForm({ ...form, clientId: e.target.value })}
-          required={rules.requiresClient}
-          value={form.clientId}
-        >
-          <option value="">Selecione</option>
-          {clients.map((client) => (
-            <option key={client.id} value={client.id}>
-              {client.name}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <label className="field-label">
-        Placa {rules.requiresPlate ? "*" : ""}
-        <input
-          className="input-ui"
-          onChange={(e) => setForm({ ...form, plate: formatPlateForInput(e.target.value) })}
-          placeholder="AAA1234 ou AAA1A23"
-          required={rules.requiresPlate}
-          type="text"
-          value={form.plate}
-        />
-      </label>
-
-      <label className="field-label">
-        Container {rules.requiresContainer ? "*" : ""}
-        <input
-          className="input-ui"
-          onChange={(e) => setForm({ ...form, container: formatContainerForInput(e.target.value) })}
-          placeholder="ABCU1234560"
-          required={rules.requiresContainer}
-          type="text"
-          value={form.container}
-        />
-      </label>
-
-      <label className="field-label col-span-2">
-        Observações {rules.requiresNotes ? "*" : ""}
-        <textarea
-          className="textarea-ui h-24"
-          onChange={(e) => setForm({ ...form, notes: e.target.value })}
-          required={rules.requiresNotes}
-          value={form.notes}
-        />
-      </label>
-
-      <button className="btn-primary col-span-2 w-full" disabled={loading} type="submit">
-        {loading ? "Salvando..." : submitLabel}
-      </button>
-    </form>
+async function submitEventRestore(plan: RestorePlan): Promise<void> {
+  const response = await authenticatedFetch(
+    `/api/events/${plan.eventId}/restore`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(
+        buildRestoreRequestPayload(
+          plan.preview,
+          plan.gapJustificationsByEvent
+        )
+      )
+    }
   );
+
+  try {
+    await readApiResponse(response);
+  } catch (error) {
+    if (error instanceof ApiRequestError) {
+      throw new RestoreResponseError(error.status, error.message);
+    }
+    throw error;
+  }
 }
 
 export default function EventsPage() {
   const { profile } = useAuthSession();
+  const initialFilters = useMemo(() => makeInitialEventFilters(), []);
   const [clients, setClients] = useState<ClientApiItem[]>([]);
   const [events, setEvents] = useState<EventApiItem[]>([]);
-  const [form, setForm] = useState<EventFormState>(makeInitialForm());
+  const [form, setForm] = useState<EventFormState>(makeInitialForm);
   const [editForm, setEditForm] = useState<EventFormState | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
-  const [filters, setFilters] = useState({
-    dateFrom: shiftNow.shiftDate,
-    dateTo: shiftNow.shiftDate,
-    pump: "",
-    shiftType: "",
-    category: "",
-    clientId: "",
-    includeDeleted: false
-  });
+  const [editAutomatic, setEditAutomatic] = useState(false);
+  const [deletePlan, setDeletePlan] = useState<DeletePlan | null>(null);
+  const [restorePlan, setRestorePlan] = useState<RestorePlan | null>(null);
+  const [draftFilters, setDraftFilters] = useState<EventListFilters>(() => ({
+    ...initialFilters
+  }));
+  const [appliedFilters, setAppliedFilters] = useState<EventListFilters>(
+    () => ({ ...initialFilters })
+  );
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [incomplete, setIncomplete] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const appliedFiltersRef = useRef<EventListFilters>(initialFilters);
+  const clientRequests = useRef(createLatestRequestCoordinator());
+  const eventRequests = useRef(createLatestRequestCoordinator());
+  const createGapState = useGapPreview(form, setForm);
+  const editGapState = useGapPreview(editForm, setEditForm, editId);
 
   const isManager = useMemo(
-    () => profile?.role === "SUPERVISOR" || profile?.role === "ADMIN",
+    () =>
+      profile?.role === "SUPERVISOR" || profile?.role === "ADMIN",
     [profile?.role]
   );
-
   const canRestore = profile?.role === "ADMIN";
 
   const loadClients = useCallback(async () => {
-    const data = await apiFetch<{ items: ClientApiItem[] }>("/api/clients");
-    setClients(data.items || []);
+    const request = clientRequests.current.begin();
+
+    try {
+      const data = await apiFetch<{ items: ClientApiItem[] }>(
+        "/api/clients",
+        { signal: request.signal }
+      );
+
+      if (!request.isCurrent()) {
+        return;
+      }
+
+      setClients(data.items || []);
+    } catch (reason) {
+      if (!request.isCurrent() || isAbortError(reason)) {
+        return;
+      }
+
+      throw reason;
+    }
   }, []);
 
-  const loadEvents = useCallback(async () => {
-    const query = new URLSearchParams();
-    if (filters.dateFrom) query.set("dateFrom", filters.dateFrom);
-    if (filters.dateTo) query.set("dateTo", filters.dateTo);
-    if (filters.pump) query.set("pump", filters.pump);
-    if (filters.shiftType) query.set("shiftType", filters.shiftType);
-    if (filters.category) query.set("category", filters.category);
-    if (filters.clientId) query.set("clientId", filters.clientId);
-    if (filters.includeDeleted) query.set("includeDeleted", "true");
+  const loadEvents = useCallback(
+    async (
+      filters: EventListFilters,
+      cursor?: string | null
+    ) => {
+      const request = eventRequests.current.begin();
+      const appending = Boolean(cursor);
 
-    const data = await apiFetch<{ items: EventApiItem[] }>(`/api/events?${query.toString()}`);
-    setEvents(data.items || []);
-  }, [filters]);
+      if (appending) {
+        setLoadingMore(true);
+      } else {
+        setLoadingMore(false);
+        setNextCursor(null);
+        setIncomplete(false);
+      }
+
+      try {
+        const data = await apiFetch<PaginatedResponse<EventApiItem>>(
+          `/api/events?${toEventPageQuery(filters, cursor)}`,
+          { signal: request.signal }
+        );
+
+        if (!request.isCurrent()) {
+          return;
+        }
+
+        setEvents((current) =>
+          appending
+            ? mergeEventPageItems(current, data.items || [])
+            : data.items || []
+        );
+        setNextCursor(data.nextCursor);
+        setIncomplete(data.incomplete);
+      } catch (reason) {
+        if (!request.isCurrent() || isAbortError(reason)) {
+          return;
+        }
+
+        throw reason;
+      } finally {
+        if (request.isCurrent()) {
+          setLoadingMore(false);
+        }
+      }
+    },
+    []
+  );
 
   useEffect(() => {
+    const requests = clientRequests.current;
+
     if (!profile?.approved) {
+      requests.cancel();
       return;
     }
 
-    loadClients().catch((err) => setError(err.message));
-    loadEvents().catch((err) => setError(err.message));
-  }, [profile?.approved, loadClients, loadEvents]);
+    void loadClients().catch((reason) =>
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "Erro ao carregar clientes."
+      )
+    );
 
-  const handleCreate = async (e: FormEvent) => {
-    e.preventDefault();
+    return () => {
+      requests.cancel();
+    };
+  }, [profile?.approved, loadClients]);
+
+  useEffect(() => {
+    const requests = eventRequests.current;
+    appliedFiltersRef.current = appliedFilters;
+
+    if (!profile?.approved) {
+      requests.cancel();
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void loadEvents(appliedFilters).catch((reason) =>
+        setError(
+          reason instanceof Error
+            ? reason.message
+            : "Erro ao carregar lançamentos."
+        )
+      );
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timer);
+      requests.cancel();
+    };
+  }, [profile?.approved, appliedFilters, loadEvents]);
+
+  const handleCreate = async (event: FormEvent) => {
+    event.preventDefault();
     setLoading(true);
     setError(null);
     setMessage(null);
 
     try {
-      const response = await apiFetch<{ item: EventApiItem }>("/api/events", {
-        method: "POST",
-        body: JSON.stringify(toPayload(form))
-      });
+      const response = await apiFetch<{ item: EventApiItem }>(
+        "/api/events",
+        {
+          method: "POST",
+          body: JSON.stringify(toPayload(form))
+        }
+      );
 
       setMessage(
         response.item.warnings?.length
-          ? `Lançamento salvo com avisos: ${response.item.warnings.join(" | ")}`
+          ? `Lançamento salvo com avisos: ${response.item.warnings.join(
+              " | "
+            )}`
           : "Lançamento salvo com sucesso."
       );
       setForm(makeInitialForm());
-      await loadEvents();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Erro ao salvar lançamento.");
+
+      try {
+        await loadEvents(appliedFiltersRef.current);
+      } catch {
+        setError(
+          "O histórico está temporariamente indisponível. O lançamento foi salvo e não precisa ser enviado novamente. Atualize a página em alguns minutos."
+        );
+      }
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "Erro ao salvar lançamento."
+      );
     } finally {
       setLoading(false);
     }
@@ -385,13 +298,24 @@ export default function EventsPage() {
       clientId: item.clientId || "",
       plate: item.plate || "",
       container: item.container || "",
+      containerStatus:
+        item.containerStatus ||
+        (item.category === "PRODUTIVO" ? "FULL" : null),
+      containerReason: item.containerReason || "",
+      startsNewContainerCycle: Boolean(item.startsNewContainerCycle),
+      blendConfirmed: Boolean(item.blendConfirmed),
+      expectedContainerStateVersion: item.containerStateVersion,
       notes: item.notes || "",
-      revisionReason: ""
+      revisionReason: "",
+      gapPreview: null,
+      gapJustifications: [],
+      gapJustificationsByEvent: {}
     });
+    setEditAutomatic((item.origin || "MANUAL") === "AUTO_GAP");
   };
 
-  const handleEdit = async (e: FormEvent) => {
-    e.preventDefault();
+  const handleEdit = async (event: FormEvent) => {
+    event.preventDefault();
     if (!editId || !editForm) {
       return;
     }
@@ -400,27 +324,64 @@ export default function EventsPage() {
     setError(null);
 
     try {
-      const response = await apiFetch<{ item: EventApiItem }>(`/api/events/${editId}`, {
-        method: "PATCH",
-        body: JSON.stringify(toPayload(editForm))
-      });
+      const response = await apiFetch<{ item: EventApiItem }>(
+        `/api/events/${editId}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify(toPayload(editForm))
+        }
+      );
 
       setMessage(
         response.item.warnings?.length
-          ? `Edição salva com avisos: ${response.item.warnings.join(" | ")}`
+          ? `Edição salva com avisos: ${response.item.warnings.join(
+              " | "
+            )}`
           : "Lançamento atualizado com sucesso."
       );
       setEditId(null);
       setEditForm(null);
-      await loadEvents();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Erro ao editar lançamento.");
+      setEditAutomatic(false);
+      await loadEvents(appliedFiltersRef.current);
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "Erro ao editar lançamento."
+      );
     } finally {
       setLoading(false);
     }
   };
 
-  const deleteEvent = async (eventId: string) => {
+  const performDelete = async (plan: DeletePlan) => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      await apiFetch(`/api/events/${plan.eventId}`, {
+        method: "DELETE",
+        body: JSON.stringify({
+          reason: plan.reason,
+          gapVersion: plan.preview.gapVersion,
+          gapJustifications: plan.gapJustifications
+        })
+      });
+      setDeletePlan(null);
+      setMessage("Lançamento excluído e linha do tempo recalculada.");
+      await loadEvents(appliedFiltersRef.current);
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "Erro ao excluir lançamento."
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const deleteEvent = async (item: EventApiItem) => {
     const reason = window.prompt("Informe o motivo da exclusão:");
 
     if (!reason) {
@@ -428,35 +389,166 @@ export default function EventsPage() {
     }
 
     try {
-      await apiFetch(`/api/events/${eventId}`, {
-        method: "DELETE",
-        body: JSON.stringify({ reason })
-      });
+      const preview = await apiFetch<GapPreview>(
+        "/api/events/gap-preview",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            pump: item.pump,
+            shiftDate: item.shiftDate,
+            shiftType: item.shiftType,
+            startTime: item.startTime,
+            endTime: item.endTime,
+            eventId: item.id,
+            operation: "DELETE"
+          })
+        }
+      );
+      const plan: DeletePlan = {
+        eventId: item.id,
+        reason,
+        preview,
+        gapJustifications: preview.requiresJustification
+          ? preview.uncoveredSegments.map((segment) => ({
+              ...segment,
+              category: "OUTROS",
+              clientId: null,
+              plate: null,
+              notes: null
+            }))
+          : []
+      };
 
-      setMessage("Lançamento excluído com sucesso.");
-      await loadEvents();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Erro ao excluir lançamento.");
+      if (preview.requiresJustification) {
+        setDeletePlan(plan);
+      } else {
+        await performDelete(plan);
+      }
+    } catch (deleteError) {
+      setError(
+        deleteError instanceof Error
+          ? deleteError.message
+          : "Erro ao excluir lançamento."
+      );
     }
   };
 
-  const restoreEvent = async (eventId: string) => {
-    try {
-      await apiFetch(`/api/events/${eventId}/restore`, {
-        method: "POST"
-      });
+  const fetchRestorePlan = async (
+    eventId: string,
+    previous: Record<string, GapJustification[]> = {}
+  ): Promise<RestorePlan> => {
+    const preview = await apiFetch<RestoreEventPreviewResponse>(
+      `/api/events/${eventId}/restore`
+    );
 
-      setMessage("Lançamento restaurado.");
-      await loadEvents();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Erro ao restaurar lançamento.");
+    return {
+      eventId,
+      preview,
+      gapJustificationsByEvent: buildGapJustificationsByEvent(
+        preview.reconciliations,
+        previous
+      )
+    };
+  };
+
+  const previewRestore = async (eventId: string) => {
+    setLoading(true);
+    setError(null);
+    setMessage(null);
+
+    try {
+      const plan = await fetchRestorePlan(eventId);
+      setEditId(null);
+      setEditForm(null);
+      setEditAutomatic(false);
+      setDeletePlan(null);
+      setRestorePlan(plan);
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "Erro ao preparar a restauração do lançamento."
+      );
+    } finally {
+      setLoading(false);
     }
+  };
+
+  const performRestore = async (plan: RestorePlan) => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      await submitEventRestore(plan);
+      setRestorePlan(null);
+      setMessage("Lançamento restaurado.");
+      await loadEvents(appliedFiltersRef.current);
+    } catch (reason) {
+      if (isRestorePreviewConflict(reason)) {
+        try {
+          const refreshed = await fetchRestorePlan(
+            plan.eventId,
+            plan.gapJustificationsByEvent
+          );
+          setRestorePlan(refreshed);
+          setError(
+            `${reason.message} A prévia foi atualizada; revise os impactos novamente.`
+          );
+        } catch (previewError) {
+          setError(
+            previewError instanceof Error
+              ? previewError.message
+              : "A linha do tempo mudou e não foi possível atualizar a prévia."
+          );
+        }
+      } else {
+        setError(
+          reason instanceof Error
+            ? reason.message
+            : "Erro ao restaurar lançamento."
+        );
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const applyFilters = (event: FormEvent) => {
+    event.preventDefault();
+    if (filtersAreEqual(draftFilters, appliedFiltersRef.current)) {
+      return;
+    }
+
+    const nextFilters = { ...draftFilters };
+    eventRequests.current.cancel();
+    appliedFiltersRef.current = nextFilters;
+    setLoadingMore(false);
+    setNextCursor(null);
+    setIncomplete(false);
+    setAppliedFilters(nextFilters);
+  };
+
+  const loadMore = () => {
+    if (!nextCursor || loadingMore) {
+      return;
+    }
+
+    void loadEvents(appliedFiltersRef.current, nextCursor).catch(
+      (reason) =>
+        setError(
+          reason instanceof Error
+            ? reason.message
+            : "Erro ao carregar mais lançamentos."
+        )
+    );
   };
 
   return (
     <section className="space-y-6">
       {error ? <div className="notice error">{error}</div> : null}
-      {message ? <div className="notice success">{message}</div> : null}
+      {message ? (
+        <div className="notice success">{message}</div>
+      ) : null}
 
       <section className="panel space-y-3">
         <h2 className="panel-title text-2xl">Novo lançamento</h2>
@@ -465,8 +557,9 @@ export default function EventsPage() {
           form={form}
           loading={loading}
           onSubmit={handleCreate}
-          setForm={(next) => setForm(next)}
+          setForm={setForm}
           submitLabel="Salvar lançamento"
+          gapState={createGapState}
         />
       </section>
 
@@ -479,6 +572,7 @@ export default function EventsPage() {
               onClick={() => {
                 setEditId(null);
                 setEditForm(null);
+                setEditAutomatic(false);
               }}
               type="button"
             >
@@ -489,7 +583,12 @@ export default function EventsPage() {
             Justificativa da edição (opcional)
             <input
               className="input-ui"
-              onChange={(e) => setEditForm({ ...editForm, revisionReason: e.target.value })}
+              onChange={(event) =>
+                setEditForm({
+                  ...editForm,
+                  revisionReason: event.target.value
+                })
+              }
               type="text"
               value={editForm.revisionReason || ""}
             />
@@ -497,178 +596,60 @@ export default function EventsPage() {
           <EventFormFields
             clients={clients}
             form={editForm}
+            isEditing
+            isAutomatic={editAutomatic}
             loading={loading}
             onSubmit={handleEdit}
-            setForm={(next) => setEditForm(next)}
+            setForm={
+              setEditForm as Dispatch<
+                SetStateAction<EventFormState>
+              >
+            }
             submitLabel="Salvar edição"
+            gapState={editGapState}
           />
         </div>
       ) : null}
 
-      <section className="panel space-y-3">
-        <h2 className="panel-title text-2xl">Histórico</h2>
-        <form
-          className="grid gap-3 md:grid-cols-4"
-          onSubmit={(e) => {
-            e.preventDefault();
-            loadEvents().catch((err) => setError(err.message));
-          }}
-        >
-          <label className="field-label">
-            Data de
-            <input
-              className="input-ui"
-              onChange={(e) => setFilters({ ...filters, dateFrom: e.target.value })}
-              type="date"
-              value={filters.dateFrom}
-            />
-          </label>
-          <label className="field-label">
-            Data até
-            <input
-              className="input-ui"
-              onChange={(e) => setFilters({ ...filters, dateTo: e.target.value })}
-              type="date"
-              value={filters.dateTo}
-            />
-          </label>
-          <label className="field-label">
-            Bomba
-            <select
-              className="select-ui"
-              onChange={(e) => setFilters({ ...filters, pump: e.target.value })}
-              value={filters.pump}
-            >
-              <option value="">Todas</option>
-              {pumpOptions.map((pump) => (
-                <option key={pump.value} value={pump.value}>
-                  {pump.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field-label">
-            Turno
-            <select
-              className="select-ui"
-              onChange={(e) => setFilters({ ...filters, shiftType: e.target.value })}
-              value={filters.shiftType}
-            >
-              <option value="">Todos</option>
-              {shiftOptions.map((shift) => (
-                <option key={shift.value} value={shift.value}>
-                  {shift.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field-label">
-            Categoria
-            <select
-              className="select-ui"
-              onChange={(e) => setFilters({ ...filters, category: e.target.value })}
-              value={filters.category}
-            >
-              <option value="">Todas</option>
-              {categoryOptions.map((cat) => (
-                <option key={cat.value} value={cat.value}>
-                  {cat.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field-label">
-            Cliente
-            <select
-              className="select-ui"
-              onChange={(e) => setFilters({ ...filters, clientId: e.target.value })}
-              value={filters.clientId}
-            >
-              <option value="">Todos</option>
-              {clients.map((client) => (
-                <option key={client.id} value={client.id}>
-                  {client.name}
-                </option>
-              ))}
-            </select>
-          </label>
+      {deletePlan ? (
+        <DeleteReconciliationPanel
+          clients={clients}
+          loading={loading}
+          onCancel={() => setDeletePlan(null)}
+          onChange={setDeletePlan}
+          onConfirm={() => performDelete(deletePlan)}
+          plan={deletePlan}
+        />
+      ) : null}
 
-          {isManager ? (
-            <label className="mt-7 flex items-center gap-2 text-sm muted">
-              <input
-                checked={filters.includeDeleted}
-                onChange={(e) => setFilters({ ...filters, includeDeleted: e.target.checked })}
-                type="checkbox"
-              />
-              Incluir excluídos
-            </label>
-          ) : null}
+      {restorePlan ? (
+        <RestoreReconciliationPanel
+          clients={clients}
+          loading={loading}
+          onCancel={() => setRestorePlan(null)}
+          onChange={setRestorePlan}
+          onConfirm={() => performRestore(restorePlan)}
+          plan={restorePlan}
+        />
+      ) : null}
 
-          <button className="btn-primary md:mt-7" type="submit">
-            Aplicar filtros
-          </button>
-        </form>
-
-        <div className="history-stack">
-          {events.map((item) => (
-            <article className={`history-item ${item.deleted ? "is-deleted" : ""}`} key={item.id}>
-              <div className="history-head">
-                <div>
-                  <p className="history-title">
-                    {item.shiftDate} • {shiftLabelMap[item.shiftType]} • {pumpShortLabel(item.pump)} •{" "}
-                    {categoryLabelMap[item.category]}
-                  </p>
-                  <p className="history-time">
-                    {toClockLabel(item.startTime)} → {toClockLabel(item.endTime)}
-                  </p>
-                </div>
-                <div className="history-top-right">
-                  <p className="history-duration">{formatDuration(item.durationMinutes)}</p>
-                  {isManager && !item.deleted ? (
-                    <button className="history-edit-btn" onClick={() => startEdit(item)} type="button">
-                      Editar
-                    </button>
-                  ) : null}
-                  {item.deleted && canRestore ? (
-                    <button className="history-edit-btn" onClick={() => restoreEvent(item.id)} type="button">
-                      Restaurar
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-              <p className="history-mainline">
-                <strong>Cliente:</strong> {item.clientNameSnapshot || "-"} • <strong>Obs:</strong>{" "}
-                {item.notes || "-"}
-              </p>
-              <p className="history-meta">
-                <strong>Placa:</strong> {item.plate || "-"} • <strong>Container:</strong>{" "}
-                {item.container || "-"}
-              </p>
-              <p className="history-meta">Criado por: {item.createdByEmail}</p>
-              {wasEdited(item) ? (
-                <p className="history-meta">
-                  Editado em: {toViewDate(item.updatedAt)} ({item.updatedByEmail})
-                </p>
-              ) : null}
-              {item.deleted ? (
-                <p className="notice error mt-2">
-                  Excluído: {item.deletedReason || "-"} ({item.deletedByEmail || "-"})
-                </p>
-              ) : null}
-
-              {isManager && !item.deleted ? (
-                <div className="history-actions">
-                  <button className="btn-danger" onClick={() => deleteEvent(item.id)} type="button">
-                    Excluir
-                  </button>
-                </div>
-              ) : null}
-            </article>
-          ))}
-
-          {!events.length ? <p className="text-sm muted">Nenhum lançamento encontrado.</p> : null}
-        </div>
-      </section>
+      <EventsHistory
+        canRestore={canRestore}
+        clients={clients}
+        draftFilters={draftFilters}
+        events={events}
+        incomplete={incomplete}
+        isManager={isManager}
+        loading={loading}
+        loadingMore={loadingMore}
+        nextCursor={nextCursor}
+        onApplyFilters={applyFilters}
+        onDelete={deleteEvent}
+        onEdit={startEdit}
+        onLoadMore={loadMore}
+        onRestore={previewRestore}
+        setDraftFilters={setDraftFilters}
+      />
     </section>
   );
 }

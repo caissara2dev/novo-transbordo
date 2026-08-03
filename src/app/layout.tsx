@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import "@/app/globals.css";
 import { SessionProvider } from "@/lib/auth/use-auth-session";
-import { SiteFooter } from "@/components/site-footer";
 
 export const metadata: Metadata = {
   title: "Controle-Transbordo",
@@ -22,7 +21,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               </div>
             ) : null}
             <div className="site-content">{children}</div>
-            <SiteFooter />
           </div>
         </SessionProvider>
       </body>

@@ -1,8 +1,15 @@
 import { NextRequest } from "next/server";
+import { z } from "zod";
 import { ensureApproved, ensureRole, requireAuth } from "@/lib/server/auth";
-import { fail, ok } from "@/lib/server/http";
+import { fail, ok, parseJsonBody } from "@/lib/server/http";
 import { toPlain } from "@/lib/server/serialize";
 import { setApproval } from "@/lib/server/users";
+
+const approvalBodySchema = z
+  .object({
+    approved: z.boolean()
+  })
+  .strict();
 
 export async function POST(
   req: NextRequest,
@@ -15,10 +22,11 @@ export async function POST(
     ensureApproved(profile);
     ensureRole(profile, ["ADMIN"]);
 
-    const body = (await req.json()) as { approved: boolean };
+    const body = await parseJsonBody(req, approvalBodySchema);
+
     const updated = await setApproval({
       targetUid,
-      approved: Boolean(body.approved),
+      approved: body.approved,
       actorUid: uid,
       actorEmail: email
     });

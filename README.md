@@ -1,187 +1,228 @@
-# Controle Transbordo (V1 + V2)
+# Controle Transbordo
 
-Aplicacao web para controle operacional de transbordo, com governanca de acesso, trilha de auditoria e analise operacional.
+Aplicação web para controle operacional de transbordo, com governança de acesso,
+linha do tempo por bomba/turno, ciclo de contêineres, auditoria, display e
+relatórios.
 
 ## Stack
 
-- Next.js (App Router) + TypeScript
-- Firebase Auth (email/senha)
-- Firestore
-- Firebase Emulator Suite (desenvolvimento local)
-- Recharts (dashboard de relatorios)
+- Next.js App Router + TypeScript
+- Firebase Auth, App Check e Firestore
+- Firebase App Hosting em produção
+- Firebase Emulator Suite no desenvolvimento e nos testes de regras
+- Vitest, Playwright e Recharts
 
-## Escopo entregue
+## Funcionalidades
 
-### V1 - Nucleo operacional
-
-- Cadastro/login e aprovacao manual de usuarios
-- Perfis: `OPERATOR`, `SUPERVISOR`, `ADMIN`
-- Lancamentos com validacoes de negocio
-- Bloqueio de sobreposicao por bomba
-- Edicao com auditoria e revisoes
-- Soft delete com motivo e restauracao (Admin)
-- Gestao de clientes e usuarios (Admin)
-
-### V2 - Relatorios profissionais
-
-- Tela `/reports` para `SUPERVISOR` e `ADMIN`
-- Filtros globais com presets de periodo
-- KPIs com comparacao vs periodo anterior
-- Graficos operacionais (produtivo/ocioso, tendencia, turno, ranking)
-- Drilldown em tabela na mesma pagina
-- Exportacao CSV detalhado e agregado
+- Perfis `OPERATOR`, `SUPERVISOR`, `DISPLAY` e `ADMIN`
+- Verificação de email e aprovação administrativa antes do acesso operacional
+- Lançamentos com validações de sobreposição, gaps e concorrência
+- Operação independente das Bombas 1, 2 e 3
+- Ciclo de contêineres Cheio, Parcial, Pulmão e Blend
+- Edição, soft delete, restauração, revisões e trilha de auditoria
+- Gestão de clientes, usuários e configurações
+- Relatórios com KPIs, gráficos, drilldown e exportação CSV
+- Display operacional para TVs 16:9
 
 ## Requisitos
 
-- Node.js 20+
-- npm 10+
-- Java (necessario para Firestore Emulator)
+- Node.js 22.x
+- npm 10 ou 11
+- Java 21 recomendado para o Firestore Emulator
 
-## Setup local rapido
+O repositório inclui `.nvmrc`; execute `nvm use` antes de instalar dependências.
 
-1. Instale dependencias:
-
-```bash
-npm install
-```
-
-2. Crie o arquivo de ambiente:
+## Setup local
 
 ```bash
+nvm use
+npm ci
 cp .env.example .env.local
 ```
 
-3. Preencha variaveis do Firebase em `.env.local`.
+Preencha os valores Firebase em `.env.local`. Para desenvolvimento com
+emuladores, mantenha:
 
-4. Suba os emuladores (terminal 1):
+```dotenv
+APP_CHECK_MODE=off
+RATE_LIMIT_MODE=off
+TRUSTED_PROXY_MODE=local
+NEXT_PUBLIC_USE_FIREBASE_EMULATOR=true
+```
+
+Em dois terminais:
 
 ```bash
 npx firebase emulators:start --project demo-transbordo
 ```
 
-5. Suba o app (terminal 2):
-
 ```bash
 npm run dev
 ```
 
-URLs locais:
-- App: `http://localhost:3000`
+- Aplicação: `http://localhost:3000`
 - Emulator UI: `http://localhost:4000`
 
-## Variaveis de ambiente
+Consulte [docs/OPERACAO_LOCAL.md](docs/OPERACAO_LOCAL.md) para o procedimento
+completo.
 
-Veja `.env.example`.
+## Cadastro e primeiro administrador
 
-Grupos principais:
-- `NEXT_PUBLIC_FIREBASE_*`: SDK cliente
-- `FIREBASE_*`: Admin SDK no server
-- `APPROVAL_CONTACT_PHONE`: contato exibido em conta pendente
-- `*_EMULATOR_HOST`: roteamento para emuladores locais
-
-Observacao:
-- Em cloud, manter `FIREBASE_PRIVATE_KEY` com `\n` escapado.
-
-## Primeiro admin (bootstrap)
-
-1. Registre um usuario em `/register`
-2. Pegue o `uid`
-3. Promova para admin:
+1. Registre a conta em `/register`.
+2. Abra o link enviado por email; o cadastro encerra a sessão até a verificação.
+3. Entre novamente. O perfil só é sincronizado depois que o token informa
+   `email_verified=true`.
+4. Consulte o UID na tela Authentication do Firebase Console ou Emulator UI.
+5. Simule a promoção:
 
 ```bash
-npm run promote-admin -- <uid>
+npm run promote-admin -- <uid> --project=demo-transbordo --dry-run
 ```
 
-4. Entre com esse usuario e aprove/promova os demais em `/users`.
-
-## Scripts
-
-- `npm run dev`: desenvolvimento
-- `npm run build`: build de producao
-- `npm run start`: start em producao
-- `npm run lint`: lint
-- `npm test`: testes unitarios
-- `npm run test:integration`: testes de integracao
-- `npm run promote-admin -- <uid>`: promover admin no ambiente local
-
-## Estrutura principal
-
-```text
-src/app/(auth)           # login/registro
-src/app/(app)            # dashboard, events, reports, clients, users
-src/app/api              # APIs server-side
-src/lib/domain           # validacoes e regras de negocio
-src/lib/server           # servicos de dominio (events, reports, etc)
-src/lib/firebase         # inicializacao Firebase client/admin
-src/types                # contratos TypeScript
-tests                    # unitarios e integracao
-```
-
-## APIs principais
-
-- `GET /api/me`
-- `GET/POST /api/events`
-- `PATCH/DELETE /api/events/:id`
-- `POST /api/events/:id/restore`
-- `GET/POST /api/clients`
-- `PATCH /api/clients/:id`
-- `GET /api/users`
-- `POST /api/users/:uid/approve`
-- `POST /api/users/:uid/role`
-- `GET /api/reports/overview`
-- `GET /api/reports/drilldown`
-- `GET /api/reports/export`
-
-## Qualidade e seguranca
-
-- Escritas de dominio passam por rotas server-side
-- Perfis de usuario nao aceitam criacao ou alteracao direta pelo cliente
-- Firestore Rules restritivas para proteger colecoes sensiveis
-- Revisoes de lancamentos com diff de campos alterados
-- Soft delete/restauracao (sem hard delete operacional)
-
-Validacao das regras no Firestore Emulator:
+6. Confirme explicitamente o projeto para executar:
 
 ```bash
+npm run promote-admin -- <uid> --project=demo-transbordo \
+  --execute --confirm-project=demo-transbordo
+```
+
+O script é dry-run por padrão, nunca infere o projeto e exige confirmações
+adicionais para produção. Veja o comando completo em
+[docs/OPERACAO_LOCAL.md](docs/OPERACAO_LOCAL.md#bootstrap-e-promoção-de-administrador).
+
+## Variáveis de ambiente
+
+Veja `.env.example`. As variáveis de proteção são:
+
+| Variável | Uso |
+| --- | --- |
+| `NEXT_PUBLIC_FIREBASE_APP_CHECK_SITE_KEY` | Site key pública do reCAPTCHA Enterprise; é incorporada no build |
+| `NEXT_PUBLIC_APP_CHECK_FAIL_CLOSED` | Se `true`, o navegador não envia a requisição quando não consegue obter App Check; mantenha `false` durante `observe` |
+| `APP_CHECK_MODE` | `off`, `observe` ou `enforce` |
+| `APP_CHECK_ALLOWED_APP_IDS` | App IDs Firebase permitidos, separados por vírgula |
+| `RATE_LIMIT_MODE` | `off`, `observe` ou `enforce` |
+| `RATE_LIMIT_HMAC_SECRET` | Segredo de pelo menos 32 caracteres, somente no servidor |
+| `RATE_LIMIT_KEY_VERSION` | Versão lógica usada na rotação da chave HMAC |
+| `TRUSTED_PROXY_MODE` | `local`, `vercel` ou `google-lb` |
+
+Produção usa `observe` inicialmente e `TRUSTED_PROXY_MODE=google-lb`. Previews
+Vercel devem usar `TRUSTED_PROXY_MODE=vercel`. `off` é destinado somente a
+ambientes locais/emulados; em produção, a aplicação falha fechada.
+
+Não registre em arquivo o site key real antes de ele existir e nunca registre o
+valor de `RATE_LIMIT_HMAC_SECRET`.
+
+## Qualidade
+
+```bash
+npm run lint
+npm run typecheck
+npm test
+npm run test:coverage
 npm run test:rules
+npm run test:e2e
+npm run build
+npm run audit:prod
 ```
 
-## Deploy (Firebase)
+`npm run verify` executa lint, tipos, cobertura mínima de 80%, regras, E2E,
+build e auditoria de dependências de produção. O CI usa Node.js 22 e Java 21.
 
-- Firestore rules/indexes:
+## Scripts operacionais
+
+### Promoção de administrador
 
 ```bash
-npx firebase deploy --only firestore:rules,firestore:indexes --project line-transbordo
+npm run promote-admin -- --help
 ```
 
-- App Hosting:
-  - Produção em `linebot.com.br`.
-  - Build/deploy disparado por merge na branch `main` conectada ao backend no Firebase.
+- dry-run é o padrão;
+- `--project` é obrigatório;
+- a execução exige `--execute` e `--confirm-project`;
+- produção exige também `--allow-production` e a confirmação apresentada pelo
+  próprio `--help`.
 
-## Previews (Vercel + Firebase staging)
+### Cópia anonimizada para staging
 
-- A Vercel publica somente branches de trabalho (`feat/*`, `fix/*` e `chore/*`).
-- A branch `main` não é publicada pela Vercel; ela pertence ao Firebase App Hosting.
-- Todos os previews usam exclusivamente o projeto `line-transbordo-staging-382612`.
-- Variáveis `FIREBASE_CLIENT_EMAIL` e `FIREBASE_PRIVATE_KEY` ficam somente nos segredos da Vercel.
-- `NEXT_PUBLIC_APP_ENV=staging` exibe um aviso visível no topo da aplicação.
-
-Para conferir a cópia inicial sem alterar dados:
+A simulação lê contagens dos dois projetos, mas não grava dados:
 
 ```bash
 npm run copy:staging -- --dry-run
 ```
 
-Para executar, é exigida confirmação explícita do destino:
+Para executar, carregue uma chave HMAC de pelo menos 32 caracteres sem colocá-la
+na linha de comando ou no repositório:
 
 ```bash
-npm run copy:staging -- --execute --confirm-target=line-transbordo-staging-382612
+read -s COPY_ANONYMIZATION_KEY
+export COPY_ANONYMIZATION_KEY
+npm run copy:staging -- --execute \
+  --confirm-target=line-transbordo-staging-382612
+unset COPY_ANONYMIZATION_KEY
 ```
 
-O utilitário copia `clients`, `events` e revisões. Perfis em `users` e contas do Firebase Auth nunca são copiados.
+O utilitário aceita somente a origem `line-transbordo` e o destino
+`line-transbordo-staging-382612`, recusa um destino já populado, copia apenas
+`clients`, `events` e revisões e pseudonimiza IDs, emails, placas, contêineres e
+texto livre. `users` e Firebase Auth nunca são copiados. Cada documento recebe
+`expiresAt` para retenção de sete dias; as políticas TTL do staging devem estar
+ativas conforme [docs/OPERACAO_LOCAL.md](docs/OPERACAO_LOCAL.md#cópia-anonimizada-para-staging).
 
-## Documentacao complementar
+## Deploy
 
-- `docs/ARQUITETURA.md`
-- `docs/API.md`
-- `docs/OPERACAO_LOCAL.md`
+O gate obrigatório é: manifesto válido → dry-run → deploy dos índices → status
+`Ready` no Firebase → deploy da aplicação. Para staging:
+
+```bash
+npm run verify:firestore-indexes
+npx firebase deploy --only firestore:indexes \
+  --project line-transbordo-staging-382612 --dry-run
+npx firebase deploy --only firestore:indexes \
+  --project line-transbordo-staging-382612
+```
+
+Só depois que todos os índices estiverem prontos publique ou valide o preview
+Vercel. Para produção, repita a mesma ordem antes da aplicação:
+
+```bash
+npm run verify:firestore-indexes
+npx firebase deploy --only firestore:rules,firestore:indexes \
+  --project line-transbordo --dry-run
+npx firebase deploy --only firestore:rules,firestore:indexes \
+  --project line-transbordo
+```
+
+A produção em `linebot.com.br` é publicada pelo Firebase App Hosting após merge
+em `main`. Branches de trabalho usam Vercel com o projeto Firebase
+`line-transbordo-staging-382612`.
+
+App Check e rate limiting seguem rollout `observe` → smoke test/monitoramento →
+`enforce`. Não altere ambos para enforcement ao mesmo tempo. A criação do
+segredo, o TTL de `_requestRateLimits.expiresAt`, o smoke test e o rollback
+estão detalhados em [docs/OPERACAO_LOCAL.md](docs/OPERACAO_LOCAL.md#rollout-de-app-check-e-rate-limiting).
+
+## Estrutura
+
+```text
+src/app/(auth)       # login e registro
+src/app/(app)        # área operacional
+src/app/api          # adaptadores HTTP server-side
+src/lib/domain       # regras determinísticas de negócio
+src/lib/server       # aplicação, persistência e proteção de requisições
+src/lib/firebase     # Firebase cliente/Admin
+src/types            # contratos TypeScript
+tests                # unitários, integração, regras, cobertura e E2E
+```
+
+## Documentação e governança
+
+- [Como contribuir, gates e fluxo de release](CONTRIBUTING.md)
+- [Histórico de versões](CHANGELOG.md)
+- [Arquitetura](docs/ARQUITETURA.md)
+- [Contratos HTTP](docs/API.md)
+- [Operação local, deploy e rollback](docs/OPERACAO_LOCAL.md)
+- [Uso do GitHub Issues](docs/agents/issue-tracker.md)
+- [Labels de triagem](docs/agents/triage-labels.md)
+- [Issues](https://github.com/caissara2dev/novo-transbordo/issues),
+  [milestones](https://github.com/caissara2dev/novo-transbordo/milestones) e
+  [pull requests](https://github.com/caissara2dev/novo-transbordo/pulls)

@@ -1,0 +1,15 @@
+.agents/
+.github/
+coverage/
+docs/
+tests/
+tmp/
+
+AGENTS.md
+CONTRIBUTING.md
+playwright.config.ts
+skills-lock.json
+vitest.config.ts
+vitest.rules.config.ts
+
+*.log

@@ -1,7 +1,8 @@
 import { DecodedIdToken } from "firebase-admin/auth";
 import { NextRequest } from "next/server";
-import { adminAuth, adminDb } from "@/lib/firebase/admin";
+import { adminDb } from "@/lib/firebase/admin";
 import { HttpError } from "@/lib/domain/errors";
+import { protectApiRequest } from "@/lib/server/request-protection";
 import { UserDoc } from "@/types/domain";
 
 export type RequestContext = {
@@ -11,15 +12,31 @@ export type RequestContext = {
   email: string;
 };
 
-export async function requireAuth(req: NextRequest): Promise<RequestContext> {
-  const authHeader = req.headers.get("authorization") || "";
-  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+export function ensureDisplayApiAccess(profile: UserDoc, pathname: string): void {
+  const displayAllowed =
+    pathname === "/api/me" ||
+    pathname.startsWith("/api/auth/") ||
+    pathname === "/api/display/overview";
 
-  if (!token) {
-    throw new HttpError(401, "Token de autenticação ausente.");
+  if (profile.role === "DISPLAY" && !displayAllowed) {
+    throw new HttpError(403, "Conta de display sem acesso à operação.");
+  }
+}
+
+export async function requireVerifiedToken(req: NextRequest): Promise<DecodedIdToken> {
+  const decoded = await protectApiRequest(req);
+
+  if (decoded.email_verified !== true) {
+    throw new HttpError(403, "Verifique seu e-mail antes de continuar.", {
+      code: "EMAIL_UNVERIFIED"
+    });
   }
 
-  const decoded = await adminAuth.verifyIdToken(token);
+  return decoded;
+}
+
+export async function requireAuth(req: NextRequest): Promise<RequestContext> {
+  const decoded = await requireVerifiedToken(req);
   const uid = decoded.uid;
 
   const userRef = adminDb.collection("users").doc(uid);
@@ -34,6 +51,8 @@ export async function requireAuth(req: NextRequest): Promise<RequestContext> {
   if (!profile.active) {
     throw new HttpError(403, "Usuário inativo.");
   }
+
+  ensureDisplayApiAccess(profile, req.nextUrl.pathname);
 
   return {
     token: decoded,

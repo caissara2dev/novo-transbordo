@@ -4,8 +4,12 @@ import { adminDb } from "@/lib/firebase/admin";
 import { canEdit } from "@/lib/domain/validation";
 import { HttpError } from "@/lib/domain/errors";
 import { ensureApproved, ensureRole, requireAuth } from "@/lib/server/auth";
+import {
+  deleteEventBodySchema,
+  eventMutationBodySchema
+} from "@/lib/server/event-request-schemas";
 import { softDeleteEvent, updateEvent } from "@/lib/server/events";
-import { fail, ok } from "@/lib/server/http";
+import { fail, ok, parseJsonBody } from "@/lib/server/http";
 import { toPlain } from "@/lib/server/serialize";
 
 function toMillis(value: unknown): number {
@@ -56,7 +60,7 @@ export async function PATCH(
     ensureRole(profile, ["SUPERVISOR", "ADMIN"]);
     await assertEditableWindow(id, profile.role);
 
-    const body = await req.json();
+    const body = await parseJsonBody(req, eventMutationBodySchema);
     const updated = await updateEvent(id, body, {
       uid,
       email,
@@ -80,10 +84,13 @@ export async function DELETE(
     ensureRole(profile, ["SUPERVISOR", "ADMIN"]);
     await assertEditableWindow(id, profile.role);
 
-    const body = (await req.json().catch(() => ({}))) as { reason?: string };
-    const result = await softDeleteEvent(id, body.reason || "", {
+    const body = await parseJsonBody(req, deleteEventBodySchema);
+    const result = await softDeleteEvent(id, body.reason, {
       uid,
       email
+    }, {
+      gapVersion: body.gapVersion,
+      gapJustifications: body.gapJustifications
     });
 
     return ok(result);

@@ -1,7 +1,25 @@
 import { NextRequest } from "next/server";
 import { ensureApproved, ensureRole, requireAuth } from "@/lib/server/auth";
-import { restoreEvent } from "@/lib/server/events";
-import { fail, ok } from "@/lib/server/http";
+import { restoreEventBodySchema } from "@/lib/server/event-request-schemas";
+import { previewEventRestore, restoreEvent } from "@/lib/server/events";
+import { fail, ok, parseJsonBody } from "@/lib/server/http";
+
+export async function GET(
+  req: NextRequest,
+  context: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await context.params;
+    const { profile } = await requireAuth(req);
+
+    ensureApproved(profile);
+    ensureRole(profile, ["ADMIN"]);
+
+    return ok(await previewEventRestore(id));
+  } catch (error) {
+    return fail(error);
+  }
+}
 
 export async function POST(
   req: NextRequest,
@@ -14,7 +32,8 @@ export async function POST(
     ensureApproved(profile);
     ensureRole(profile, ["ADMIN"]);
 
-    const result = await restoreEvent(id, { uid, email });
+    const body = await parseJsonBody(req, restoreEventBodySchema);
+    const result = await restoreEvent(id, { uid, email }, body);
 
     return ok(result);
   } catch (error) {

@@ -21,9 +21,16 @@ ui-debug.log
 # coverage
 /coverage
 
+# test artifacts
+/test-results/
+/playwright-report/
+/blob-report/
+
 # misc
 .DS_Store
+*.tsbuildinfo
 .firebase/
 output/
 tmp/
 .vercel
+/ECC/

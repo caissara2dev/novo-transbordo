@@ -27,6 +27,12 @@ async function seedProfiles() {
       approved: true,
       active: true
     });
+    await setDoc(doc(db, "users", "display-1"), {
+      email: "display@example.com",
+      role: "DISPLAY",
+      approved: true,
+      active: true
+    });
     await setDoc(doc(db, "users", "pending-admin"), {
       email: "pending@example.com",
       role: "ADMIN",
@@ -49,6 +55,9 @@ async function seedProfiles() {
     });
     await setDoc(doc(db, "events", "event-1", "revisions", "revision-1"), {
       editedByUid: "admin-1"
+    });
+    await setDoc(doc(db, "containerStates", "ABCU1234560"), {
+      status: "PARTIAL"
     });
   });
 }
@@ -120,12 +129,23 @@ describe("Firestore user profile rules", () => {
 });
 
 describe("Firestore domain collection rules", () => {
-  it("allows an approved user to read operational data", async () => {
+  it("keeps domain data behind the authenticated API", async () => {
     const db = testEnv.authenticatedContext("operator-1").firestore();
 
-    await assertSucceeds(getDoc(doc(db, "clients", "client-1")));
-    await assertSucceeds(getDoc(doc(db, "events", "event-1")));
-    await assertSucceeds(
+    await assertFails(getDoc(doc(db, "clients", "client-1")));
+    await assertFails(getDoc(doc(db, "events", "event-1")));
+    await assertFails(
+      getDoc(doc(db, "events", "event-1", "revisions", "revision-1"))
+    );
+  });
+
+  it("blocks DISPLAY from reading operational collections directly", async () => {
+    const db = testEnv.authenticatedContext("display-1").firestore();
+
+    await assertSucceeds(getDoc(doc(db, "users", "display-1")));
+    await assertFails(getDoc(doc(db, "clients", "client-1")));
+    await assertFails(getDoc(doc(db, "events", "event-1")));
+    await assertFails(
       getDoc(doc(db, "events", "event-1", "revisions", "revision-1"))
     );
   });
@@ -140,5 +160,15 @@ describe("Firestore domain collection rules", () => {
         editedByUid: "admin-1"
       })
     );
+    await assertFails(
+      setDoc(doc(db, "containerStates", "ABCU1234560"), {
+        status: "FULL"
+      })
+    );
+  });
+
+  it("keeps materialized container state behind the authenticated API", async () => {
+    const db = testEnv.authenticatedContext("operator-1").firestore();
+    await assertFails(getDoc(doc(db, "containerStates", "ABCU1234560")));
   });
 });

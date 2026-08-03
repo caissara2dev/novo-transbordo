@@ -1,8 +1,15 @@
 import { NextRequest } from "next/server";
+import { z } from "zod";
 import { ensureApproved, ensureRole, requireAuth } from "@/lib/server/auth";
 import { createClient, listClients } from "@/lib/server/clients";
-import { fail, ok } from "@/lib/server/http";
+import { fail, ok, parseJsonBody } from "@/lib/server/http";
 import { toPlain } from "@/lib/server/serialize";
+
+const createClientBodySchema = z
+  .object({
+    name: z.string()
+  })
+  .strict();
 
 export async function GET(req: NextRequest) {
   try {
@@ -24,7 +31,7 @@ export async function POST(req: NextRequest) {
     ensureApproved(profile);
     ensureRole(profile, ["ADMIN"]);
 
-    const body = (await req.json()) as { name: string };
+    const body = await parseJsonBody(req, createClientBodySchema);
     const created = await createClient(body.name, uid);
 
     return ok({ item: toPlain(created) }, 201);

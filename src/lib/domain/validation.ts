@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { categories, EventInput, ShiftType } from "@/types/domain";
+import { categories, containerStatuses, EventInput, ShiftType } from "@/types/domain";
 import {
   calculateDurationMinutes,
   computeWindowCheck,
@@ -7,11 +7,23 @@ import {
   resolveTimelineDate
 } from "@/lib/domain/time";
 import { categoryRules } from "@/lib/domain/constants";
+import { HttpError } from "@/lib/domain/errors";
 import { normalizeContainer, normalizePlate } from "@/lib/domain/identifiers";
 
+const isoDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine((value) => {
+    const parsed = new Date(`${value}T00:00:00.000Z`);
+    return (
+      Number.isFinite(parsed.getTime()) &&
+      parsed.toISOString().slice(0, 10) === value
+    );
+  }, "Data inválida.");
+
 const baseSchema = z.object({
-  pump: z.enum(["BOMBA_1", "BOMBA_2"]),
-  shiftDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  pump: z.enum(["BOMBA_1", "BOMBA_2", "BOMBA_3"]),
+  shiftDate: isoDateSchema,
   shiftType: z.enum(["MANHA", "NOITE"]),
   startTime: z.string(),
   endTime: z.string(),
@@ -19,6 +31,11 @@ const baseSchema = z.object({
   clientId: z.string().trim().min(1).nullable(),
   plate: z.string().trim().nullable(),
   container: z.string().trim().nullable(),
+  containerStatus: z.enum(containerStatuses).nullable().optional(),
+  containerReason: z.string().trim().nullable().optional(),
+  startsNewContainerCycle: z.boolean().optional(),
+  blendConfirmed: z.boolean().optional(),
+  expectedContainerStateVersion: z.number().int().min(0).nullable().optional(),
   notes: z.string().trim().nullable()
 });
 
@@ -47,32 +64,75 @@ export function validateEventInput(raw: unknown): EventValidationResult {
   const parsed = baseSchema.parse(raw);
 
   if (!isValidHHMM(parsed.startTime) || !isValidHHMM(parsed.endTime)) {
-    throw new Error("Horário deve estar no formato HH:MM.");
+    throw new HttpError(400, "Horário deve estar no formato HH:MM.");
   }
+
+  const normalizedContainer = normalizeContainer(parsed.container);
+  const isProductiveContainer = parsed.category === "PRODUTIVO" && Boolean(normalizedContainer);
+  const containerStatus = isProductiveContainer ? parsed.containerStatus ?? "FULL" : null;
+  const containerReason = isProductiveContainer
+    ? parsed.containerReason?.trim() || null
+    : null;
 
   const normalized: EventInput = {
     ...parsed,
     plate: normalizePlate(parsed.plate),
-    container: normalizeContainer(parsed.container),
+    container: normalizedContainer,
+    containerStatus,
+    containerReason,
+    startsNewContainerCycle: isProductiveContainer
+      ? Boolean(parsed.startsNewContainerCycle)
+      : false,
+    blendConfirmed: isProductiveContainer ? Boolean(parsed.blendConfirmed) : false,
+    expectedContainerStateVersion:
+      parsed.expectedContainerStateVersion === undefined
+        ? null
+        : parsed.expectedContainerStateVersion,
     notes: parsed.notes?.trim() || null
   };
 
   const rules = categoryRules[normalized.category];
 
   if (rules.requiresClient && !normalized.clientId) {
-    throw new Error("Cliente obrigatório para esta categoria.");
+    throw new HttpError(400, "Cliente obrigatório para esta categoria.");
   }
 
   if (rules.requiresPlate && !normalized.plate) {
-    throw new Error("Placa obrigatória para esta categoria.");
+    throw new HttpError(400, "Placa obrigatória para esta categoria.");
   }
 
   if (rules.requiresContainer && !normalized.container) {
-    throw new Error("Container obrigatório para esta categoria.");
+    throw new HttpError(400, "Container obrigatório para esta categoria.");
   }
 
   if (rules.requiresNotes && !normalized.notes) {
-    throw new Error("Observação obrigatória para esta categoria.");
+    throw new HttpError(400, "Observação obrigatória para esta categoria.");
+  }
+
+  if (
+    normalized.containerStatus === "PARTIAL" ||
+    normalized.containerStatus === "BUFFER" ||
+    normalized.containerStatus === "BLEND_PARTIAL"
+  ) {
+    if (!normalized.containerReason) {
+      throw new HttpError(400, "Motivo do estado do container é obrigatório.");
+    }
+  }
+
+  if (
+    (normalized.containerStatus === "BLEND_FULL" ||
+      normalized.containerStatus === "BLEND_PARTIAL") &&
+    !normalized.blendConfirmed
+  ) {
+    throw new HttpError(400, "Confirme a formação do Blend antes de salvar.");
+  }
+
+  if (
+    normalized.startsNewContainerCycle &&
+    (normalized.containerStatus === "BLEND_FULL" ||
+      normalized.containerStatus === "BLEND_PARTIAL")
+  ) {
+    throw new HttpError(400, "Um novo ciclo não pode começar diretamente como Blend.");
   }
 
   const startDt = resolveTimelineDate(
@@ -86,22 +146,26 @@ export function validateEventInput(raw: unknown): EventValidationResult {
     normalized.endTime
   );
 
+  if (!startDt.isValid || !endDt.isValid) {
+    throw new HttpError(400, "Data ou horário do lançamento é inválido.");
+  }
+
   if (endDt <= startDt) {
     if (normalized.shiftType === "NOITE") {
       endDt = endDt.plus({ days: 1 });
     } else {
-      throw new Error("Horário de início deve ser menor que horário de fim.");
+      throw new HttpError(400, "Horário de início deve ser menor que horário de fim.");
     }
   }
 
   const durationMinutes = calculateDurationMinutes(startDt.toISO() ?? "", endDt.toISO() ?? "");
 
-  if (durationMinutes < 1) {
-    throw new Error("Duração mínima de 1 minuto.");
+  if (!Number.isFinite(durationMinutes) || durationMinutes < 1) {
+    throw new HttpError(400, "Duração mínima de 1 minuto.");
   }
 
   if (durationMinutes > 540) {
-    throw new Error("Duração máxima de 9 horas.");
+    throw new HttpError(400, "Duração máxima de 9 horas.");
   }
 
   const warnings: string[] = [];
@@ -163,5 +227,5 @@ export function ensureShiftType(input: string): ShiftType {
     return input;
   }
 
-  throw new Error("Turno inválido.");
+  throw new HttpError(400, "Turno inválido.");
 }

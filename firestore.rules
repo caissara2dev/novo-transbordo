@@ -27,18 +27,22 @@ service cloud.firestore {
     }
 
     match /clients/{clientId} {
-      allow read: if isApproved();
+      allow read: if false;
       allow write: if false;
     }
 
     match /events/{eventId} {
-      allow read: if isApproved();
+      allow read: if false;
       allow write: if false;
 
       match /revisions/{revisionId} {
-        allow read: if isApproved();
+        allow read: if false;
         allow write: if false;
       }
+    }
+
+    match /containerStates/{containerId} {
+      allow read, write: if false;
     }
 
     match /{document=**} {

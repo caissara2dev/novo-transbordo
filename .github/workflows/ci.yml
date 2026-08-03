@@ -21,7 +21,7 @@ jobs:
     timeout-minutes: 20
     env:
       NEXT_PUBLIC_APP_ENV: test
-      NEXT_PUBLIC_FIREBASE_API_KEY: test-api-key
+      NEXT_PUBLIC_FIREBASE_API_KEY: demo-api-key
       NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: demo-transbordo.firebaseapp.com
       NEXT_PUBLIC_FIREBASE_PROJECT_ID: demo-transbordo
       NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: demo-transbordo.firebasestorage.app
@@ -51,17 +51,8 @@ jobs:
       - name: Dependências
         run: npm ci
 
-      - name: Lint
-        run: npm run lint
+      - name: Chromium
+        run: npx playwright install --with-deps chromium
 
-      - name: Testes unitários
-        run: npm test
-
-      - name: Testes de integração
-        run: npm run test:integration
-
-      - name: Regras do Firestore
-        run: npm run test:rules
-
-      - name: Build
-        run: npm run build
+      - name: Verificação completa
+        run: npm run verify

@@ -1,4 +1,17 @@
-import { EventDoc, UserDoc } from "@/types/domain";
+import {
+  ContainerCyclePassage,
+  ContainerStateDoc,
+  ContainerStatus,
+  EventDoc,
+  GapPreview,
+  UserDoc
+} from "@/types/domain";
+
+export type PaginatedResponse<T> = {
+  items: T[];
+  nextCursor: string | null;
+  incomplete: boolean;
+};
 
 export type EventApiItem = Omit<EventDoc, "createdAt" | "updatedAt" | "startAt" | "endAt"> & {
   id: string;
@@ -6,7 +19,35 @@ export type EventApiItem = Omit<EventDoc, "createdAt" | "updatedAt" | "startAt" 
   updatedAt: string;
   startAt: string;
   endAt: string;
+  previousContainerPassages?: ContainerCyclePassage[];
   warnings?: string[];
+};
+
+export type ContainerStateApiItem = Omit<
+  ContainerStateDoc,
+  "operationalAt" | "eventCreatedAt" | "updatedAt"
+> & {
+  operationalAt: string;
+  eventCreatedAt: string;
+  updatedAt: string;
+};
+
+export type ContainerLookupResponse = {
+  container: string;
+  current: ContainerStateApiItem | null;
+  availableStatuses: ContainerStatus[];
+  requiresNewCycleConfirmation: boolean;
+};
+
+export type ContainerHistoryItem = EventApiItem & {
+  status: ContainerStatus;
+};
+
+export type RestoreEventPreviewResponse = {
+  gapVersion: string;
+  changedSinceDeletion: boolean;
+  expectedContainerStateVersion: number | null;
+  reconciliations: NonNullable<GapPreview["reconciliations"]>;
 };
 
 export type ClientApiItem = {
@@ -17,6 +58,27 @@ export type ClientApiItem = {
 };
 
 export type UserApiItem = UserDoc & { id: string };
+
+export type DisplayClientCount = {
+  clientId: string;
+  clientName: string;
+  finalizedToday: number;
+  openNow: number;
+};
+
+export type DisplayOverviewResponse = {
+  operationalDate: string;
+  generatedAt: string;
+  finalizedTotal: number;
+  averageProductiveMinutes: number | null;
+  openContainers: {
+    total: number;
+    partial: number;
+    buffer: number;
+    blendPartial: number;
+  };
+  clients: DisplayClientCount[];
+};
 
 export type ReportGranularity = "day" | "week" | "month";
 
@@ -48,7 +110,8 @@ export type ReportsOverviewResponse = {
     shiftType?: string;
     category?: string;
     clientId?: string;
-    includeDeleted: boolean;
+      includeDeleted: boolean;
+      containerStatus?: ContainerStatus;
   };
   kpis: {
     totalMinutes: ReportKpi;
@@ -111,6 +174,8 @@ export type ReportDrilldownRow = {
   notes: string | null;
   plate: string | null;
   container: string | null;
+  containerStatus: ContainerStatus | null;
+  containerReason: string | null;
   createdByEmail: string;
   updatedByEmail: string;
   createdAt: string;

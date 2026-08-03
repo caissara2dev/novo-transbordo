@@ -1,0 +1,139 @@
+import { HttpError } from "@/lib/domain/errors";
+import { ContainerStatus, Pump } from "@/types/domain";
+
+export type ContainerTimelineEvent = {
+  id: string;
+  container: string;
+  status: ContainerStatus;
+  clientId: string;
+  plate: string;
+  pump: Pump;
+  operationalAtMs: number;
+  createdAtMs: number;
+  startsNewCycle: boolean;
+  existingCycleId: string | null;
+};
+
+export type ContainerTimelineLink = {
+  id: string;
+  containerCycleId: string;
+  previousContainerEventId: string | null;
+};
+
+export type ContainerTimelinePlan = {
+  events: ContainerTimelineLink[];
+  current: (ContainerTimelineEvent & ContainerTimelineLink) | null;
+};
+
+// Firestore allows 500 writes per transaction. Keeping 50 writes in reserve
+// leaves room for locks, revisions and automatic gap reconciliation.
+export const TIMELINE_TRANSACTION_WRITE_LIMIT = 450;
+
+export function assertTimelineTransactionWriteBudget(params: {
+  lifecycleWrites: number;
+  reservedWrites: number;
+}): void {
+  if (
+    params.lifecycleWrites + params.reservedWrites >
+    TIMELINE_TRANSACTION_WRITE_LIMIT
+  ) {
+    throw new HttpError(
+      409,
+      "A reconciliação excederia o limite seguro de 450 escritas. Divida o histórico ou execute uma reparação administrativa."
+    );
+  }
+}
+
+function isBlend(status: ContainerStatus): boolean {
+  return status === "BLEND_FULL" || status === "BLEND_PARTIAL";
+}
+
+function isClosed(status: ContainerStatus): boolean {
+  return status === "FULL" || status === "BLEND_FULL";
+}
+
+export function planContainerTimeline(params: {
+  events: ContainerTimelineEvent[];
+  createCycleId: () => string;
+}): ContainerTimelinePlan {
+  const ordered = [...params.events].sort(
+    (left, right) =>
+      left.operationalAtMs - right.operationalAtMs ||
+      left.createdAtMs - right.createdAtMs ||
+      left.id.localeCompare(right.id)
+  );
+
+  const planned: Array<ContainerTimelineEvent & ContainerTimelineLink> = [];
+
+  for (const [index, event] of ordered.entries()) {
+    const previous = planned.at(-1) || null;
+    const startsNewCycle = !previous || event.startsNewCycle;
+
+    if (startsNewCycle) {
+      if (isBlend(event.status)) {
+        throw new HttpError(
+          400,
+          previous
+            ? "Um novo ciclo não pode começar diretamente como Blend."
+            : "Blend exige um container Parcial ou Pulmão anterior."
+        );
+      }
+
+      const next = ordered[index + 1];
+      const inheritedCycleId =
+        !previous &&
+        !event.startsNewCycle &&
+        next &&
+        !next.startsNewCycle
+          ? next.existingCycleId
+          : null;
+      planned.push({
+        ...event,
+        containerCycleId:
+          event.existingCycleId ||
+          inheritedCycleId ||
+          params.createCycleId(),
+        previousContainerEventId: null
+      });
+      continue;
+    }
+
+    if (isClosed(previous.status)) {
+      throw new HttpError(
+        409,
+        "Este container estava cheio. Confirme que foi esvaziado para iniciar um novo ciclo."
+      );
+    }
+
+    if (previous.status === "BLEND_PARTIAL" && !isBlend(event.status)) {
+      throw new HttpError(
+        400,
+        "Um Blend não pode voltar a ser carga simples no mesmo ciclo."
+      );
+    }
+
+    if (isBlend(event.status) && previous.clientId !== event.clientId) {
+      throw new HttpError(
+        400,
+        "Blend só pode ser formado com cargas do mesmo cliente."
+      );
+    }
+
+    planned.push({
+      ...event,
+      containerCycleId: previous.containerCycleId,
+      previousContainerEventId: previous.id
+    });
+  }
+
+  return {
+    events: planned.map(
+      ({ id, containerCycleId, previousContainerEventId }) => ({
+        id,
+        containerCycleId,
+        previousContainerEventId
+      })
+    ),
+    current: planned.at(-1) || null
+  };
+}

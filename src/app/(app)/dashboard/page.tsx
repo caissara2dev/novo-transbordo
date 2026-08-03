@@ -5,11 +5,20 @@ import { useAuthSession } from "@/lib/auth/use-auth-session";
 
 export default function DashboardPage() {
   const { profile } = useAuthSession();
-  const shortcuts: Array<{ href: "/events" | "/reports" | "/clients" | "/users"; title: string; desc: string }> = [
+  const shortcuts: Array<{
+    href: "/events" | "/containers" | "/reports" | "/clients" | "/users";
+    title: string;
+    desc: string;
+  }> = [
     {
       href: "/events" as const,
       title: "Lançamentos",
       desc: "Registrar, editar e consultar histórico operacional."
+    },
+    {
+      href: "/containers" as const,
+      title: "Containers",
+      desc: "Consultar estado atual, ciclos, motivos e placas vinculadas."
     },
     ...(profile?.role === "SUPERVISOR" || profile?.role === "ADMIN"
       ? [
