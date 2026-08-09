@@ -30,6 +30,48 @@ function json(body: unknown) {
   };
 }
 
+function historyEventFixture({
+  id,
+  notes,
+  shiftType = "T1",
+  startHour = 8
+}: {
+  id: string;
+  notes: string;
+  shiftType?: string;
+  startHour?: number;
+}) {
+  const localHour = String(startHour).padStart(2, "0");
+  const utcHour = String(startHour + 3).padStart(2, "0");
+
+  return {
+    id,
+    pump: "BOMBA_1",
+    shiftDate: "2026-07-28",
+    shiftType,
+    startTime: `${localHour}:00`,
+    endTime: `${localHour}:30`,
+    startAt: `2026-07-28T${utcHour}:00:00.000Z`,
+    endAt: `2026-07-28T${utcHour}:30:00.000Z`,
+    durationMinutes: 30,
+    category: "OUTROS",
+    origin: "MANUAL",
+    clientId: null,
+    clientNameSnapshot: null,
+    plate: null,
+    container: null,
+    containerStatus: null,
+    containerReason: null,
+    notes,
+    createdAt: `2026-07-28T${utcHour}:30:00.000Z`,
+    updatedAt: `2026-07-28T${utcHour}:30:00.000Z`,
+    createdByEmail: email,
+    updatedByEmail: email,
+    deleted: false,
+    previousContainerPassages: []
+  };
+}
+
 async function mockSession(page: Page): Promise<void> {
   await page.route("**/api/auth/sync", (route) =>
     route.fulfill(
@@ -214,32 +256,6 @@ test("editing report draft filters does not refetch until Apply", async ({
 test("event history loads cursor pages without duplicate rows", async ({
   page
 }) => {
-  const makeEvent = (id: string, notes: string) => ({
-    id,
-    pump: "BOMBA_1",
-    shiftDate: "2026-07-28",
-    shiftType: "T1",
-    startTime: "08:00",
-    endTime: "08:30",
-    startAt: "2026-07-28T11:00:00.000Z",
-    endAt: "2026-07-28T11:30:00.000Z",
-    durationMinutes: 30,
-    category: "OUTROS",
-    origin: "MANUAL",
-    clientId: null,
-    clientNameSnapshot: null,
-    plate: null,
-    container: null,
-    containerStatus: null,
-    containerReason: null,
-    notes,
-    createdAt: "2026-07-28T11:30:00.000Z",
-    updatedAt: "2026-07-28T11:30:00.000Z",
-    createdByEmail: email,
-    updatedByEmail: email,
-    deleted: false,
-    previousContainerPassages: []
-  });
   const requestedCursors: Array<string | null> = [];
 
   await page.route("**/api/clients*", (route) =>
@@ -258,16 +274,28 @@ test("event history loads cursor pages without duplicate rows", async ({
     const data = cursor
       ? {
           items: [
-            makeEvent("event-2", "overlap-updated"),
-            makeEvent("event-3", "second-page-marker")
+            historyEventFixture({
+              id: "event-2",
+              notes: "overlap-updated"
+            }),
+            historyEventFixture({
+              id: "event-3",
+              notes: "second-page-marker"
+            })
           ],
           nextCursor: null,
           incomplete: false
         }
       : {
           items: [
-            makeEvent("event-1", "first-page-marker"),
-            makeEvent("event-2", "overlap-stale")
+            historyEventFixture({
+              id: "event-1",
+              notes: "first-page-marker"
+            }),
+            historyEventFixture({
+              id: "event-2",
+              notes: "overlap-stale"
+            })
           ],
           nextCursor: "opaque/cursor+token=",
           incomplete: false
@@ -286,6 +314,89 @@ test("event history loads cursor pages without duplicate rows", async ({
   await expect(page.getByText(/overlap-stale/)).toHaveCount(0);
   await expect(page.locator(".history-item")).toHaveCount(3);
   expect(requestedCursors).toEqual([null, "opaque/cursor+token="]);
+});
+
+test("opening a history item keeps the edit form in the operator viewport", async ({
+  page
+}) => {
+  const historyItems = [
+    historyEventFixture({
+      id: "event-11",
+      notes: "primeiro item",
+      shiftType: "MANHA",
+      startHour: 11
+    }),
+    historyEventFixture({
+      id: "event-10",
+      notes: "segundo item",
+      shiftType: "MANHA",
+      startHour: 10
+    }),
+    historyEventFixture({
+      id: "event-09",
+      notes: "terceiro item",
+      shiftType: "MANHA",
+      startHour: 9
+    }),
+    historyEventFixture({
+      id: "event-to-edit",
+      notes: "item selecionado para edição",
+      shiftType: "MANHA",
+      startHour: 8
+    })
+  ];
+
+  await page.route("**/api/clients*", (route) =>
+    route.fulfill(
+      json({
+        ok: true,
+        data: { items: [], nextCursor: null, incomplete: false }
+      })
+    )
+  );
+  await page.route("**/api/events?*", (route) =>
+    route.fulfill(
+      json({
+        ok: true,
+        data: {
+          items: historyItems,
+          nextCursor: null,
+          incomplete: false
+        }
+      })
+    )
+  );
+
+  await login(page);
+  await page.goto("/events");
+  await expect(page.getByText("item selecionado para edição")).toBeVisible();
+
+  const selectedHistoryItem = page
+    .locator(".history-item")
+    .filter({ hasText: "item selecionado para edição" });
+  const selectedEditButton = selectedHistoryItem.getByRole("button", {
+    name: "Editar"
+  });
+
+  await selectedEditButton.click();
+
+  const editPanel = page.getByTestId("event-edit-panel");
+  const editHeading = page.getByRole("heading", {
+    name: "Editar lançamento"
+  });
+
+  await expect(editHeading).toBeInViewport();
+  await expect(editHeading).toBeFocused();
+  await expect(editPanel.getByLabel("Observações")).toHaveValue(
+    "item selecionado para edição"
+  );
+
+  await selectedEditButton.click();
+  await expect(editHeading).toBeInViewport();
+  await expect(editHeading).toBeFocused();
+
+  await editPanel.getByRole("button", { name: "Cancelar" }).click();
+  await expect(editPanel).toHaveCount(0);
 });
 
 test("copies the transit justification plate without overriding a manual productive plate", async ({

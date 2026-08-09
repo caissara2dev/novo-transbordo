@@ -26,6 +26,7 @@ import {
   EventListFilters,
   filtersAreEqual
 } from "@/lib/ui/filters";
+import { revealEditHeading } from "@/lib/ui/edit-panel-focus";
 import {
   createLatestRequestCoordinator,
   isAbortError
@@ -100,6 +101,7 @@ export default function EventsPage() {
   const [editForm, setEditForm] = useState<EventFormState | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
   const [editAutomatic, setEditAutomatic] = useState(false);
+  const [editSelectionVersion, setEditSelectionVersion] = useState(0);
   const [deletePlan, setDeletePlan] = useState<DeletePlan | null>(null);
   const [restorePlan, setRestorePlan] = useState<RestorePlan | null>(null);
   const [draftFilters, setDraftFilters] = useState<EventListFilters>(() => ({
@@ -115,10 +117,19 @@ export default function EventsPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const appliedFiltersRef = useRef<EventListFilters>(initialFilters);
+  const editHeadingRef = useRef<HTMLHeadingElement>(null);
   const clientRequests = useRef(createLatestRequestCoordinator());
   const eventRequests = useRef(createLatestRequestCoordinator());
   const createGapState = useGapPreview(form, setForm);
   const editGapState = useGapPreview(editForm, setEditForm, editId);
+
+  useEffect(() => {
+    if (!editId || editSelectionVersion === 0) {
+      return;
+    }
+
+    revealEditHeading(editHeadingRef.current);
+  }, [editId, editSelectionVersion]);
 
   const isManager = useMemo(
     () =>
@@ -312,6 +323,7 @@ export default function EventsPage() {
       gapJustificationsByEvent: {}
     });
     setEditAutomatic((item.origin || "MANUAL") === "AUTO_GAP");
+    setEditSelectionVersion((current) => current + 1);
   };
 
   const handleEdit = async (event: FormEvent) => {
@@ -564,9 +576,20 @@ export default function EventsPage() {
       </section>
 
       {editForm ? (
-        <div className="panel border-amber-300 bg-amber-50/70">
+        <div
+          aria-labelledby="edit-event-heading"
+          className="panel border-amber-300 bg-amber-50/70"
+          data-testid="event-edit-panel"
+        >
           <div className="mb-2 flex items-center justify-between">
-            <h2 className="panel-title text-2xl">Editar lançamento</h2>
+            <h2
+              className="panel-title text-2xl"
+              id="edit-event-heading"
+              ref={editHeadingRef}
+              tabIndex={-1}
+            >
+              Editar lançamento
+            </h2>
             <button
               className="btn-soft"
               onClick={() => {
