@@ -8,7 +8,7 @@ const hasE2ESuite = existsSync(path.join(projectRoot, "tests/e2e"));
 const e2eProjectId = "demo-transbordo-e2e";
 
 process.env.FIREBASE_PROJECT_ID = e2eProjectId;
-process.env.FIREBASE_AUTH_EMULATOR_HOST = "127.0.0.1:9099";
+process.env.FIREBASE_AUTH_EMULATOR_HOST = "127.0.0.1:9199";
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -37,21 +37,23 @@ export default defineConfig({
     ? [
         {
           command:
-            "./node_modules/.bin/firebase emulators:start --project demo-transbordo-e2e --only auth",
+            "./node_modules/.bin/firebase emulators:start --config firebase.e2e.json --project demo-transbordo-e2e --only auth",
           url:
-            "http://127.0.0.1:9099/emulator/v1/projects/demo-transbordo-e2e/config",
-          reuseExistingServer: false,
+            "http://127.0.0.1:9199/emulator/v1/projects/demo-transbordo-e2e/config",
+          reuseExistingServer: !process.env.CI,
           timeout: 120_000
         },
         {
-          command: "npm run dev -- --hostname 127.0.0.1",
+          // A production server avoids Turbopack's file watchers, which can hit
+          // macOS EMFILE limits and make the E2E gate nondeterministic.
+          command: "npm run build && npm run start -- --hostname 127.0.0.1",
           env: {
             APP_CHECK_MODE: "off",
             RATE_LIMIT_MODE: "off",
             FIREBASE_PROJECT_ID: e2eProjectId,
-            FIREBASE_AUTH_EMULATOR_HOST: "127.0.0.1:9099",
+            FIREBASE_AUTH_EMULATOR_HOST: "127.0.0.1:9199",
             NEXT_PUBLIC_USE_FIREBASE_EMULATOR: "true",
-            NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST: "127.0.0.1:9099",
+            NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST: "127.0.0.1:9199",
             NEXT_PUBLIC_FIREBASE_API_KEY: "demo-api-key",
             NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: "localhost",
             NEXT_PUBLIC_FIREBASE_PROJECT_ID: e2eProjectId,
@@ -59,8 +61,10 @@ export default defineConfig({
             NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: "123456789",
             NEXT_PUBLIC_FIREBASE_APP_ID: "1:123456789:web:e2e"
           },
-          url: baseURL,
-          reuseExistingServer: false,
+          // The App Router intentionally has no `/` page. Probe a real route so
+          // Playwright can distinguish a ready server from a valid 404.
+          url: `${baseURL}/login`,
+          reuseExistingServer: !process.env.CI,
           timeout: 120_000
         }
       ]
