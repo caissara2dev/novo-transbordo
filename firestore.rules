@@ -45,6 +45,34 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Check-in data contains operational and personal information. Every access
+    // must pass through a server-side route, including administrators.
+    match /checkins/{checkinId} {
+      allow read, write: if false;
+
+      match /revisions/{revisionId} {
+        allow read, write: if false;
+      }
+    }
+
+    // These implementation collections enforce uniqueness, idempotency and
+    // replay protection. Exposing any of them would weaken those invariants.
+    match /_checkinUniqueLocks/{lockId} {
+      allow read, write: if false;
+    }
+
+    match /_checkinPublicCodes/{publicCode} {
+      allow read, write: if false;
+    }
+
+    match /_checkinSyncCommands/{commandId} {
+      allow read, write: if false;
+    }
+
+    match /_checkinIntegrationRequests/{requestId} {
+      allow read, write: if false;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

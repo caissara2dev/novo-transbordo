@@ -147,6 +147,14 @@
         { "fieldPath": "active", "order": "ASCENDING" },
         { "fieldPath": "nameUpper", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "checkins",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "createdAtIso", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": [
