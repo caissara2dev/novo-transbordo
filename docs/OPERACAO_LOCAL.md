@@ -525,8 +525,9 @@ segredo é incorporado ao repositório.
 
 Antes de testar em staging:
 
-1. comparar o template `outputs/checkin-v1/Agendamento Line Transportes - Staging.xlsx`
-   com a tabela real e enviar a cópia vazia ao SharePoint de staging;
+1. enviar ao SharePoint de staging o arquivo sanitizado e já comparado com a
+   fonte oficial em
+   `outputs/checkin-v1/Agendamento Line Transportes - Staging.xlsx`;
 2. criar os dois fluxos descritos em `docs/POWER_AUTOMATE_CHECKIN_V1.md` e
    guardar URLs/tokens somente nos secrets do backend;
 3. fornecer latitude e longitude centrais, raio, segredo de índices e credencial
@@ -542,14 +543,15 @@ Variáveis privadas do TransbordoLine:
 
 O centro aprovado para staging e produção é `-23.927722, -46.375806`
 (`23°55'39.8"S 46°22'32.9"W`). Os valores continuam fora do código executável e
-devem ser configurados nos ambientes correspondentes.
+devem ser configurados nos ambientes correspondentes. O domínio público
+aprovado para produção é `fila.linebot.com.br`.
 
 ```dotenv
 CHECKIN_INTEGRATION_KEY_ID=checkin-v1
 CHECKIN_INTEGRATION_HMAC_SECRET=
 CHECKIN_INDEX_HMAC_SECRET=
-CHECKIN_GEOFENCE_CENTER_LAT=
-CHECKIN_GEOFENCE_CENTER_LNG=
+CHECKIN_GEOFENCE_CENTER_LAT=-23.927722
+CHECKIN_GEOFENCE_CENTER_LNG=-46.375806
 CHECKIN_GEOFENCE_RADIUS_METERS=20000
 CHECKIN_POWER_AUTOMATE_ADD_URL=
 CHECKIN_POWER_AUTOMATE_UPDATE_URL=

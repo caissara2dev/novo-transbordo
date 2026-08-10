@@ -4,6 +4,7 @@
 **Baseline do TransbordoLine:** `v2.2.0` no commit `a347a3f`
 **Versão-alvo do TransbordoLine:** `v2.3.0` (o pacote permanece em `2.2.0` até a aprovação da release)
 **Versão-alvo do aplicativo público:** `v1.0.0`
+**Domínio público aprovado:** `fila.linebot.com.br`
 
 Este documento especifica o comportamento da V1. Ele não comprova a publicação
 do aplicativo público, da planilha de staging ou dos fluxos Power Automate.
@@ -147,6 +148,11 @@ aceite ficam reservados para uma evolução de consentimento/LGPD.
 O arquivo Excel no SharePoint é o registro oficial. A tabela existente conserva
 a ordem e o formato de suas colunas e acrescenta somente `Identificador de
 check-in`, preenchido por `publicCode`.
+
+A fonte oficial foi validada localmente em 10/08/2026: aba `Sheet1`, tabela
+`OfficeForms.Table`, 18 colunas e 1.692 respostas. O artefato sanitizado de
+staging conserva o contrato, atualiza os dois textos de ciência aprovados e usa
+a tabela `CheckinsV1`, sem copiar qualquer resposta real.
 
 | Coluna | Regra V1 |
 | --- | --- |
@@ -355,9 +361,10 @@ removem documentos, índices, linhas confirmadas ou auditoria.
 7. Somente com aprovação explícita, publicar as versões, trocar o link público e
    promover gradualmente para `enforce`.
 
-O centro geográfico já está definido, mas produção continua bloqueada enquanto
-ele não estiver configurado no ambiente e enquanto faltarem fluxos e planilha
-versionados, piloto sem divergências, ensaio de rollback ou aprovação explícita.
+O centro geográfico, o raio de 20 km e o domínio `fila.linebot.com.br` já estão
+definidos. Produção continua bloqueada enquanto eles não estiverem configurados
+nos ambientes e enquanto faltarem fluxos e planilha publicados em staging,
+piloto sem divergências, ensaio de rollback ou aprovação explícita.
 
 ### Rollback operacional
 

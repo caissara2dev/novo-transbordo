@@ -7,13 +7,16 @@ não contém conexões, URLs, tokens nem uma exportação produtiva.
 ## Planilha de staging
 
 - Arquivo vazio: `outputs/checkin-v1/Agendamento Line Transportes - Staging.xlsx`.
-- Planilha: `Form1`.
-- Tabela: `CheckinsV1`.
-- A ordem das 18 colunas conhecidas do Forms é preservada e a coluna final é
-  `Identificador de check-in`.
-- A cópia de referência original não estava disponível no workspace durante a
-  geração. Portanto, o artefato é um template sanitizado do contrato conhecido;
-  a equipe deve comparar cabeçalhos e tipos com a planilha real antes do piloto.
+- Planilha: `Sheet1`.
+- Tabela oficial de origem: `OfficeForms.Table`.
+- Tabela sanitizada de staging: `CheckinsV1`.
+- A ordem e a grafia das 18 colunas da planilha oficial foram preservadas. Os
+  dois cabeçalhos de ciência foram atualizados com os textos aprovados para a
+  V1 e a coluna final é `Identificador de check-in`.
+- A planilha oficial foi comparada localmente em 10/08/2026. Suas 1.692 linhas
+  de respostas não foram copiadas para o artefato de staging.
+- O arquivo original não foi alterado. A publicação no SharePoint continua
+  pendente e exige validação no ambiente de staging antes do piloto.
 
 ## Fluxo 1 — inclusão idempotente
 

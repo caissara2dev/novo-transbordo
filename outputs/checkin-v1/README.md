@@ -3,14 +3,15 @@
 `Agendamento Line Transportes - Staging.xlsx` é uma planilha vazia e sem dados
 pessoais, criada para testar o contrato do Power Automate.
 
-- aba: `Form1`;
-- tabela: `CheckinsV1`;
-- 19 colunas: as 18 conhecidas do formulário atual, na mesma ordem, mais
-  `Identificador de check-in` ao final;
-- datas formatadas para `Start time` e `Completion time`;
+- aba: `Sheet1`;
+- tabela oficial de referência: `OfficeForms.Table`;
+- tabela sanitizada de staging: `CheckinsV1`;
+- 19 colunas: as 18 existentes na planilha oficial, na mesma ordem e grafia,
+  mais `Identificador de check-in` ao final;
+- os dois cabeçalhos de ciência usam os textos aprovados para o Check-in V1;
 - nenhuma fórmula ou linha de motorista.
 
-A planilha real mencionada no planejamento não estava mais disponível no
-workspace durante a geração. Antes do piloto, compare nomes, acentos, ordem e
-tipos com a tabela oficial do SharePoint. A publicação no SharePoint e a criação
-dos fluxos são ações externas e não foram realizadas.
+A fonte oficial foi inspecionada localmente em 10/08/2026. As 1.692 respostas
+existentes foram removidas da cópia, sem alterar o arquivo de origem e sem
+versionar dados pessoais. A publicação no SharePoint e a criação dos fluxos são
+ações externas e não foram realizadas.
