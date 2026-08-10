@@ -509,3 +509,55 @@ staging e aguarde o status Ready antes de publicar a aplicação.
 - Usar dry-run antes de promoções, cópias e deploys.
 - Manter staging e produção com chaves HMAC diferentes.
 - Conceder acesso mínimo necessário às credenciais operacionais.
+
+## Check-in V1 — preparação de staging
+
+O recurso nasce desligado. Para desenvolvimento local mantenha:
+
+```dotenv
+CHECKIN_INTEGRATION_MODE=off
+```
+
+O comando `npm run build` carrega `.vercel/.env.preview.local` quando esse
+arquivo local existir. Variáveis já fornecidas pelo ambiente de CI ou hosting
+continuam tendo precedência; o arquivo permanece ignorado pelo Git e nenhum
+segredo é incorporado ao repositório.
+
+Antes de testar em staging:
+
+1. comparar o template `outputs/checkin-v1/Agendamento Line Transportes - Staging.xlsx`
+   com a tabela real e enviar a cópia vazia ao SharePoint de staging;
+2. criar os dois fluxos descritos em `docs/POWER_AUTOMATE_CHECKIN_V1.md` e
+   guardar URLs/tokens somente nos secrets do backend;
+3. fornecer latitude e longitude centrais, raio, segredo de índices e credencial
+   HMAC exclusivos de staging;
+4. publicar o app público em preview e o TransbordoLine somente no Firebase
+   staging;
+5. ativar `observe`, executar o piloto com o Forms antigo disponível e comparar
+   Excel, Firestore e fila por `LT-XXXXXXXX`;
+6. testar retry após timeout, correção concorrente, expiração e rollback;
+7. promover para `enforce` somente após aprovação explícita.
+
+Variáveis privadas do TransbordoLine:
+
+```dotenv
+CHECKIN_INTEGRATION_KEY_ID=checkin-v1
+CHECKIN_INTEGRATION_HMAC_SECRET=
+CHECKIN_INDEX_HMAC_SECRET=
+CHECKIN_GEOFENCE_CENTER_LAT=
+CHECKIN_GEOFENCE_CENTER_LNG=
+CHECKIN_GEOFENCE_RADIUS_METERS=20000
+CHECKIN_POWER_AUTOMATE_ADD_URL=
+CHECKIN_POWER_AUTOMATE_UPDATE_URL=
+CHECKIN_POWER_AUTOMATE_BEARER_TOKEN=
+CHECKIN_ENFORCE_ROLLOUT_APPROVED=false
+```
+
+`enforce` falha de forma fechada se os dois endpoints HTTPS do Power Automate
+não estiverem configurados ou se `CHECKIN_ENFORCE_ROLLOUT_APPROVED` não for
+explicitamente `true`. Essa aprovação só deve ser registrada depois do piloto
+em `observe` e do ensaio de rollback.
+
+Rollback: restaurar o link do Forms, alterar `enforce -> observe -> off`, pausar
+os fluxos, restaurar deployments anteriores e fazer `git revert` por PR. Nunca
+apagar linhas do Excel, coleções, índices ou auditoria durante o incidente.

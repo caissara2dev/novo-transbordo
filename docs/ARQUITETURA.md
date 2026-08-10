@@ -226,3 +226,41 @@ O procedimento, os critérios de enforcement e o rollback estão em
 
 Testes unitários cobrem regras puras; integração cobre adaptadores, serviços e
 emuladores; E2E cobre os fluxos críticos vistos pelo usuário.
+
+## Check-in Line V1
+
+O formulário público é um aplicativo Next.js e repositório independentes. O
+navegador não recebe Firebase; fala apenas com o backend público, que valida
+Turnstile, corpo e origem e chama a API V1 do TransbordoLine com HMAC.
+
+```text
+Motorista/transportadora
+          |
+          v
+  App público Vercel
+          |
+     HMAC + replay
+          v
+ API Check-in V1 no TransbordoLine
+       /          \
+ Firestore       Power Automate -> Excel oficial
+       \
+        fila interna -> lançamento produtivo
+```
+
+O Firestore guarda pré-cadastro, estado operacional, índices HMAC, locks,
+auditoria e comandos de sincronização. A coordenada exata é transitória; apenas
+decisão, distância aproximada, precisão e horário persistem.
+
+Inclusões, correções e bypass de GPS usam comandos idempotentes. Nas mutações de
+gestor, uma reserva transacional incrementa a versão e bloqueia operações
+concorrentes antes do Excel. A confirmação externa consolida o patch; falha
+mantém a mesma reserva para retry.
+
+O vínculo de um check-in `CHAMADO` ao lançamento produtivo e a mudança para
+`EM_DESCARGA` ocorrem atomicamente. A flag `CHECKIN_INTEGRATION_MODE` mantém
+compatibilidade em `off`, permite piloto em `observe` e exige seleção em
+`enforce`.
+
+Detalhes do contrato estão em `docs/CHECKIN_V1.md`,
+`docs/POWER_AUTOMATE_CHECKIN_V1.md` e na ADR-0001.

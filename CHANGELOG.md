@@ -5,6 +5,37 @@ Todas as alterações relevantes deste projeto serão registradas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o projeto usa
 [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [Unreleased]
+
+### Adicionado
+
+- Domínio de check-ins com pré-cadastro, identidade validada, geofence,
+  expiração em cinco dias, código público e auditoria.
+- API de integração V1 assinada por HMAC, proteção durável contra replay e
+  adaptador idempotente para inclusão e atualização no Excel via Power Automate.
+- Fila interna de check-ins com visibilidade por papel, atribuição de cliente,
+  correções, cancelamento, transições e exceção de GPS auditada.
+- Aplicativo público independente em `checkin-line-app`, sem Firebase no
+  navegador, com Turnstile, recuperação, consulta e compartilhamento WhatsApp.
+- Template sanitizado da planilha de staging e contrato operacional dos dois
+  fluxos Power Automate.
+
+### Alterado
+
+- Lançamentos produtivos aceitam o campo aditivo `checkInId`; nos modos
+  `observe`/`enforce`, o vínculo e `CHAMADO -> EM_DESCARGA` acontecem na mesma
+  transação.
+- Exclusão e restauração de um lançamento vinculado reconciliam o status da
+  visita e exigem os papéis e motivos já definidos para auditoria.
+
+### Segurança
+
+- Coleções e índices de check-in permanecem inacessíveis diretamente ao
+  navegador; credenciais, coordenadas centrais e URLs do Power Automate são
+  exclusivamente de servidor.
+- Correções e bypass de GPS reservam uma versão durável antes de alterar o Excel,
+  impedindo patches concorrentes e permitindo retry com a mesma chave.
+
 ## [2.2.0] - 2026-07-27
 
 Esta release incorpora integralmente o trabalho desenvolvido para a linha 2.1.

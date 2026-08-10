@@ -259,3 +259,44 @@ Permissão:
 
 O `PATCH` aceita exclusivamente:
 - `{ "idleToleranceMinutes": <inteiro entre 0 e 60> }`
+
+## Check-ins internos
+
+Todas as rotas exigem usuário aprovado. `DISPLAY` não possui acesso;
+`OPERATOR` recebe apenas os campos operacionais mínimos. Supervisor/Admin
+recebem dados completos e auditoria.
+
+- `GET /api/checkins?status=...`: até 200 visitas recentes, filtradas por papel.
+- `GET /api/checkins/:id`: detalhe permitido ao papel.
+- `PATCH /api/checkins/:id`: `ASSIGN_CLIENT` ou `CORRECT`, com
+  `expectedVersion` e motivo.
+- `POST /api/checkins/:id/transitions`: transição manual permitida.
+- `POST /api/checkins/:id/cancel`: cancelamento com motivo.
+- `POST /api/checkins/:id/location-override`: exceção de GPS por
+  Supervisor/Admin, com justificativa.
+
+Correções posteriores ao check-in e exceções de GPS reservam uma versão antes
+de chamar o Power Automate. O Excel só recebe o comando da reserva vencedora; a
+resposta perdida é repetida com a mesma chave idempotente.
+
+## Integração Check-in V1
+
+As rotas `/api/integrations/checkins/v1/*` são servidor-a-servidor. Elas não
+aceitam Firebase Auth e exigem `X-Checkin-Key-Id`, `X-Checkin-Timestamp`,
+`X-Checkin-Request-Id` e `X-Checkin-Signature` HMAC-SHA256.
+
+- `POST /pre-registrations`
+- `POST /confirmations`
+- `POST /walk-ins`
+- `POST /recoveries`
+- `POST /status`
+- `POST /maintenance/expire` — somente o cron do app público, em lotes.
+
+O corpo é estrito, a assinatura cobre o corpo bruto e a proteção durável contra
+replay diferencia repetição idêntica de reutilização conflitante do request ID.
+A consulta pública retorna somente `processing`, `confirmed` ou `cancelled`.
+
+O `POST /api/events` aceita os campos aditivos `checkInId` e, para o fallback
+manual de Admin em `enforce`, `manualPlateReason`. Evento e visita são vinculados
+na mesma transação. Uma visita vinculada não permite edição silenciosa da placa
+ou categoria; exclusão/restauração reconciliam o vínculo com auditoria.
