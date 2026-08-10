@@ -540,6 +540,10 @@ Antes de testar em staging:
 
 Variáveis privadas do TransbordoLine:
 
+O centro aprovado para staging e produção é `-23.927722, -46.375806`
+(`23°55'39.8"S 46°22'32.9"W`). Os valores continuam fora do código executável e
+devem ser configurados nos ambientes correspondentes.
+
 ```dotenv
 CHECKIN_INTEGRATION_KEY_ID=checkin-v1
 CHECKIN_INTEGRATION_HMAC_SECRET=

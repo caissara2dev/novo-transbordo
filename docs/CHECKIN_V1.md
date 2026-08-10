@@ -113,6 +113,9 @@ Um `PRE_CADASTRO` não utilizado por cinco dias muda automaticamente para
 ### Localização
 
 - O raio padrão é 20 km e a precisão máxima aceita é 1.000 m.
+- O centro operacional aprovado em 10/08/2026 é
+  `23°55'39.8"S 46°22'32.9"W`, convertido para
+  `-23.927722, -46.375806` no formato decimal usado pelo backend.
 - Latitude e longitude centrais são variáveis privadas de ambiente. A aplicação
   recusa iniciar em produção quando qualquer uma estiver ausente ou inválida.
 - A distância usa a fórmula de Haversine.
@@ -352,7 +355,8 @@ removem documentos, índices, linhas confirmadas ou auditoria.
 7. Somente com aprovação explícita, publicar as versões, trocar o link público e
    promover gradualmente para `enforce`.
 
-Produção fica bloqueada enquanto faltarem coordenadas, fluxos e planilha
+O centro geográfico já está definido, mas produção continua bloqueada enquanto
+ele não estiver configurado no ambiente e enquanto faltarem fluxos e planilha
 versionados, piloto sem divergências, ensaio de rollback ou aprovação explícita.
 
 ### Rollback operacional
