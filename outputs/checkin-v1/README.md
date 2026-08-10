@@ -13,5 +13,6 @@ pessoais, criada para testar o contrato do Power Automate.
 
 A fonte oficial foi inspecionada localmente em 10/08/2026. As 1.692 respostas
 existentes foram removidas da cópia, sem alterar o arquivo de origem e sem
-versionar dados pessoais. A publicação no SharePoint e a criação dos fluxos são
-ações externas e não foram realizadas.
+versionar dados pessoais. Na mesma data, o upload manual do arquivo sanitizado
+foi confirmado na biblioteca `Terminal - Line`, pasta `Documentos/linebot`.
+Os fluxos do Power Automate ainda não foram configurados nem validados.

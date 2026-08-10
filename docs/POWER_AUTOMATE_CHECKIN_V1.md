@@ -15,8 +15,9 @@ não contém conexões, URLs, tokens nem uma exportação produtiva.
   V1 e a coluna final é `Identificador de check-in`.
 - A planilha oficial foi comparada localmente em 10/08/2026. Suas 1.692 linhas
   de respostas não foram copiadas para o artefato de staging.
-- O arquivo original não foi alterado. A publicação no SharePoint continua
-  pendente e exige validação no ambiente de staging antes do piloto.
+- O arquivo original não foi alterado. Em 10/08/2026, o upload manual do
+  artefato sanitizado foi confirmado na biblioteca `Terminal - Line`, pasta
+  `Documentos/linebot`. A validação funcional com os fluxos continua pendente.
 
 ## Fluxo 1 — inclusão idempotente
 
