@@ -33,6 +33,19 @@ export async function updateEvent(
   }
 
   const validated = validateEventInput(raw);
+  if (
+    existing.checkInId &&
+    (validated.event.category !== "PRODUTIVO" ||
+      validated.event.plate !== existing.plate)
+  ) {
+    // The canonical plate belongs to the check-in. Detaching it through the
+    // generic editor would leave EM_DESCARGA without an owning event; managers
+    // must delete the mistaken event so the audited rollback can run.
+    throw new HttpError(
+      409,
+      "Este lançamento está vinculado a um check-in. Exclua-o com motivo para devolver a carreta a chamado antes de corrigir a seleção."
+    );
+  }
   const existingOrigin = existing.origin || "MANUAL";
   if (existingOrigin === "AUTO_GAP") {
     const changedDerivedField =

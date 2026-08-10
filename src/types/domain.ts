@@ -72,6 +72,10 @@ export type EventInput = {
   blendConfirmed: boolean;
   expectedContainerStateVersion: number | null;
   notes: string | null;
+  /** Optional V1 link; legacy events deliberately omit this field. */
+  checkInId?: string | null;
+  /** Audit trail for the ADMIN-only manual plate fallback in enforce mode. */
+  manualPlateReason?: string | null;
 };
 
 export type UserDoc = {

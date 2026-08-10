@@ -17,8 +17,15 @@ import { prepareDeletionGap } from "@/lib/server/gaps";
 
 const actor = {
   uid: "operator-1",
-  email: "operator@example.com"
+  email: "operator@example.com",
+  role: "OPERATOR" as const
 };
+const managerActor = {
+  uid: "supervisor-1",
+  email: "supervisor@example.com",
+  role: "SUPERVISOR" as const
+};
+const checkInId = "11111111-1111-4111-8111-111111111111";
 
 function eventInput(
   overrides: Record<string, unknown> = {}
@@ -45,9 +52,468 @@ function eventInput(
 
 describe("public event command service", () => {
   beforeEach(() => {
+    delete process.env.CHECKIN_INTEGRATION_MODE;
+    process.env.CHECKIN_INTEGRATION_KEY_ID = "checkin-v1";
+    process.env.CHECKIN_INTEGRATION_HMAC_SECRET = "a".repeat(32);
+    process.env.CHECKIN_INDEX_HMAC_SECRET = "b".repeat(32);
+    process.env.CHECKIN_GEOFENCE_CENTER_LAT = "-23.9608";
+    process.env.CHECKIN_GEOFENCE_CENTER_LNG = "-46.3336";
+    process.env.CHECKIN_POWER_AUTOMATE_ADD_URL = "https://example.test/checkins/add";
+    process.env.CHECKIN_POWER_AUTOMATE_UPDATE_URL = "https://example.test/checkins/update";
+    process.env.CHECKIN_ENFORCE_ROLLOUT_APPROVED = "true";
     inMemoryAdminDb.reset();
     inMemoryAdminDb.seed("settings", "operations", {
       idleToleranceMinutes: 10
+    });
+  });
+
+  it("fails closed before enforcing check-ins without explicit rollout approval", async () => {
+    process.env.CHECKIN_INTEGRATION_MODE = "enforce";
+    delete process.env.CHECKIN_ENFORCE_ROLLOUT_APPROVED;
+
+    await expect(
+      createEvent(
+        eventInput({
+          category: "PRODUTIVO",
+          clientId: "client-1",
+          plate: "ABC1D23",
+          container: "ABCU1234560",
+          containerStatus: "FULL",
+          expectedContainerStateVersion: 0
+        }),
+        actor
+      )
+    ).rejects.toMatchObject({ status: 500 });
+    expect(inMemoryAdminDb.entries("events")).toEqual([]);
+  });
+
+  it("links a called check-in atomically when creating a productive event in observe mode", async () => {
+    process.env.CHECKIN_INTEGRATION_MODE = "observe";
+    inMemoryAdminDb.seed("clients", "client-1", {
+      active: true,
+      name: "Cliente 1"
+    });
+    inMemoryAdminDb.seed("checkins", checkInId, {
+      id: checkInId,
+      status: "CHAMADO",
+      plate: "ABC1D23",
+      version: 7,
+      updatedAtIso: "2026-07-27T08:00:00.000Z"
+    });
+
+    const input = eventInput({
+      category: "PRODUTIVO",
+      clientId: "client-1",
+      plate: "ZZZ9999",
+      container: "ABCU1234560",
+      containerStatus: "FULL",
+      expectedContainerStateVersion: 0,
+      checkInId
+    });
+    const { previewEventGap } = await import("@/lib/server/gaps");
+    const preview = await previewEventGap(input);
+
+    const created = await createEvent(
+      { ...input, gapVersion: preview.gapVersion },
+      { ...actor, role: "OPERATOR" }
+    );
+
+    expect(created).toMatchObject({
+      checkInId,
+      plate: "ABC-1D23"
+    });
+    expect(inMemoryAdminDb.read("checkins", checkInId)).toMatchObject({
+      status: "EM_DESCARGA",
+      activeProductiveEventId: created.id,
+      version: 8
+    });
+    expect(
+      inMemoryAdminDb.entries(`checkins/${checkInId}/revisions`)
+    ).toEqual([
+      expect.arrayContaining([
+        expect.any(String),
+        expect.objectContaining({
+          action: "PRODUCTIVE_EVENT_LINKED",
+          eventId: created.id,
+          reason: "Check-in selecionado no lançamento produtivo.",
+          changedFields: ["status", "activeProductiveEventId"],
+          previousStatus: "CHAMADO",
+          newStatus: "EM_DESCARGA",
+          previousVersion: 7,
+          newVersion: 8
+        })
+      ])
+    ]);
+  });
+
+  it("rejects a check-in link for non-productive events", async () => {
+    process.env.CHECKIN_INTEGRATION_MODE = "observe";
+
+    await expect(
+      createEvent(
+        eventInput({ checkInId }),
+        { ...actor, role: "OPERATOR" }
+      )
+    ).rejects.toMatchObject({ status: 400 });
+
+    expect(inMemoryAdminDb.entries("events")).toHaveLength(0);
+  });
+
+  it("does not let the display profile move a called check-in into unloading", async () => {
+    process.env.CHECKIN_INTEGRATION_MODE = "observe";
+
+    await expect(
+      createEvent(
+        eventInput({ category: "PRODUTIVO", checkInId }),
+        { ...actor, role: "DISPLAY" }
+      )
+    ).rejects.toMatchObject({ status: 403 });
+
+    expect(inMemoryAdminDb.entries("events")).toHaveLength(0);
+  });
+
+  it("keeps legacy manual-plate behavior while integration mode is off", async () => {
+    process.env.CHECKIN_INTEGRATION_MODE = "off";
+    inMemoryAdminDb.seed("clients", "client-1", {
+      active: true,
+      name: "Cliente 1"
+    });
+    const input = eventInput({
+      category: "PRODUTIVO",
+      clientId: "client-1",
+      plate: "ZZZ9999",
+      container: "ABCU1234560",
+      containerStatus: "FULL",
+      expectedContainerStateVersion: 0,
+      checkInId
+    });
+    const { previewEventGap } = await import("@/lib/server/gaps");
+    const preview = await previewEventGap(input);
+
+    const created = await createEvent(
+      { ...input, gapVersion: preview.gapVersion },
+      { ...actor, role: "OPERATOR" }
+    );
+
+    expect(created).toMatchObject({ plate: "ZZZ-9999" });
+    expect(created).not.toHaveProperty("checkInId");
+  });
+
+  it("ignores additive linkage fields on non-productive events while mode is off", async () => {
+    process.env.CHECKIN_INTEGRATION_MODE = "off";
+
+    const created = await createEvent(
+      eventInput({ checkInId }),
+      { ...actor, role: "OPERATOR" }
+    );
+
+    expect(created).toMatchObject({ category: "OUTROS" });
+    expect(created).not.toHaveProperty("checkInId");
+  });
+
+  it("requires a called check-in in enforce mode and permits only an audited admin fallback", async () => {
+    process.env.CHECKIN_INTEGRATION_MODE = "enforce";
+    inMemoryAdminDb.seed("clients", "client-1", {
+      active: true,
+      name: "Cliente 1"
+    });
+    const input = eventInput({
+      category: "PRODUTIVO",
+      clientId: "client-1",
+      plate: "ABC1D23",
+      container: "ABCU1234560",
+      containerStatus: "FULL",
+      expectedContainerStateVersion: 0
+    });
+
+    await expect(
+      createEvent(input, { ...actor, role: "OPERATOR" })
+    ).rejects.toMatchObject({ status: 409 });
+    await expect(
+      createEvent(input, { ...actor, role: "SUPERVISOR" })
+    ).rejects.toMatchObject({ status: 409 });
+    await expect(
+      createEvent(input, { ...actor, role: "ADMIN" })
+    ).rejects.toMatchObject({ status: 400 });
+
+    const { previewEventGap } = await import("@/lib/server/gaps");
+    const preview = await previewEventGap(input);
+    const created = await createEvent(
+      {
+        ...input,
+        manualPlateReason: "Check-in indisponível durante contingência",
+        gapVersion: preview.gapVersion
+      },
+      { ...actor, role: "ADMIN" }
+    );
+
+    expect(created).toMatchObject({
+      checkInId: null,
+      manualPlateReason: "Check-in indisponível durante contingência",
+      plate: "ABC-1D23"
+    });
+  });
+
+  it("lets a supervisor select a called check-in in enforce mode", async () => {
+    process.env.CHECKIN_INTEGRATION_MODE = "enforce";
+    inMemoryAdminDb.seed("clients", "client-1", {
+      active: true,
+      name: "Cliente 1"
+    });
+    inMemoryAdminDb.seed("checkins", checkInId, {
+      id: checkInId,
+      status: "CHAMADO",
+      plate: "ABC1D23",
+      version: 5,
+      updatedAtIso: "2026-07-27T08:00:00.000Z"
+    });
+    const input = eventInput({
+      category: "PRODUTIVO",
+      clientId: "client-1",
+      plate: "ZZZ9999",
+      container: "ABCU1234560",
+      containerStatus: "FULL",
+      expectedContainerStateVersion: 0,
+      checkInId
+    });
+    const { previewEventGap } = await import("@/lib/server/gaps");
+    const preview = await previewEventGap(input);
+
+    const created = await createEvent(
+      { ...input, gapVersion: preview.gapVersion },
+      { ...actor, role: "SUPERVISOR" }
+    );
+
+    expect(created).toMatchObject({ checkInId, plate: "ABC-1D23" });
+    expect(inMemoryAdminDb.read("checkins", checkInId)).toMatchObject({
+      status: "EM_DESCARGA",
+      version: 6
+    });
+  });
+
+  it("rolls the check-in transition back when the productive event transaction fails", async () => {
+    process.env.CHECKIN_INTEGRATION_MODE = "observe";
+    inMemoryAdminDb.seed("clients", "client-1", {
+      active: true,
+      name: "Cliente 1"
+    });
+    inMemoryAdminDb.seed("checkins", checkInId, {
+      id: checkInId,
+      status: "CHAMADO",
+      plate: "ABC1D23",
+      version: 4,
+      updatedAtIso: "2026-07-27T08:00:00.000Z"
+    });
+    const input = eventInput({
+      category: "PRODUTIVO",
+      clientId: "client-1",
+      plate: "ABC1D23",
+      container: "ABCU1234560",
+      containerStatus: "FULL",
+      expectedContainerStateVersion: 99,
+      checkInId
+    });
+    const { previewEventGap } = await import("@/lib/server/gaps");
+    const preview = await previewEventGap(input);
+
+    await expect(
+      createEvent(
+        { ...input, gapVersion: preview.gapVersion },
+        { ...actor, role: "OPERATOR" }
+      )
+    ).rejects.toMatchObject({ status: 409 });
+
+    expect(inMemoryAdminDb.read("checkins", checkInId)).toMatchObject({
+      status: "CHAMADO",
+      version: 4
+    });
+    expect(inMemoryAdminDb.entries("events")).toHaveLength(0);
+    expect(
+      inMemoryAdminDb.entries(`checkins/${checkInId}/revisions`)
+    ).toHaveLength(0);
+  });
+
+  it("rejects a second productive selection after the check-in leaves CHAMADO", async () => {
+    process.env.CHECKIN_INTEGRATION_MODE = "observe";
+    inMemoryAdminDb.seed("clients", "client-1", {
+      active: true,
+      name: "Cliente 1"
+    });
+    inMemoryAdminDb.seed("checkins", checkInId, {
+      id: checkInId,
+      status: "CHAMADO",
+      plate: "ABC1D23",
+      version: 2,
+      updatedAtIso: "2026-07-27T08:00:00.000Z"
+    });
+    const firstInput = eventInput({
+      category: "PRODUTIVO",
+      clientId: "client-1",
+      plate: "ABC1D23",
+      container: "ABCU1234560",
+      containerStatus: "FULL",
+      expectedContainerStateVersion: 0,
+      checkInId
+    });
+    const { previewEventGap } = await import("@/lib/server/gaps");
+    const firstPreview = await previewEventGap(firstInput);
+    await createEvent(
+      { ...firstInput, gapVersion: firstPreview.gapVersion },
+      { ...actor, role: "OPERATOR" }
+    );
+
+    await expect(
+      createEvent(
+        {
+          ...firstInput,
+          startTime: "06:20",
+          endTime: "06:30",
+          container: "ABCU1234578"
+        },
+        { ...actor, role: "OPERATOR" }
+      )
+    ).rejects.toMatchObject({ status: 409, code: "CHECKIN_NOT_CALLED" });
+  });
+
+  it("returns a linked check-in to CHAMADO on manager deletion and relinks it on admin restore", async () => {
+    process.env.CHECKIN_INTEGRATION_MODE = "observe";
+    inMemoryAdminDb.seed("clients", "client-1", {
+      active: true,
+      name: "Cliente 1"
+    });
+    inMemoryAdminDb.seed("checkins", checkInId, {
+      id: checkInId,
+      status: "CHAMADO",
+      plate: "ABC1D23",
+      version: 10,
+      activeProductiveEventId: null,
+      updatedAtIso: "2026-07-27T08:00:00.000Z"
+    });
+    const input = eventInput({
+      category: "PRODUTIVO",
+      clientId: "client-1",
+      plate: "ABC1D23",
+      container: "ABCU1234560",
+      containerStatus: "FULL",
+      expectedContainerStateVersion: 0,
+      checkInId
+    });
+    const { previewEventGap } = await import("@/lib/server/gaps");
+    const creationPreview = await previewEventGap(input);
+    const created = await createEvent(
+      { ...input, gapVersion: creationPreview.gapVersion },
+      actor
+    );
+    const deletion = await prepareDeletionGap(created.id);
+
+    await softDeleteEvent(
+      created.id,
+      "Seleção incorreta da carreta",
+      managerActor,
+      { gapVersion: deletion.preview.gapVersion }
+    );
+
+    expect(inMemoryAdminDb.read("checkins", checkInId)).toMatchObject({
+      status: "CHAMADO",
+      activeProductiveEventId: null,
+      version: 12
+    });
+    expect(
+      inMemoryAdminDb.entries(`checkins/${checkInId}/revisions`)[1]?.[1]
+    ).toMatchObject({
+      action: "PRODUCTIVE_EVENT_UNLINKED",
+      eventId: created.id,
+      actorRole: "SUPERVISOR",
+      reason: "Seleção incorreta da carreta",
+      previousStatus: "EM_DESCARGA",
+      newStatus: "CHAMADO",
+      previousVersion: 11,
+      newVersion: 12
+    });
+
+    const restorePreview = await previewEventRestore(created.id);
+    await restoreEvent(
+      created.id,
+      { uid: "admin-1", email: "admin@example.com", role: "ADMIN" },
+      {
+        gapVersion: restorePreview.gapVersion,
+        expectedContainerStateVersion:
+          restorePreview.expectedContainerStateVersion
+      }
+    );
+
+    expect(inMemoryAdminDb.read("checkins", checkInId)).toMatchObject({
+      status: "EM_DESCARGA",
+      activeProductiveEventId: created.id,
+      version: 13
+    });
+    expect(
+      inMemoryAdminDb.entries(`checkins/${checkInId}/revisions`)[2]?.[1]
+    ).toMatchObject({
+      action: "PRODUCTIVE_EVENT_RESTORED",
+      eventId: created.id,
+      actorRole: "ADMIN",
+      previousStatus: "CHAMADO",
+      newStatus: "EM_DESCARGA",
+      previousVersion: 12,
+      newVersion: 13
+    });
+  });
+
+  it("does not let an edit detach a linked productive event from its canonical plate", async () => {
+    process.env.CHECKIN_INTEGRATION_MODE = "observe";
+    inMemoryAdminDb.seed("clients", "client-1", {
+      active: true,
+      name: "Cliente 1"
+    });
+    inMemoryAdminDb.seed("checkins", checkInId, {
+      id: checkInId,
+      status: "CHAMADO",
+      plate: "ABC1D23",
+      version: 1,
+      activeProductiveEventId: null,
+      updatedAtIso: "2026-07-27T08:00:00.000Z"
+    });
+    const input = eventInput({
+      category: "PRODUTIVO",
+      clientId: "client-1",
+      plate: "ABC1D23",
+      container: "ABCU1234560",
+      containerStatus: "FULL",
+      expectedContainerStateVersion: 0,
+      checkInId
+    });
+    const { previewEventGap } = await import("@/lib/server/gaps");
+    const preview = await previewEventGap(input);
+    const created = await createEvent(
+      { ...input, gapVersion: preview.gapVersion },
+      actor
+    );
+
+    await expect(
+      updateEvent(
+        created.id,
+        eventInput({
+          category: "PRODUTIVO",
+          clientId: "client-1",
+          plate: "ZZZ9999",
+          container: "ABCU1234560",
+          containerStatus: "FULL",
+          expectedContainerStateVersion: 1,
+          revisionReason: "Troca manual da placa"
+        }),
+        { ...managerActor }
+      )
+    ).rejects.toMatchObject({ status: 409 });
+
+    expect(inMemoryAdminDb.read("events", created.id)).toMatchObject({
+      checkInId,
+      plate: "ABC-1D23",
+      deleted: false
+    });
+    expect(inMemoryAdminDb.read("checkins", checkInId)).toMatchObject({
+      status: "EM_DESCARGA",
+      activeProductiveEventId: created.id
     });
   });
 
@@ -484,7 +950,7 @@ describe("public event command service", () => {
       softDeleteEvent(
         created.id,
         "Registro duplicado",
-        actor,
+        managerActor,
         { gapVersion: deletion.preview.gapVersion }
       )
     ).resolves.toEqual({ ok: true });
@@ -501,7 +967,11 @@ describe("public event command service", () => {
     });
 
     await expect(
-      restoreEvent(created.id, actor, { gapVersion: preview.gapVersion })
+      restoreEvent(
+        created.id,
+        { uid: "admin-1", email: "admin@example.com", role: "ADMIN" },
+        { gapVersion: preview.gapVersion }
+      )
     ).resolves.toEqual({ ok: true });
     expect(inMemoryAdminDb.read("events", created.id)).toMatchObject({
       deleted: false,
@@ -512,7 +982,7 @@ describe("public event command service", () => {
 
   it("guards deletion and restoration invalid states", async () => {
     await expect(
-      softDeleteEvent("missing", "motivo", actor)
+      softDeleteEvent("missing", "motivo", managerActor)
     ).rejects.toMatchObject({ status: 404 });
 
     const created = await createEvent(
@@ -520,7 +990,7 @@ describe("public event command service", () => {
       actor
     );
     await expect(
-      softDeleteEvent(created.id, "   ", actor)
+      softDeleteEvent(created.id, "   ", managerActor)
     ).rejects.toMatchObject({ status: 400 });
     await expect(previewEventRestore(created.id)).rejects.toMatchObject({
       status: 400
@@ -535,7 +1005,7 @@ describe("public event command service", () => {
         createdByUid: undefined,
         notes: "Outro evento"
       }),
-      { uid: "operator-2", email: "second@example.com" }
+      { uid: "operator-2", email: "second@example.com", role: "OPERATOR" }
     );
 
     const ownEvents = await listEvents({

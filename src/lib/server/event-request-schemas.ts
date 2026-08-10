@@ -51,6 +51,13 @@ export const eventMutationBodySchema = z
   })
   .strict();
 
+export const eventCreateBodySchema = eventMutationBodySchema
+  .extend({
+    checkInId: z.string().trim().uuid().nullable().optional(),
+    manualPlateReason: z.string().trim().min(1).max(500).nullable().optional()
+  })
+  .strict();
+
 export const deleteEventBodySchema = z
   .object({
     reason: z.string(),

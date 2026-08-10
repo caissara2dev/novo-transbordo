@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { createEvent, listEvents } from "@/lib/server/events";
 import { ensureApproved, requireAuth } from "@/lib/server/auth";
-import { eventMutationBodySchema } from "@/lib/server/event-request-schemas";
+import { eventCreateBodySchema } from "@/lib/server/event-request-schemas";
 import { fail, ok, parseJsonBody } from "@/lib/server/http";
 import { parseEventFilters } from "@/lib/server/filters";
 import { parsePagination } from "@/lib/server/pagination";
@@ -32,10 +32,11 @@ export async function POST(req: NextRequest) {
     const { profile, uid, email } = await requireAuth(req);
     ensureApproved(profile);
 
-    const body = await parseJsonBody(req, eventMutationBodySchema);
+    const body = await parseJsonBody(req, eventCreateBodySchema);
     const result = await createEvent(body, {
       uid,
-      email
+      email,
+      role: profile.role
     });
 
     return ok({ item: toPlain(result) }, 201);

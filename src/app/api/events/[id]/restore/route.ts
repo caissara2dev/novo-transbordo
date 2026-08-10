@@ -33,7 +33,11 @@ export async function POST(
     ensureRole(profile, ["ADMIN"]);
 
     const body = await parseJsonBody(req, restoreEventBodySchema);
-    const result = await restoreEvent(id, { uid, email }, body);
+    const result = await restoreEvent(
+      id,
+      { uid, email, role: profile.role },
+      body
+    );
 
     return ok(result);
   } catch (error) {

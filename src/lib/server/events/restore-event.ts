@@ -4,6 +4,8 @@ import { adminDb } from "@/lib/firebase/admin";
 import { reconcileContainerTimelineInTransaction } from "@/lib/server/container-states";
 import { timelineLockRef } from "@/lib/server/gaps";
 import { EventDoc } from "@/types/domain";
+import type { StoredCheckin } from "@/types/checkins";
+import type { UserRole } from "@/types/domain";
 import {
   assertNoOverlap,
   buildAutomaticGapEvents
@@ -25,13 +27,16 @@ export async function previewEventRestore(eventId: string) {
 
 export async function restoreEvent(
   eventId: string,
-  actor: { uid: string; email: string },
+  actor: { uid: string; email: string; role: UserRole },
   reconciliation?: {
     gapVersion?: string;
     gapJustificationsByEvent?: Record<string, unknown[]>;
     expectedContainerStateVersion?: number | null;
   }
 ) {
+  if (actor.role !== "ADMIN") {
+    throw new HttpError(403, "Somente administradores podem restaurar lançamentos.");
+  }
   const plan = await prepareRestoreEvent(eventId);
   const existing = plan.event;
   const ref = adminDb.collection("events").doc(eventId);
@@ -137,6 +142,10 @@ export async function restoreEvent(
         .map((doc) => doc.id);
   const startAt = existing.startAt as Timestamp;
   const endAt = existing.endAt as Timestamp;
+  const checkinRef = existing.checkInId
+    ? adminDb.collection("checkins").doc(existing.checkInId)
+    : null;
+  const changedAtIso = new Date().toISOString();
   await assertNoOverlap({
     pump: existing.pump,
     startAt,
@@ -145,7 +154,10 @@ export async function restoreEvent(
     ignoreEventIds: ignoredEventIds
   });
   await adminDb.runTransaction(async (transaction) => {
-    const lockSnap = await transaction.get(lockRef);
+    const [lockSnap, checkinSnap] = await Promise.all([
+      transaction.get(lockRef),
+      checkinRef ? transaction.get(checkinRef) : Promise.resolve(null)
+    ]);
     const observedLockVersion = Number(lockSnap.data()?.version || 0);
     if (observedLockVersion !== plan.lockVersion) {
       throw new HttpError(
@@ -161,6 +173,24 @@ export async function restoreEvent(
       deletedByEmail: null,
       deletedReason: null
     };
+    const transactionalCheckin = checkinSnap?.data() as
+      | StoredCheckin
+      | undefined;
+    if (
+      checkinRef &&
+      (!checkinSnap?.exists ||
+        !transactionalCheckin ||
+        Boolean(transactionalCheckin.pendingOfficialMutation) ||
+        transactionalCheckin.status !== "CHAMADO" ||
+        transactionalCheckin.activeProductiveEventId !== null ||
+        !Number.isInteger(transactionalCheckin.version))
+    ) {
+      throw new HttpError(
+        409,
+        "Este check-in já mudou de estado e o lançamento não pode ser restaurado.",
+        { code: "CHECKIN_EVENT_MISMATCH" }
+      );
+    }
     const containerPlan = await reconcileContainerTimelineInTransaction({
       transaction,
       rawContainer: existing.container,
@@ -168,6 +198,7 @@ export async function restoreEvent(
       expectedVersion: plan.expectedContainerStateVersion,
       reservedWrites:
         2 +
+        (checkinRef ? 2 : 0) +
         (explicitlyReconciled
           ? automaticToRetire.size + regeneratedEvents.length
           : linkedAutomaticSnap.docs.filter(
@@ -196,6 +227,33 @@ export async function restoreEvent(
       updatedByEmail: actor.email,
       updatedAt: FieldValue.serverTimestamp()
     });
+    if (checkinRef && transactionalCheckin) {
+      const nextVersion = transactionalCheckin.version + 1;
+
+      transaction.update(checkinRef, {
+        status: "EM_DESCARGA",
+        activeProductiveEventId: eventId,
+        version: nextVersion,
+        updatedAtIso: changedAtIso
+      });
+      transaction.create(checkinRef.collection("revisions").doc(), {
+        action: "PRODUCTIVE_EVENT_RESTORED",
+        source: "PRODUCTIVE_EVENT",
+        eventId,
+        actorUid: actor.uid,
+        actorEmail: actor.email,
+        actorRole: actor.role,
+        reason: "Lançamento produtivo restaurado pelo administrador.",
+        changedFields: ["status", "activeProductiveEventId"],
+        fromStatus: "CHAMADO",
+        toStatus: "EM_DESCARGA",
+        previousStatus: "CHAMADO",
+        newStatus: "EM_DESCARGA",
+        previousVersion: transactionalCheckin.version,
+        newVersion: nextVersion,
+        createdAtIso: changedAtIso
+      });
+    }
     if (explicitlyReconciled) {
       for (const automatic of automaticToRetire.values()) {
         transaction.update(automatic.ref, {

@@ -3,15 +3,19 @@ import { HttpError } from "@/lib/domain/errors";
 import { adminDb } from "@/lib/firebase/admin";
 import { reconcileContainerTimelineInTransaction } from "@/lib/server/container-states";
 import { prepareDeletionGap, timelineLockRef } from "@/lib/server/gaps";
-import { EventDoc } from "@/types/domain";
+import type { StoredCheckin } from "@/types/checkins";
+import { EventDoc, UserRole } from "@/types/domain";
 import { buildAutomaticGapEvents } from "./policies";
 
 export async function softDeleteEvent(
   eventId: string,
   reason: string,
-  actor: { uid: string; email: string },
+  actor: { uid: string; email: string; role: UserRole },
   reconciliation?: { gapVersion?: string; gapJustifications?: unknown[] }
 ) {
+  if (actor.role !== "SUPERVISOR" && actor.role !== "ADMIN") {
+    throw new HttpError(403, "Este perfil não pode excluir lançamentos.");
+  }
   const ref = adminDb.collection("events").doc(eventId);
   const snap = await ref.get();
 
@@ -66,9 +70,16 @@ export async function softDeleteEvent(
         reconciledAfterEventId: eventId
       })
     : [];
+  const checkinRef = existing.checkInId
+    ? adminDb.collection("checkins").doc(existing.checkInId)
+    : null;
+  const changedAtIso = new Date().toISOString();
 
   await adminDb.runTransaction(async (transaction) => {
-    const lockSnap = await transaction.get(lockRef);
+    const [lockSnap, checkinSnap] = await Promise.all([
+      transaction.get(lockRef),
+      checkinRef ? transaction.get(checkinRef) : Promise.resolve(null)
+    ]);
     const observedLockVersion = Number(lockSnap.data()?.version || 0);
     if (observedLockVersion !== expectedLockVersion) {
       throw new HttpError(
@@ -85,8 +96,27 @@ export async function softDeleteEvent(
         linkedAutomaticSnap.docs.filter((doc) => !doc.data().deleted).length +
         (targetAutomaticSnap?.docs.filter((doc) => !doc.data().deleted)
           .length || 0) +
-        replacementEvents.length
+        replacementEvents.length +
+        (checkinRef ? 2 : 0)
     });
+    const transactionalCheckin = checkinSnap?.data() as
+      | StoredCheckin
+      | undefined;
+    if (
+      checkinRef &&
+      (!checkinSnap?.exists ||
+        !transactionalCheckin ||
+        Boolean(transactionalCheckin.pendingOfficialMutation) ||
+        transactionalCheckin.status !== "EM_DESCARGA" ||
+        transactionalCheckin.activeProductiveEventId !== eventId ||
+        !Number.isInteger(transactionalCheckin.version))
+    ) {
+      throw new HttpError(
+        409,
+        "O vínculo deste check-in mudou. Atualize a fila antes de excluir o lançamento.",
+        { code: "CHECKIN_EVENT_MISMATCH" }
+      );
+    }
     transaction.update(ref, {
       deleted: true,
       deletedAt: FieldValue.serverTimestamp(),
@@ -129,6 +159,35 @@ export async function softDeleteEvent(
       transaction.set(adminDb.collection("events").doc(), {
         ...replacement,
         generatedForEventId: deletion.target?.id || null
+      });
+    }
+    if (checkinRef && transactionalCheckin) {
+      const nextVersion = transactionalCheckin.version + 1;
+
+      // Releasing the queue entry is atomic with the soft deletion. This
+      // prevents a deleted event from leaving the truck stuck in EM_DESCARGA.
+      transaction.update(checkinRef, {
+        status: "CHAMADO",
+        activeProductiveEventId: null,
+        version: nextVersion,
+        updatedAtIso: changedAtIso
+      });
+      transaction.create(checkinRef.collection("revisions").doc(), {
+        action: "PRODUCTIVE_EVENT_UNLINKED",
+        source: "PRODUCTIVE_EVENT",
+        eventId,
+        actorUid: actor.uid,
+        actorEmail: actor.email,
+        actorRole: actor.role,
+        reason: trimmedReason,
+        changedFields: ["status", "activeProductiveEventId"],
+        fromStatus: "EM_DESCARGA",
+        toStatus: "CHAMADO",
+        previousStatus: "EM_DESCARGA",
+        newStatus: "CHAMADO",
+        previousVersion: transactionalCheckin.version,
+        newVersion: nextVersion,
+        createdAtIso: changedAtIso
       });
     }
     transaction.set(
