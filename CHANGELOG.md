@@ -5,6 +5,18 @@ Todas as alterações relevantes deste projeto serão registradas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o projeto usa
 [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [2.2.1] - 2026-08-11
+
+### Corrigido
+
+- Ao selecionar `Editar` no histórico, o formulário de edição passa a ser revelado no topo da
+  tela e recebe foco, inclusive quando o mesmo lançamento é selecionado novamente.
+
+### Segurança
+
+- As resoluções transitivas de `brace-expansion` e `nanoid` foram atualizadas para versões
+  corrigidas, mantendo a auditoria das dependências de produção sem vulnerabilidades conhecidas.
+
 ## [2.2.0] - 2026-07-27
 
 Esta release incorpora integralmente o trabalho desenvolvido para a linha 2.1.
@@ -89,3 +101,4 @@ Não existe release nem tag `v2.1.0` separada.
 
 [2.0.0]: https://github.com/caissara2dev/novo-transbordo/releases/tag/v2.0.0
 [2.2.0]: https://github.com/caissara2dev/novo-transbordo/releases/tag/v2.2.0
+[2.2.1]: https://github.com/caissara2dev/novo-transbordo/releases/tag/v2.2.1
