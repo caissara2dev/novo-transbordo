@@ -123,8 +123,9 @@ Estado local em 11/08/2026:
 - [x] Contrato, exemplo e Office Script versionados.
 - [x] Testes locais cobrem linha correta, `UPDATED`, `UNCHANGED`, replay,
   conflito de chave, linha ausente/duplicada, allowlist e fórmula insegura.
-- [ ] Criar o script `CheckinV1UpdateIdempotent` no Excel de staging.
-- [ ] Validar diretamente no Excel usando uma linha sanitizada.
+- [x] Criar o script `CheckinV1UpdateIdempotent` no Excel de staging.
+- [x] Validar diretamente no Excel usando uma linha sanitizada; o comando foi
+  executado com sucesso e o mesmo JSON foi aceito novamente no replay.
 - [ ] Criar e salvar o segundo fluxo no Power Automate.
 - [ ] Validar a atualização ponta a ponta pelo backend.
 
