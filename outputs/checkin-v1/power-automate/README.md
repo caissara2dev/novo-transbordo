@@ -1,6 +1,6 @@
-# Fluxo INCLUDE — staging
+# Fluxos Excel — staging
 
-Estes artefatos configuram somente a inclusão idempotente na tabela
+Estes artefatos configuram a inclusão e a atualização idempotentes na tabela
 `CheckinsV1`. Nenhum arquivo contém URL, conexão, identificador real ou segredo.
 
 ## Por que usar Office Script
@@ -64,4 +64,49 @@ mantêm a tentativa pendente e segura para repetição idempotente.
 3. Confirmar que `Id`, horários, placa e identificador ocupam as colunas certas.
 4. Guardar capturas sanitizadas e exportar o fluxo como solução versionada.
 
-O fluxo de atualização, o app público e produção permanecem fora desta etapa.
+O app público, a configuração produtiva e a ativação das integrações permanecem
+fora desta etapa.
+
+## Fluxo UPDATE — staging
+
+O fluxo de atualização corrige a mesma linha oficial pelo
+`Identificador de check-in`. Ele nunca procura por placa, CNH ou nome.
+
+1. No Excel Online, criar um segundo Office Script com o conteúdo de
+   `update-checkin.office-script.ts.txt` e salvá-lo como
+   `CheckinV1UpdateIdempotent`.
+2. Criar um novo fluxo automatizado com o gatilho
+   **When an HTTP request is received**.
+3. Colar `update-request.schema.json` no schema do gatilho. Como no fluxo de
+   inclusão, as validações de formato e de patch não vazio ficam no backend e
+   no Office Script, evitando palavras do JSON Schema incompatíveis com o
+   gatilho.
+4. Configurar **Specific users in my tenant** com o Object ID do service
+   principal, nunca com client secret, Client ID ou Object ID do App
+   Registration.
+5. Ativar **Concurrency Control** com grau `1` e proteger entradas e saídas.
+6. Adicionar **Run script from SharePoint library** apontando para a planilha
+   de staging e para `CheckinV1UpdateIdempotent`. Em `requestJson`, usar
+   `string(triggerBody())`.
+7. Adicionar **Response** `200` com `Content-Type: application/json`, o mesmo
+   envelope do INCLUDE e **Asynchronous response** ativado.
+
+Na primeira atualização, o script cria automaticamente a planilha oculta
+`_CheckinSyncV1` e a tabela `CheckinUpdateCommandsV1`. Essa tabela guarda apenas
+chave, identificador, SHA-256, horário e resultado; ela não duplica CNH,
+telefone, placa ou demais valores corrigidos.
+
+O `payloadHash` é calculado pelo backend sobre o identificador e o patch
+normalizados; o horário não participa para manter retries estáveis. Se a mesma
+chave chegar novamente com o mesmo hash, o script devolve o resultado original
+sem reaplicar a alteração. A mesma chave com outro hash falha de forma fechada.
+
+### Aceite do UPDATE
+
+1. Garantir que o identificador do exemplo exista na tabela `CheckinsV1`.
+2. Executar `update-request.sample.json`: a linha correta muda e retorna
+   `UPDATED`, ou `UNCHANGED` se já possuir o mesmo valor.
+3. Repetir o JSON: o horário e o resultado originais são devolvidos e nenhuma
+   nova linha é criada no livro auxiliar.
+4. Usar um identificador inexistente e confirmar que nenhuma linha é alterada.
+5. Guardar evidência sanitizada e exportar os dois fluxos como solução.

@@ -56,7 +56,15 @@ token Entra para a URL de acompanhamento e rejeita URLs fora da allowlist.
   assíncrono. Se houver timeout, a visita permanece pendente; uma repetição usa
   o mesmo identificador e o script retorna `ALREADY_EXISTS` caso a linha tenha
   sido criada depois da perda de resposta.
-- O fluxo de atualização será decidido e testado separadamente.
+- O fluxo de atualização usa um segundo Office Script. Para não alterar as 19
+  colunas oficiais nem duplicar dados pessoais, o script mantém uma tabela
+  auxiliar oculta com chave idempotente, identificador, SHA-256, horário e
+  resultado. Isso acrescenta uma planilha técnica ao arquivo, mas não altera a
+  tabela oficial `CheckinsV1`; a decisão ainda depende de validação direta e
+  ponta a ponta em staging.
+- O SHA-256 do UPDATE é calculado pelo backend autenticado. O Office Script o
+  usa para detectar retries conflitantes, mas não o trata como prova vinda de
+  um chamador público. O fluxo deve ficar restrito ao service principal.
 - Até os testes `CREATED` + `ALREADY_EXISTS` passarem, esta ADR permanece
   proposta e o piloto continua bloqueado.
 

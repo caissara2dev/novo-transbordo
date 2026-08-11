@@ -1,5 +1,6 @@
 import "server-only";
 
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import { toSafeExcelText } from "@/lib/domain/checkin-excel";
 import type { DriverCheckinForm } from "@/lib/domain/checkins";
@@ -153,6 +154,18 @@ function safeText(value: string): string {
   return toSafeExcelText(value);
 }
 
+function excelPlate(value: string): string {
+  const normalized = value.trim().toUpperCase();
+  if (!/^[A-Z]{3}-?(?:\d{4}|\d[A-Z]\d{2})$/.test(normalized)) {
+    throw upstreamError();
+  }
+  return normalized.replace("-", "");
+}
+
+function sha256Hex(value: unknown): string {
+  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
 function pollIntervalMs(response: Response): number {
   const raw = response.headers.get("retry-after")?.trim() ?? "";
   const seconds = /^\d+$/.test(raw) ? Number(raw) : Number.NaN;
@@ -225,7 +238,7 @@ function inclusionPayload(record: ExcelCheckinRecord) {
       driverName: safeText(form.driverName),
       driverLicense: safeText(form.driverLicense),
       driverPhone: safeText(form.driverPhone),
-      plate: safeText(form.plate),
+      plate: excelPlate(form.plate),
       carrierName: safeText(form.carrierName),
       vehicleType: safeText(form.vehicleType),
       product: safeText(form.product),
@@ -263,9 +276,19 @@ function updatePayload(record: ExcelCheckinUpdateRecord) {
   const patchEntries = updateFieldNames.flatMap((field) => {
     const value = record.patch[field];
     if (value === undefined) return [];
-    return [[field, safeText(value === true ? "Ciente" : value)] as const];
+    const normalizedValue =
+      field === "plate"
+        ? excelPlate(String(value))
+        : safeText(value === true ? "Ciente" : value);
+    return [[field, normalizedValue] as const];
   });
   if (patchEntries.length === 0) throw upstreamError();
+  const patch = Object.fromEntries(patchEntries);
+  // The Office Script stores this digest, rather than another copy of the
+  // corrected personal data, to detect conflicting idempotency-key replays.
+  // requestedAtIso intentionally stays outside the digest: a retry reuses the
+  // same command key and patch but may start at a later time.
+  const payloadHash = sha256Hex({ identifier, patch });
 
   return {
     schemaVersion: CONTRACT_VERSION,
@@ -273,7 +296,8 @@ function updatePayload(record: ExcelCheckinUpdateRecord) {
     idempotencyKey: safeText(idempotencyKey),
     identifier: safeText(identifier),
     requestedAtIso: safeText(requestedAtIso),
-    patch: Object.fromEntries(patchEntries)
+    payloadHash,
+    patch
   };
 }
 

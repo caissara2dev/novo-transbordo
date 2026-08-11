@@ -118,6 +118,16 @@ Passos obrigatórios:
 
 ## Fluxo 2 — atualização idempotente
 
+Estado local em 11/08/2026:
+
+- [x] Contrato, exemplo e Office Script versionados.
+- [x] Testes locais cobrem linha correta, `UPDATED`, `UNCHANGED`, replay,
+  conflito de chave, linha ausente/duplicada, allowlist e fórmula insegura.
+- [ ] Criar o script `CheckinV1UpdateIdempotent` no Excel de staging.
+- [ ] Validar diretamente no Excel usando uma linha sanitizada.
+- [ ] Criar e salvar o segundo fluxo no Power Automate.
+- [ ] Validar a atualização ponta a ponta pelo backend.
+
 Requisição:
 
 ```json
@@ -127,19 +137,34 @@ Requisição:
   "idempotencyKey": "LT-23456789:v4",
   "identifier": "LT-23456789",
   "requestedAtIso": "2026-08-10T13:00:00.000Z",
+  "payloadHash": "7598390abba9a8d7a3b1c0cf1af764586392cea608821b4a22229037dd691ec0",
   "patch": { "plate": "BRA2E19" }
 }
 ```
 
 Passos obrigatórios:
 
-1. Limitar a concorrência a `1` e validar a allowlist de campos do patch.
+1. Usar `update-request.schema.json`, limitar a concorrência a `1` e validar a
+   allowlist de campos do patch novamente no Office Script.
 2. Localizar exatamente uma linha por `Identificador de check-in`; zero ou mais
    de uma linha é erro e não deve ser tratado como sucesso.
-3. Guardar o resultado da chave idempotente para que o mesmo corpo responda sem
-   repetir efeitos; a mesma chave com corpo diferente deve falhar.
-4. Atualizar somente os campos presentes no patch.
-5. Responder `UPDATED` ou `UNCHANGED` no mesmo envelope da inclusão.
+3. Criar automaticamente, na primeira execução, a planilha oculta
+   `_CheckinSyncV1` com a tabela `CheckinUpdateCommandsV1`. Ela guarda somente
+   chave, identificador, SHA-256, horário e resultado, sem duplicar os dados
+   pessoais do patch.
+4. Guardar o resultado da chave idempotente para que o mesmo hash responda sem
+   repetir efeitos; a mesma chave com hash diferente deve falhar.
+5. O backend calcula `payloadHash` sobre identificador e patch já normalizados,
+   em ordem canônica. O horário fica fora do hash para que retries posteriores
+   da mesma reserva preservem a chave e o digest originais.
+6. Atualizar somente os campos presentes no patch, neutralizando fórmulas.
+7. Responder `UPDATED` ou `UNCHANGED` no mesmo envelope da inclusão. A ação
+   `Response` usa modo assíncrono e o backend só confirma depois do `200` final.
+
+O `payloadHash` é uma prova operacional fornecida pelo backend autenticado e
+não uma assinatura de entrada pública. O fluxo UPDATE deve permanecer restrito
+exclusivamente ao service principal configurado; ampliar essa identidade
+invalida a fronteira de confiança e bloqueia a promoção.
 
 ## Segurança e operação
 

@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "checkin-excel.v1",
+  "operation": "UPDATE",
+  "idempotencyKey": "LT-23456789:v4",
+  "identifier": "LT-23456789",
+  "requestedAtIso": "2026-08-11T13:00:00.000Z",
+  "payloadHash": "7598390abba9a8d7a3b1c0cf1af764586392cea608821b4a22229037dd691ec0",
+  "patch": {
+    "plate": "BRA2E19"
+  }
+}

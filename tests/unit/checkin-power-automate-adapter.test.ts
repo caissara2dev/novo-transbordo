@@ -9,7 +9,7 @@ const FORM: DriverCheckinForm = {
   driverName: "=HYPERLINK(\"https://example.test\")",
   driverLicense: "12345678900",
   driverPhone: "13999999999",
-  plate: "ABC1D23",
+  plate: "ABC-1D23",
   carrierName: "+Transportadora",
   vehicleType: "Bitrem",
   product: "  @produto",
@@ -404,7 +404,9 @@ describe("Power Automate check-in adapter", () => {
   it("updates the same identifier using only the update endpoint", async () => {
     const fetchImpl = vi
       .fn()
-      .mockResolvedValue(successResponse("LT-23456789", "UPDATED"));
+      .mockImplementation(() =>
+        Promise.resolve(successResponse("LT-23456789", "UPDATED"))
+      );
     const adapter = createPowerAutomateCheckinAdapter({
       includeUrl: INCLUDE_URL,
       updateUrl: UPDATE_URL,
@@ -435,11 +437,48 @@ describe("Power Automate check-in adapter", () => {
       idempotencyKey: "LT-23456789:v3",
       identifier: "LT-23456789",
       requestedAtIso: "2026-08-10T15:01:00.000Z",
+      payloadHash:
+        "cfa1376c6dfe27b993de47e4d3e5483f733f2174a24317461574c493f0ce9e91",
       patch: {
         carrierName: "'=Transportadora corrigida",
         originInvoiceNumbers: "NF 456"
       }
     });
+  });
+
+  it("keeps the update hash stable across retries with a new timestamp", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockImplementation(() =>
+        Promise.resolve(successResponse("LT-23456789", "UPDATED"))
+      );
+    const adapter = createPowerAutomateCheckinAdapter({
+      includeUrl: INCLUDE_URL,
+      updateUrl: UPDATE_URL,
+      accessTokenProvider: testTokenProvider(),
+      fetchImpl
+    });
+    const command = {
+      publicCode: "LT-23456789",
+      idempotencyKey: "LT-23456789:v3",
+      patch: { plate: "BRA-2E19" }
+    };
+
+    await adapter.updateIdempotently({
+      ...command,
+      requestedAtIso: "2026-08-10T15:01:00.000Z"
+    });
+    await adapter.updateIdempotently({
+      ...command,
+      requestedAtIso: "2026-08-10T15:02:00.000Z"
+    });
+
+    const requests = fetchImpl.mock.calls.map(([, init]) =>
+      JSON.parse(String((init as RequestInit).body))
+    );
+    expect(requests[0].payloadHash).toBe(requests[1].payloadHash);
+    expect(requests[0].patch.plate).toBe("BRA2E19");
+    expect(requests[1].patch.plate).toBe("BRA2E19");
   });
 
   it.each([
