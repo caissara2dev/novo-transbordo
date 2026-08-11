@@ -583,7 +583,7 @@ export default function EventsPage() {
         >
           <div className="mb-2 flex items-center justify-between">
             <h2
-              className="panel-title text-2xl"
+              className="panel-title scroll-mt-16 text-2xl"
               id="edit-event-heading"
               ref={editHeadingRef}
               tabIndex={-1}

@@ -384,9 +384,21 @@ test("opening a history item keeps the edit form in the operator viewport", asyn
   const editHeading = page.getByRole("heading", {
     name: "Editar lançamento"
   });
+  const environmentBanner = page.locator(".environment-banner");
 
   await expect(editHeading).toBeInViewport();
   await expect(editHeading).toBeFocused();
+  await expect(environmentBanner).toBeVisible();
+
+  const [bannerBox, headingBox] = await Promise.all([
+    environmentBanner.boundingBox(),
+    editHeading.boundingBox()
+  ]);
+  expect(bannerBox).not.toBeNull();
+  expect(headingBox).not.toBeNull();
+  expect(headingBox!.y).toBeGreaterThanOrEqual(
+    bannerBox!.y + bannerBox!.height
+  );
   await expect(editPanel.getByLabel("Observações")).toHaveValue(
     "item selecionado para edição"
   );
