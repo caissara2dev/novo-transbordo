@@ -1,5 +1,10 @@
 import { HttpError } from "@/lib/domain/errors";
 import { parseCheckinIntegrationMode } from "@/lib/server/checkins/integration-auth";
+import {
+  isAllowedPowerAutomateEndpoint,
+  isPowerAutomateUuid,
+  POWER_AUTOMATE_CLIENT_SECRET_MIN_LENGTH
+} from "@/lib/server/checkins/power-automate-security";
 
 type Environment = Record<string, string | undefined>;
 
@@ -21,13 +26,15 @@ function configurationError(): never {
   throw new HttpError(500, "Configuração privada do Check-in Line está incompleta.");
 }
 
-function isSecureEndpoint(value: string | undefined): boolean {
-  try {
-    const url = new URL(value ?? "");
-    return url.protocol === "https:" && !url.username && !url.password;
-  } catch {
-    return false;
-  }
+function hasEntraClientCredentials(env: Environment): boolean {
+  return (
+    env.CHECKIN_POWER_AUTOMATE_AUTH_MODE?.trim() ===
+      "entra-client-credentials" &&
+    isPowerAutomateUuid(env.CHECKIN_POWER_AUTOMATE_TENANT_ID) &&
+    isPowerAutomateUuid(env.CHECKIN_POWER_AUTOMATE_CLIENT_ID) &&
+    (env.CHECKIN_POWER_AUTOMATE_CLIENT_SECRET?.length ?? 0) >=
+      POWER_AUTOMATE_CLIENT_SECRET_MIN_LENGTH
+  );
 }
 
 export function resolveCheckinRuntimeConfig(env: Environment): CheckinRuntimeConfig {
@@ -61,8 +68,9 @@ export function resolveCheckinRuntimeConfig(env: Environment): CheckinRuntimeCon
 
   if (
     mode === "enforce" &&
-    (!isSecureEndpoint(env.CHECKIN_POWER_AUTOMATE_ADD_URL) ||
-      !isSecureEndpoint(env.CHECKIN_POWER_AUTOMATE_UPDATE_URL) ||
+    (!isAllowedPowerAutomateEndpoint(env.CHECKIN_POWER_AUTOMATE_ADD_URL) ||
+      !isAllowedPowerAutomateEndpoint(env.CHECKIN_POWER_AUTOMATE_UPDATE_URL) ||
+      !hasEntraClientCredentials(env) ||
       env.CHECKIN_ENFORCE_ROLLOUT_APPROVED !== "true")
   ) {
     // This explicit gate prevents a single flag change from enforcing an

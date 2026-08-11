@@ -4,6 +4,11 @@ import { z } from "zod";
 import { toSafeExcelText } from "@/lib/domain/checkin-excel";
 import type { DriverCheckinForm } from "@/lib/domain/checkins";
 import { HttpError } from "@/lib/domain/errors";
+import {
+  createPowerAutomateEntraTokenProvider,
+  type PowerAutomateAccessTokenProvider
+} from "@/lib/server/checkins/power-automate-auth";
+import { isAllowedPowerAutomateEndpoint } from "@/lib/server/checkins/power-automate-security";
 import type {
   CheckinExcelAdapter,
   ExcelCheckinRecord
@@ -11,6 +16,7 @@ import type {
 
 const CONTRACT_VERSION = "checkin-excel.v1";
 const DEFAULT_TIMEOUT_MS = 10_000;
+const DEFAULT_TOKEN_TIMEOUT_MS = 5_000;
 const MAX_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_RESPONSE_BYTES = 16 * 1024;
 const MAX_CONFIGURABLE_RESPONSE_BYTES = 64 * 1024;
@@ -41,13 +47,26 @@ export type PowerAutomateCheckinAdapter = CheckinExcelAdapter & {
 export type PowerAutomateCheckinAdapterConfig = {
   includeUrl: string;
   updateUrl: string;
-  bearerToken?: string;
+  accessTokenProvider?: PowerAutomateAccessTokenProvider;
   timeoutMs?: number;
   maxResponseBytes?: number;
   fetchImpl?: FetchImplementation;
 };
 
 type PowerAutomateEnvironment = Record<string, string | undefined>;
+
+type CachedTokenProvider = {
+  tenantId: string;
+  clientId: string;
+  clientSecret: string;
+  fetchImpl: FetchImplementation | undefined;
+  provider: PowerAutomateAccessTokenProvider;
+};
+
+const tokenProvidersByEnvironment = new WeakMap<
+  PowerAutomateEnvironment,
+  CachedTokenProvider
+>();
 
 const confirmationResponseSchema = z
   .object({
@@ -85,7 +104,9 @@ function requireHttpsUrl(rawValue: string): string {
       parsed.protocol !== "https:" ||
       !parsed.hostname ||
       parsed.username ||
-      parsed.password
+      parsed.password ||
+      (parsed.port !== "" && parsed.port !== "443") ||
+      !isAllowedPowerAutomateEndpoint(parsed.toString())
     ) {
       throw configurationError();
     }
@@ -247,22 +268,26 @@ async function sendCommand(input: {
   identifier: string;
   idempotencyKey: string;
   payload: unknown;
-  bearerToken?: string;
+  accessTokenProvider?: PowerAutomateAccessTokenProvider;
   timeoutMs: number;
   maxResponseBytes: number;
   fetchImpl: FetchImplementation;
 }): Promise<{ confirmedAtIso: string }> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), input.timeoutMs);
+  let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
     const headers: Record<string, string> = {
       accept: "application/json",
       "content-type": "application/json",
       "x-idempotency-key": input.idempotencyKey
     };
-    if (input.bearerToken) {
-      headers.authorization = `Bearer ${input.bearerToken}`;
-    }
+    const bearerToken = await input.accessTokenProvider?.getAccessToken();
+    if (!bearerToken) throw configurationError();
+    headers.authorization = `Bearer ${bearerToken}`;
+
+    // Token acquisition has its own 5-second budget. Start the independent
+    // Power Automate request budget only after a usable token exists.
+    const controller = new AbortController();
+    timeout = setTimeout(() => controller.abort(), input.timeoutMs);
 
     const response = await input.fetchImpl(input.endpoint, {
       method: "POST",
@@ -272,6 +297,11 @@ async function sendCommand(input: {
       redirect: "manual",
       signal: controller.signal
     });
+    if (response.status === 401 || response.status === 403) {
+      // Do not repeat the idempotent command automatically. Clearing the
+      // rejected token makes the caller's explicit retry acquire a new one.
+      input.accessTokenProvider?.invalidateAccessToken();
+    }
     if (response.status !== 200) throw upstreamError();
     const contentType = response.headers.get("content-type") ?? "";
     if (contentType.split(";", 1)[0].trim().toLowerCase() !== "application/json") {
@@ -297,7 +327,7 @@ async function sendCommand(input: {
   } catch {
     throw upstreamError();
   } finally {
-    clearTimeout(timeout);
+    if (timeout !== undefined) clearTimeout(timeout);
   }
 }
 
@@ -315,7 +345,8 @@ export function createPowerAutomateCheckinAdapter(
     MAX_CONFIGURABLE_RESPONSE_BYTES
   );
   const fetchImpl = config.fetchImpl ?? fetch;
-  const bearerToken = config.bearerToken?.trim() || undefined;
+  const accessTokenProvider = config.accessTokenProvider;
+  if (!accessTokenProvider) throw configurationError();
 
   return {
     async includeIdempotently(record) {
@@ -326,7 +357,7 @@ export function createPowerAutomateCheckinAdapter(
         identifier: payload.idempotencyKey,
         idempotencyKey: payload.idempotencyKey,
         payload,
-        bearerToken,
+        accessTokenProvider,
         timeoutMs,
         maxResponseBytes,
         fetchImpl
@@ -340,7 +371,7 @@ export function createPowerAutomateCheckinAdapter(
         identifier: payload.identifier,
         idempotencyKey: payload.idempotencyKey,
         payload,
-        bearerToken,
+        accessTokenProvider,
         timeoutMs,
         maxResponseBytes,
         fetchImpl
@@ -350,11 +381,44 @@ export function createPowerAutomateCheckinAdapter(
 }
 
 export function createPowerAutomateCheckinAdapterFromEnv(
-  environment: PowerAutomateEnvironment = process.env
+  environment: PowerAutomateEnvironment = process.env,
+  dependencies: { fetchImpl?: FetchImplementation } = {}
 ): PowerAutomateCheckinAdapter {
+  const authMode = environment.CHECKIN_POWER_AUTOMATE_AUTH_MODE?.trim();
+  if (authMode !== "entra-client-credentials") throw configurationError();
+  const tenantId = environment.CHECKIN_POWER_AUTOMATE_TENANT_ID ?? "";
+  const clientId = environment.CHECKIN_POWER_AUTOMATE_CLIENT_ID ?? "";
+  const clientSecret = environment.CHECKIN_POWER_AUTOMATE_CLIENT_SECRET ?? "";
+  const cached = tokenProvidersByEnvironment.get(environment);
+  const accessTokenProvider =
+    cached?.tenantId === tenantId &&
+    cached.clientId === clientId &&
+    cached.clientSecret === clientSecret &&
+    cached.fetchImpl === dependencies.fetchImpl
+      ? cached.provider
+      : createPowerAutomateEntraTokenProvider({
+          tenantId,
+          clientId,
+          clientSecret,
+          timeoutMs: DEFAULT_TOKEN_TIMEOUT_MS,
+          fetchImpl: dependencies.fetchImpl
+        });
+  if (accessTokenProvider !== cached?.provider) {
+    // The WeakMap never exposes credentials and lets obsolete environment
+    // objects be collected. A secret rotation rebuilds the provider.
+    tokenProvidersByEnvironment.set(environment, {
+      tenantId,
+      clientId,
+      clientSecret,
+      fetchImpl: dependencies.fetchImpl,
+      provider: accessTokenProvider
+    });
+  }
+
   return createPowerAutomateCheckinAdapter({
     includeUrl: environment.CHECKIN_POWER_AUTOMATE_ADD_URL ?? "",
     updateUrl: environment.CHECKIN_POWER_AUTOMATE_UPDATE_URL ?? "",
-    bearerToken: environment.CHECKIN_POWER_AUTOMATE_BEARER_TOKEN
+    accessTokenProvider,
+    fetchImpl: dependencies.fetchImpl
   });
 }

@@ -23,6 +23,32 @@ não contém conexões, URLs, tokens nem uma exportação produtiva.
 
 Gatilho: `When an HTTP request is received`.
 
+Autenticação do gatilho:
+
+1. Selecionar `Specific users in my tenant`.
+2. Em `Allowed users`, informar somente o Object ID do service principal da
+   Enterprise Application do backend. Não usar o Application/Client ID nem o
+   Object ID do App Registration.
+3. Nunca deixar `Allowed users` vazio; nesse modo, vazio amplia o acesso para
+   qualquer identidade do tenant.
+4. O backend obtém um token por client credentials com audience
+   `https://service.flow.microsoft.com/` e scope
+   `https://service.flow.microsoft.com//.default`.
+
+Evidência operacional de staging em 11/08/2026:
+
+- [x] App Registration single-tenant criado.
+- [x] Enterprise Application/service principal criado.
+- [x] Gatilho alterado para `Specific users in my tenant`.
+- [x] `Allowed users` preenchido com o Object ID do service principal e fluxo
+  salvo; nenhum identificador ou segredo real foi versionado.
+- [ ] Exportar o fluxo como solução sanitizada e anexar a evidência versionada.
+- [ ] Trocar a ação Excel do fluxo de rascunho pela planilha/tabela de staging e
+  executar o primeiro teste ponta a ponta.
+
+Os dois itens pendentes acima bloqueiam piloto e produção. A confirmação manual
+do gatilho não significa que a integração Excel esteja pronta.
+
 Requisição:
 
 ```json
@@ -103,10 +129,19 @@ Passos obrigatórios:
 ## Segurança e operação
 
 - Os endpoints são HTTPS e ficam apenas em variáveis de servidor.
-- O bearer token, quando usado, pertence ao gerenciador de segredos.
+- Tenant ID, client ID e client secret ficam no gerenciador de secrets do
+  backend. O client secret nunca é versionado, exibido em logs ou enviado ao
+  navegador.
+- `entra-client-credentials` é o único modo aceito quando o adaptador é criado.
+  Ausência de modo, `none` ou credencial estática falham antes da chamada. O
+  rollback operacional usa Forms + `enforce -> observe -> off`, sem reabrir um
+  caminho de autenticação legado.
+- O token Entra é mantido apenas em memória até a margem anterior à expiração;
+  cada instância do provider pertence a um único tenant/client.
 - O fluxo nunca registra o corpo completo no histórico de erro.
-- O timeout do adaptador é de 10 segundos, limitado a 15 segundos; a resposta
-  aceita é JSON `200`, limitada e deve repetir o mesmo identificador.
+- A aquisição do token tem limite de 5 segundos e a chamada do fluxo, 10
+  segundos. A resposta aceita é JSON `200`, limitada e deve repetir o mesmo
+  identificador.
 - Antes do piloto, exportar os dois fluxos como solução, remover referências de
   conexão/segredos, registrar a versão e ensaiar importação e rollback em
   staging.

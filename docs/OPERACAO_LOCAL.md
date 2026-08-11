@@ -555,14 +555,29 @@ CHECKIN_GEOFENCE_CENTER_LNG=-46.375806
 CHECKIN_GEOFENCE_RADIUS_METERS=20000
 CHECKIN_POWER_AUTOMATE_ADD_URL=
 CHECKIN_POWER_AUTOMATE_UPDATE_URL=
-CHECKIN_POWER_AUTOMATE_BEARER_TOKEN=
+CHECKIN_POWER_AUTOMATE_AUTH_MODE=entra-client-credentials
+CHECKIN_POWER_AUTOMATE_TENANT_ID=
+CHECKIN_POWER_AUTOMATE_CLIENT_ID=
+CHECKIN_POWER_AUTOMATE_CLIENT_SECRET=
 CHECKIN_ENFORCE_ROLLOUT_APPROVED=false
 ```
 
-`enforce` falha de forma fechada se os dois endpoints HTTPS do Power Automate
-não estiverem configurados ou se `CHECKIN_ENFORCE_ROLLOUT_APPROVED` não for
-explicitamente `true`. Essa aprovação só deve ser registrada depois do piloto
-em `observe` e do ensaio de rollback.
+`enforce` falha de forma fechada se os dois endpoints HTTPS do Power Automate,
+o modo `entra-client-credentials`, o tenant, o client ID e o client secret não
+estiverem configurados, ou se `CHECKIN_ENFORCE_ROLLOUT_APPROVED` não for
+explicitamente `true`. O segredo é informado diretamente no gerenciador de
+secrets do hosting e nunca no Git, em capturas de tela ou no chat. Essa
+aprovação só deve ser registrada depois do piloto em `observe` e do ensaio de
+rollback.
+
+O token é solicitado no servidor para o audience público do Power Automate. O
+gatilho deve permanecer em `Specific users in my tenant`, com o Object ID do
+service principal da Enterprise Application em `Allowed users`. O campo não
+pode ficar vazio, pois vazio permite qualquer identidade do tenant.
+
+O adaptador falha antes de qualquer chamada se o modo Entra estiver ausente ou
+for `none`. Não há fallback para bearer estático. O rollback continua sendo
+restaurar o Forms e reduzir as flags de integração.
 
 Rollback: restaurar o link do Forms, alterar `enforce -> observe -> off`, pausar
 os fluxos, restaurar deployments anteriores e fazer `git revert` por PR. Nunca

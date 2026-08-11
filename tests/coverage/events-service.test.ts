@@ -58,8 +58,16 @@ describe("public event command service", () => {
     process.env.CHECKIN_INDEX_HMAC_SECRET = "b".repeat(32);
     process.env.CHECKIN_GEOFENCE_CENTER_LAT = "-23.9608";
     process.env.CHECKIN_GEOFENCE_CENTER_LNG = "-46.3336";
-    process.env.CHECKIN_POWER_AUTOMATE_ADD_URL = "https://example.test/checkins/add";
-    process.env.CHECKIN_POWER_AUTOMATE_UPDATE_URL = "https://example.test/checkins/update";
+    process.env.CHECKIN_POWER_AUTOMATE_ADD_URL =
+      "https://include.environment.api.powerplatform.com/checkins/add";
+    process.env.CHECKIN_POWER_AUTOMATE_UPDATE_URL =
+      "https://update.environment.api.powerplatform.com/checkins/update";
+    process.env.CHECKIN_POWER_AUTOMATE_AUTH_MODE = "entra-client-credentials";
+    process.env.CHECKIN_POWER_AUTOMATE_TENANT_ID =
+      "11111111-1111-4111-8111-111111111111";
+    process.env.CHECKIN_POWER_AUTOMATE_CLIENT_ID =
+      "22222222-2222-4222-8222-222222222222";
+    process.env.CHECKIN_POWER_AUTOMATE_CLIENT_SECRET = "c".repeat(32);
     process.env.CHECKIN_ENFORCE_ROLLOUT_APPROVED = "true";
     inMemoryAdminDb.reset();
     inMemoryAdminDb.seed("settings", "operations", {

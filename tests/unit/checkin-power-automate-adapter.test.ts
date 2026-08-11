@@ -40,13 +40,20 @@ function successResponse(
   );
 }
 
+function testTokenProvider() {
+  return {
+    getAccessToken: vi.fn().mockResolvedValue("test-entra-access-token"),
+    invalidateAccessToken: vi.fn()
+  };
+}
+
 describe("Power Automate check-in adapter", () => {
   it("posts a versioned, idempotent and Excel-safe inclusion payload", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(successResponse());
     const adapter = createPowerAutomateCheckinAdapter({
       includeUrl: INCLUDE_URL,
       updateUrl: UPDATE_URL,
-      bearerToken: "server-secret-token",
+      accessTokenProvider: testTokenProvider(),
       fetchImpl
     });
 
@@ -67,7 +74,7 @@ describe("Power Automate check-in adapter", () => {
       redirect: "manual"
     });
     expect(init.headers).toMatchObject({
-      authorization: "Bearer server-secret-token",
+      authorization: "Bearer test-entra-access-token",
       "content-type": "application/json"
     });
     expect(init.signal).toBeInstanceOf(AbortSignal);
@@ -99,6 +106,100 @@ describe("Power Automate check-in adapter", () => {
     });
   });
 
+  it("obtains a fresh Entra token through the configured provider before sending", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(successResponse());
+    const getAccessToken = vi.fn().mockResolvedValue("entra-access-token");
+    const invalidateAccessToken = vi.fn();
+    const adapter = createPowerAutomateCheckinAdapter({
+      includeUrl: INCLUDE_URL,
+      updateUrl: UPDATE_URL,
+      accessTokenProvider: { getAccessToken, invalidateAccessToken },
+      fetchImpl
+    });
+
+    await adapter.includeIdempotently({
+      publicCode: "LT-23456789",
+      form: FORM,
+      startedAtIso: "2026-08-10T14:59:00.000Z"
+    });
+
+    expect(getAccessToken).toHaveBeenCalledOnce();
+    expect(fetchImpl).toHaveBeenCalledOnce();
+    const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(init.headers).toMatchObject({
+      authorization: "Bearer entra-access-token"
+    });
+  });
+
+  it("fails before calling Power Automate when Entra cannot issue a token", async () => {
+    const fetchImpl = vi.fn();
+    const adapter = createPowerAutomateCheckinAdapter({
+      includeUrl: INCLUDE_URL,
+      updateUrl: UPDATE_URL,
+      accessTokenProvider: {
+        getAccessToken: vi.fn().mockRejectedValue(new Error("secret leaked")),
+        invalidateAccessToken: vi.fn()
+      },
+      fetchImpl
+    });
+
+    await expect(
+      adapter.includeIdempotently({
+        publicCode: "LT-23456789",
+        form: FORM,
+        startedAtIso: "2026-08-10T14:59:00.000Z"
+      })
+    ).rejects.toThrow("O registro oficial está temporariamente indisponível.");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("rejects an adapter without an Entra access-token provider", () => {
+    expect(() =>
+      createPowerAutomateCheckinAdapter({
+        includeUrl: INCLUDE_URL,
+        updateUrl: UPDATE_URL
+      })
+    ).toThrow("Configuração da sincronização oficial inválida.");
+  });
+
+  it("invalidates a rejected Entra token without automatically repeating the command", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(null, { status: 401 }))
+      .mockResolvedValueOnce(successResponse());
+    const getAccessToken = vi
+      .fn()
+      .mockResolvedValueOnce("rejected-entra-access-token")
+      .mockResolvedValueOnce("refreshed-entra-access-token");
+    const invalidateAccessToken = vi.fn();
+    const adapter = createPowerAutomateCheckinAdapter({
+      includeUrl: INCLUDE_URL,
+      updateUrl: UPDATE_URL,
+      accessTokenProvider: { getAccessToken, invalidateAccessToken },
+      fetchImpl
+    });
+    const record = {
+      publicCode: "LT-23456789",
+      form: FORM,
+      startedAtIso: "2026-08-10T14:59:00.000Z"
+    };
+
+    await expect(adapter.includeIdempotently(record)).rejects.toThrow(
+      "O registro oficial está temporariamente indisponível."
+    );
+    expect(fetchImpl).toHaveBeenCalledOnce();
+    expect(invalidateAccessToken).toHaveBeenCalledOnce();
+
+    await expect(adapter.includeIdempotently(record)).resolves.toEqual({
+      confirmedAtIso: "2026-08-10T15:00:00.000Z"
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    const [, retryInit] = fetchImpl.mock.calls[1] as [string, RequestInit];
+    expect(retryInit.headers).toMatchObject({
+      authorization: "Bearer refreshed-entra-access-token"
+    });
+  });
+
   it("updates the same identifier using only the update endpoint", async () => {
     const fetchImpl = vi
       .fn()
@@ -106,6 +207,7 @@ describe("Power Automate check-in adapter", () => {
     const adapter = createPowerAutomateCheckinAdapter({
       includeUrl: INCLUDE_URL,
       updateUrl: UPDATE_URL,
+      accessTokenProvider: testTokenProvider(),
       fetchImpl
     });
 
@@ -141,8 +243,9 @@ describe("Power Automate check-in adapter", () => {
 
   it.each([
     ["http://example.test/include", UPDATE_URL],
-    [INCLUDE_URL, "file:///tmp/update"]
-  ])("rejects non-HTTPS endpoints", (includeUrl, updateUrl) => {
+    [INCLUDE_URL, "file:///tmp/update"],
+    ["https://example.test/include", UPDATE_URL]
+  ])("rejects unsafe or non-Power-Automate endpoints", (includeUrl, updateUrl) => {
     expect(() =>
       createPowerAutomateCheckinAdapter({ includeUrl, updateUrl })
     ).toThrow("Configuração da sincronização oficial inválida.");
@@ -158,14 +261,133 @@ describe("Power Automate check-in adapter", () => {
     ).toThrow("Configuração da sincronização oficial inválida.");
   });
 
-  it("loads URLs and credentials only from server environment values", () => {
-    const adapter = createPowerAutomateCheckinAdapterFromEnv({
-      CHECKIN_POWER_AUTOMATE_ADD_URL: INCLUDE_URL,
-      CHECKIN_POWER_AUTOMATE_UPDATE_URL: UPDATE_URL,
-      CHECKIN_POWER_AUTOMATE_BEARER_TOKEN: "token"
+  it.each([undefined, "none", "static-bearer"])(
+    "fails closed when the Entra authentication mode is %s",
+    (authMode) => {
+      expect(() =>
+        createPowerAutomateCheckinAdapterFromEnv({
+          CHECKIN_POWER_AUTOMATE_ADD_URL: INCLUDE_URL,
+          CHECKIN_POWER_AUTOMATE_UPDATE_URL: UPDATE_URL,
+          CHECKIN_POWER_AUTOMATE_AUTH_MODE: authMode,
+          CHECKIN_POWER_AUTOMATE_BEARER_TOKEN: "legacy-token"
+        })
+      ).toThrow("Configuração da sincronização oficial inválida.");
+    }
+  );
+
+  it("normalizes whitespace around the explicit Entra mode", () => {
+    expect(() =>
+      createPowerAutomateCheckinAdapterFromEnv({
+        CHECKIN_POWER_AUTOMATE_ADD_URL: INCLUDE_URL,
+        CHECKIN_POWER_AUTOMATE_UPDATE_URL: UPDATE_URL,
+        CHECKIN_POWER_AUTOMATE_AUTH_MODE: " entra-client-credentials ",
+        CHECKIN_POWER_AUTOMATE_TENANT_ID:
+          "11111111-1111-4111-8111-111111111111",
+        CHECKIN_POWER_AUTOMATE_CLIENT_ID:
+          "22222222-2222-4222-8222-222222222222",
+        CHECKIN_POWER_AUTOMATE_CLIENT_SECRET: "s".repeat(32)
+      })
+    ).not.toThrow();
+  });
+
+  it("loads Entra client credentials only when the authentication mode is explicit", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            token_type: "Bearer",
+            expires_in: 3600,
+            access_token: "entra-access-token-with-enough-length"
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(successResponse());
+    const adapter = createPowerAutomateCheckinAdapterFromEnv(
+      {
+        CHECKIN_POWER_AUTOMATE_ADD_URL: INCLUDE_URL,
+        CHECKIN_POWER_AUTOMATE_UPDATE_URL: UPDATE_URL,
+        CHECKIN_POWER_AUTOMATE_AUTH_MODE: "entra-client-credentials",
+        CHECKIN_POWER_AUTOMATE_TENANT_ID:
+          "11111111-1111-4111-8111-111111111111",
+        CHECKIN_POWER_AUTOMATE_CLIENT_ID:
+          "22222222-2222-4222-8222-222222222222",
+        CHECKIN_POWER_AUTOMATE_CLIENT_SECRET: "s".repeat(32)
+      },
+      { fetchImpl }
+    );
+
+    await adapter.includeIdempotently({
+      publicCode: "LT-23456789",
+      form: FORM,
+      startedAtIso: "2026-08-10T14:59:00.000Z"
     });
 
-    expect(adapter).toBeDefined();
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    const [tokenUrl, tokenInit] = fetchImpl.mock.calls[0] as [
+      string,
+      RequestInit
+    ];
+    expect(tokenUrl).toBe(
+      "https://login.microsoftonline.com/11111111-1111-4111-8111-111111111111/oauth2/v2.0/token"
+    );
+    expect(String(tokenInit.body)).toContain(
+      "scope=https%3A%2F%2Fservice.flow.microsoft.com%2F%2F.default"
+    );
+    const [, flowInit] = fetchImpl.mock.calls[1] as [string, RequestInit];
+    expect(flowInit.headers).toMatchObject({
+      authorization: "Bearer entra-access-token-with-enough-length"
+    });
+  });
+
+  it("reuses the cached Entra token for adapters built from the same environment", async () => {
+    const environment = {
+      CHECKIN_POWER_AUTOMATE_ADD_URL: INCLUDE_URL,
+      CHECKIN_POWER_AUTOMATE_UPDATE_URL: UPDATE_URL,
+      CHECKIN_POWER_AUTOMATE_AUTH_MODE: "entra-client-credentials",
+      CHECKIN_POWER_AUTOMATE_TENANT_ID:
+        "11111111-1111-4111-8111-111111111111",
+      CHECKIN_POWER_AUTOMATE_CLIENT_ID:
+        "22222222-2222-4222-8222-222222222222",
+      CHECKIN_POWER_AUTOMATE_CLIENT_SECRET: "s".repeat(32)
+    };
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            token_type: "Bearer",
+            expires_in: 3600,
+            access_token: "cached-access-token-with-enough-length"
+          }),
+          { status: 200, headers: { "content-type": "application/json" } }
+        )
+      )
+      .mockResolvedValueOnce(successResponse())
+      .mockResolvedValueOnce(successResponse());
+
+    const first = createPowerAutomateCheckinAdapterFromEnv(environment, {
+      fetchImpl
+    });
+    const second = createPowerAutomateCheckinAdapterFromEnv(environment, {
+      fetchImpl
+    });
+    const record = {
+      publicCode: "LT-23456789",
+      form: FORM,
+      startedAtIso: "2026-08-10T14:59:00.000Z"
+    };
+
+    await first.includeIdempotently(record);
+    await second.includeIdempotently(record);
+
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    expect(String(fetchImpl.mock.calls[0]?.[0])).toContain(
+      "login.microsoftonline.com"
+    );
+    expect(String(fetchImpl.mock.calls[1]?.[0])).toBe(INCLUDE_URL);
+    expect(String(fetchImpl.mock.calls[2]?.[0])).toBe(INCLUDE_URL);
   });
 
   it.each([
@@ -189,6 +411,7 @@ describe("Power Automate check-in adapter", () => {
     const adapter = createPowerAutomateCheckinAdapter({
       includeUrl: INCLUDE_URL,
       updateUrl: UPDATE_URL,
+      accessTokenProvider: testTokenProvider(),
       fetchImpl: vi.fn().mockResolvedValue(response)
     });
 
@@ -205,6 +428,7 @@ describe("Power Automate check-in adapter", () => {
     const adapter = createPowerAutomateCheckinAdapter({
       includeUrl: INCLUDE_URL,
       updateUrl: UPDATE_URL,
+      accessTokenProvider: testTokenProvider(),
       maxResponseBytes: 64,
       fetchImpl: vi.fn().mockResolvedValue(
         new Response("x".repeat(65), {
@@ -234,6 +458,7 @@ describe("Power Automate check-in adapter", () => {
     const adapter = createPowerAutomateCheckinAdapter({
       includeUrl: INCLUDE_URL,
       updateUrl: UPDATE_URL,
+      accessTokenProvider: testTokenProvider(),
       timeoutMs: 5,
       fetchImpl
     });
@@ -245,5 +470,48 @@ describe("Power Automate check-in adapter", () => {
         startedAtIso: "2026-08-10T14:59:00.000Z"
       })
     ).rejects.toThrow("O registro oficial está temporariamente indisponível.");
+  });
+
+  it("starts the flow timeout only after token acquisition completes", async () => {
+    vi.useFakeTimers();
+    try {
+      let resolveToken: ((token: string) => void) | undefined;
+      const accessTokenProvider = {
+        getAccessToken: vi.fn(
+          () =>
+            new Promise<string>((resolve) => {
+              resolveToken = resolve;
+            })
+        ),
+        invalidateAccessToken: vi.fn()
+      };
+      const fetchImpl = vi.fn(
+        (_url: string | URL | Request, init?: RequestInit) => {
+          expect(init?.signal?.aborted).toBe(false);
+          return Promise.resolve(successResponse());
+        }
+      );
+      const adapter = createPowerAutomateCheckinAdapter({
+        includeUrl: INCLUDE_URL,
+        updateUrl: UPDATE_URL,
+        accessTokenProvider,
+        timeoutMs: 5,
+        fetchImpl
+      });
+
+      const command = adapter.includeIdempotently({
+        publicCode: "LT-23456789",
+        form: FORM,
+        startedAtIso: "2026-08-10T14:59:00.000Z"
+      });
+      await vi.advanceTimersByTimeAsync(10);
+      resolveToken?.("delayed-entra-token");
+
+      await expect(command).resolves.toEqual({
+        confirmedAtIso: "2026-08-10T15:00:00.000Z"
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
