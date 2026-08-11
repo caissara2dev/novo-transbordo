@@ -131,6 +131,207 @@ describe("Power Automate check-in adapter", () => {
     });
   });
 
+  it("confirms only after the asynchronous Power Automate run reaches its final response", async () => {
+    vi.useFakeTimers();
+    try {
+      const statusUrl =
+        "https://example.logic.azure.com/workflows/include/runs/status?sig=poll-secret";
+      const fetchImpl = vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(null, {
+            status: 202,
+            headers: { location: statusUrl, "retry-after": "0" }
+          })
+        )
+        .mockResolvedValueOnce(successResponse());
+      const adapter = createPowerAutomateCheckinAdapter({
+        includeUrl: INCLUDE_URL,
+        updateUrl: UPDATE_URL,
+        accessTokenProvider: testTokenProvider(),
+        fetchImpl
+      });
+
+      const confirmation = adapter.includeIdempotently({
+        publicCode: "LT-23456789",
+        form: FORM,
+        startedAtIso: "2026-08-10T14:59:00.000Z"
+      });
+      await vi.advanceTimersByTimeAsync(250);
+
+      await expect(confirmation).resolves.toEqual({
+        confirmedAtIso: "2026-08-10T15:00:00.000Z"
+      });
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+      const [pollUrl, pollInit] = fetchImpl.mock.calls[1] as [
+        string,
+        RequestInit
+      ];
+      expect(pollUrl).toBe(statusUrl);
+      expect(pollInit).toMatchObject({
+        method: "GET",
+        cache: "no-store",
+        redirect: "manual"
+      });
+      expect(pollInit.headers).not.toHaveProperty("authorization");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps polling the same safe status URL until Power Automate finishes", async () => {
+    vi.useFakeTimers();
+    try {
+      const statusUrl =
+        "https://example.logic.azure.com/workflows/include/runs/status?sig=poll-secret";
+      const fetchImpl = vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(null, {
+            status: 202,
+            headers: { location: statusUrl, "retry-after": "invalid" }
+          })
+        )
+        .mockResolvedValueOnce(
+          new Response(null, { status: 202, headers: { "retry-after": "99" } })
+        )
+        .mockResolvedValueOnce(successResponse());
+      const adapter = createPowerAutomateCheckinAdapter({
+        includeUrl: INCLUDE_URL,
+        updateUrl: UPDATE_URL,
+        accessTokenProvider: testTokenProvider(),
+        fetchImpl
+      });
+
+      const confirmation = adapter.includeIdempotently({
+        publicCode: "LT-23456789",
+        form: FORM,
+        startedAtIso: "2026-08-10T14:59:00.000Z"
+      });
+      await vi.advanceTimersByTimeAsync(250);
+      await vi.advanceTimersByTimeAsync(2_000);
+
+      await expect(confirmation).resolves.toEqual({
+        confirmedAtIso: "2026-08-10T15:00:00.000Z"
+      });
+      expect(fetchImpl.mock.calls.slice(1).map(([url]) => url)).toEqual([
+        statusUrl,
+        statusUrl
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("fails closed if the request budget expires before polling starts", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchImpl = vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            setTimeout(
+              () =>
+                resolve(
+                  new Response(null, {
+                    status: 202,
+                    headers: {
+                      location:
+                        "https://example.logic.azure.com/workflows/include/runs/status?sig=safe"
+                    }
+                  })
+                ),
+              10
+            );
+          })
+      );
+      const adapter = createPowerAutomateCheckinAdapter({
+        includeUrl: INCLUDE_URL,
+        updateUrl: UPDATE_URL,
+        accessTokenProvider: testTokenProvider(),
+        timeoutMs: 5,
+        fetchImpl
+      });
+      const confirmation = expect(
+        adapter.includeIdempotently({
+          publicCode: "LT-23456789",
+          form: FORM,
+          startedAtIso: "2026-08-10T14:59:00.000Z"
+        })
+      ).rejects.toThrow(
+        "O registro oficial está temporariamente indisponível."
+      );
+
+      await vi.advanceTimersByTimeAsync(10);
+      await confirmation;
+      expect(fetchImpl).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    ["without a status location", undefined],
+    ["with an unsafe status location", "https://attacker.example/status"]
+  ])("rejects an asynchronous response %s", async (_case, location) => {
+    const headers = location === undefined ? undefined : { location };
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 202, headers }));
+    const adapter = createPowerAutomateCheckinAdapter({
+      includeUrl: INCLUDE_URL,
+      updateUrl: UPDATE_URL,
+      accessTokenProvider: testTokenProvider(),
+      fetchImpl
+    });
+
+    await expect(
+      adapter.includeIdempotently({
+        publicCode: "LT-23456789",
+        form: FORM,
+        startedAtIso: "2026-08-10T14:59:00.000Z"
+      })
+    ).rejects.toThrow("O registro oficial está temporariamente indisponível.");
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the visit unconfirmed when asynchronous polling exceeds the total timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      const fetchImpl = vi.fn().mockResolvedValue(
+        new Response(null, {
+          status: 202,
+          headers: {
+            location:
+              "https://example.logic.azure.com/workflows/include/runs/pending?sig=safe",
+            "retry-after": "10"
+          }
+        })
+      );
+      const adapter = createPowerAutomateCheckinAdapter({
+        includeUrl: INCLUDE_URL,
+        updateUrl: UPDATE_URL,
+        accessTokenProvider: testTokenProvider(),
+        timeoutMs: 5,
+        fetchImpl
+      });
+      const confirmation = expect(
+        adapter.includeIdempotently({
+          publicCode: "LT-23456789",
+          form: FORM,
+          startedAtIso: "2026-08-10T14:59:00.000Z"
+        })
+      ).rejects.toThrow(
+        "O registro oficial está temporariamente indisponível."
+      );
+
+      await vi.advanceTimersByTimeAsync(5);
+      await confirmation;
+      expect(fetchImpl).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("fails before calling Power Automate when Entra cannot issue a token", async () => {
     const fetchImpl = vi.fn();
     const adapter = createPowerAutomateCheckinAdapter({
@@ -436,6 +637,25 @@ describe("Power Automate check-in adapter", () => {
           headers: { "content-type": "application/json" }
         })
       )
+    });
+
+    await expect(
+      adapter.includeIdempotently({
+        publicCode: "LT-23456789",
+        form: FORM,
+        startedAtIso: "2026-08-10T14:59:00.000Z"
+      })
+    ).rejects.toThrow("O registro oficial está temporariamente indisponível.");
+  });
+
+  it("rejects a malformed declared response length before reading the body", async () => {
+    const response = successResponse();
+    response.headers.set("content-length", "unknown");
+    const adapter = createPowerAutomateCheckinAdapter({
+      includeUrl: INCLUDE_URL,
+      updateUrl: UPDATE_URL,
+      accessTokenProvider: testTokenProvider(),
+      fetchImpl: vi.fn().mockResolvedValue(response)
     });
 
     await expect(

@@ -29,6 +29,12 @@ Na mesma sessão do workbook, o script:
 O script neutraliza fórmulas e não faz chamadas externas. O backend só aceita a
 resposta quando identificador, resultado e horário confirmam o contrato V1.
 
+O Power Automate não permite combinar concorrência no gatilho HTTP com uma ação
+`Response` síncrona. Por isso, a resposta do fluxo é assíncrona: o gatilho
+retorna `202` com uma URL temporária, e o backend consulta essa URL até receber
+o `200` final. O backend não considera `202` uma confirmação, não encaminha o
+token Entra para a URL de acompanhamento e rejeita URLs fora da allowlist.
+
 ## Opções consideradas
 
 - **Listar e adicionar com o conector Excel:** mais simples no designer, mas a
@@ -46,6 +52,10 @@ resposta quando identificador, resultado e horário confirmam o contrato V1.
   segundos por execução; staging deve confirmar margem operacional.
 - A concorrência do gatilho não pode ser removida sem recriar o gatilho; por
   isso a decisão será testada apenas no fluxo novo de staging.
+- O orçamento total da chamada ao Power Automate inclui o acompanhamento
+  assíncrono. Se houver timeout, a visita permanece pendente; uma repetição usa
+  o mesmo identificador e o script retorna `ALREADY_EXISTS` caso a linha tenha
+  sido criada depois da perda de resposta.
 - O fluxo de atualização será decidido e testado separadamente.
 - Até os testes `CREATED` + `ALREADY_EXISTS` passarem, esta ADR permanece
   proposta e o piloto continua bloqueado.
@@ -56,3 +66,4 @@ resposta quando identificador, resultado e horário confirmam o contrato V1.
 - https://learn.microsoft.com/en-us/office/dev/scripts/develop/power-automate-integration
 - https://learn.microsoft.com/en-us/office/dev/scripts/testing/platform-limits
 - https://learn.microsoft.com/en-us/power-automate/limits-and-config
+- https://learn.microsoft.com/en-us/power-automate/guidance/coding-guidelines/asychronous-flow-pattern

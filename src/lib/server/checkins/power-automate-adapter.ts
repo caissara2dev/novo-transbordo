@@ -20,6 +20,9 @@ const DEFAULT_TOKEN_TIMEOUT_MS = 5_000;
 const MAX_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_RESPONSE_BYTES = 16 * 1024;
 const MAX_CONFIGURABLE_RESPONSE_BYTES = 64 * 1024;
+const DEFAULT_POLL_INTERVAL_MS = 250;
+const MAX_POLL_INTERVAL_MS = 2_000;
+const MAX_POLL_ATTEMPTS = 60;
 const PUBLIC_CODE_PATTERN = /^LT-[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{8}$/;
 const GENERIC_CONFIGURATION_ERROR =
   "Configuração da sincronização oficial inválida.";
@@ -148,6 +151,60 @@ function requireIsoTimestamp(value: string): string {
 
 function safeText(value: string): string {
   return toSafeExcelText(value);
+}
+
+function pollIntervalMs(response: Response): number {
+  const raw = response.headers.get("retry-after")?.trim() ?? "";
+  const seconds = /^\d+$/.test(raw) ? Number(raw) : Number.NaN;
+  if (!Number.isFinite(seconds)) return DEFAULT_POLL_INTERVAL_MS;
+  return Math.min(
+    MAX_POLL_INTERVAL_MS,
+    Math.max(DEFAULT_POLL_INTERVAL_MS, seconds * 1_000)
+  );
+}
+
+function waitForPoll(milliseconds: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new DOMException("aborted", "AbortError"));
+      return;
+    }
+    const timeout = setTimeout(done, milliseconds);
+    function done() {
+      signal.removeEventListener("abort", aborted);
+      resolve();
+    }
+    function aborted() {
+      clearTimeout(timeout);
+      reject(new DOMException("aborted", "AbortError"));
+    }
+    signal.addEventListener("abort", aborted, { once: true });
+  });
+}
+
+async function awaitFinalResponse(params: {
+  initialResponse: Response;
+  fetchImpl: FetchImplementation;
+  signal: AbortSignal;
+}): Promise<Response> {
+  let response = params.initialResponse;
+  let pollUrl: string | undefined;
+  for (let attempt = 0; response.status === 202; attempt += 1) {
+    if (attempt >= MAX_POLL_ATTEMPTS) throw upstreamError();
+    const location = response.headers.get("location") ?? pollUrl;
+    if (!location) throw upstreamError();
+    pollUrl = requireHttpsUrl(location);
+    await response.body?.cancel().catch(() => undefined);
+    await waitForPoll(pollIntervalMs(response), params.signal);
+    response = await params.fetchImpl(pollUrl, {
+      method: "GET",
+      headers: { accept: "application/json" },
+      cache: "no-store",
+      redirect: "manual",
+      signal: params.signal
+    });
+  }
+  return response;
 }
 
 function inclusionPayload(record: ExcelCheckinRecord) {
@@ -289,7 +346,7 @@ async function sendCommand(input: {
     const controller = new AbortController();
     timeout = setTimeout(() => controller.abort(), input.timeoutMs);
 
-    const response = await input.fetchImpl(input.endpoint, {
+    let response = await input.fetchImpl(input.endpoint, {
       method: "POST",
       headers,
       body: JSON.stringify(input.payload),
@@ -302,6 +359,11 @@ async function sendCommand(input: {
       // rejected token makes the caller's explicit retry acquire a new one.
       input.accessTokenProvider?.invalidateAccessToken();
     }
+    response = await awaitFinalResponse({
+      initialResponse: response,
+      fetchImpl: input.fetchImpl,
+      signal: controller.signal
+    });
     if (response.status !== 200) throw upstreamError();
     const contentType = response.headers.get("content-type") ?? "";
     if (contentType.split(";", 1)[0].trim().toLowerCase() !== "application/json") {

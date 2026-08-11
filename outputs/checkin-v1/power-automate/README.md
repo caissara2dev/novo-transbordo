@@ -22,9 +22,14 @@ mais de uma linha, sem esconder corrupção da planilha.
    `CheckinV1IncludeIdempotent`.
 3. No gatilho **When an HTTP request is received**, colar
    `include-request.schema.json` em **Request Body JSON Schema**.
+   O schema não usa `pattern`, pois o gatilho do Power Automate rejeita essa
+   palavra quando a validação está ativa. Formatos de código, CNH, telefone e
+   placa continuam validados pelo backend e pelo Office Script antes da escrita.
 4. Nas configurações do gatilho, ativar **Concurrency Control** com grau `1`.
    Essa alteração é adequada apenas ao fluxo novo de staging; a Microsoft
    informa que removê-la exige recriar o gatilho.
+   Como o Power Automate não aceita concorrência `1` junto de uma resposta HTTP
+   síncrona, a ação **Response** deve ter **Asynchronous response** ativado.
 5. Remover a ação de rascunho que aponta para `report gli.xlsx` / `Table2`.
 6. Adicionar **Excel Online (Business) > Run script**:
    - workbook: biblioteca `Documentos`, pasta `linebot`;
@@ -45,6 +50,12 @@ mais de uma linha, sem esconder corrupção da planilha.
 No designer, inserir `result` como conteúdo dinâmico do script para que `data`
 seja um objeto, não uma string. O código acima registra a expressão esperada;
 o designer pode exibi-la como um token roxo.
+
+Com a resposta assíncrona ativada, o primeiro retorno do gatilho é `202` e traz
+uma URL temporária no cabeçalho `Location`. O backend valida essa URL, consulta
+o andamento sem reenviar o token Entra e só confirma o check-in após receber o
+`200` final com o envelope acima. `202`, timeout ou uma URL fora da allowlist
+mantêm a tentativa pendente e segura para repetição idempotente.
 
 ## Aceite desta etapa
 

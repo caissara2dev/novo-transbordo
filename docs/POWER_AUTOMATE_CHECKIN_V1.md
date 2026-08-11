@@ -42,9 +42,14 @@ Evidência operacional de staging em 11/08/2026:
 - [x] Gatilho alterado para `Specific users in my tenant`.
 - [x] `Allowed users` preenchido com o Object ID do service principal e fluxo
   salvo; nenhum identificador ou segredo real foi versionado.
+- [x] Tabela `CheckinsV1` e Office Script validados diretamente no Excel: a
+  primeira execução criou uma linha e a repetição do mesmo identificador não
+  criou duplicata nem alterou o horário de confirmação.
+- [x] Ação `Run script` apontada para a planilha de staging, resposta HTTP
+  assíncrona configurada e fluxo salvo com concorrência `1`.
 - [ ] Exportar o fluxo como solução sanitizada e anexar a evidência versionada.
-- [ ] Trocar a ação Excel do fluxo de rascunho pela planilha/tabela de staging e
-  executar o primeiro teste ponta a ponta.
+- [ ] Executar o primeiro teste ponta a ponta pelo backend com credencial nova
+  de staging e validar `CREATED` + `ALREADY_EXISTS`.
 
 Os dois itens pendentes acima bloqueiam piloto e produção. A confirmação manual
 do gatilho não significa que a integração Excel esteja pronta.
@@ -82,7 +87,12 @@ Passos obrigatórios:
 
 1. Colar o schema versionado em
    `outputs/checkin-v1/power-automate/include-request.schema.json` no gatilho.
-2. Limitar a concorrência do gatilho a `1`.
+   O schema do gatilho deliberadamente não usa `pattern`, que não é suportado
+   nesse fluxo com validação ativa; formatos continuam validados no backend e
+   novamente pelo Office Script antes de qualquer escrita.
+2. Limitar a concorrência do gatilho a `1`. Na ação **Response**, ativar
+   **Asynchronous response**, pois o Power Automate não permite concorrência no
+   gatilho junto de uma resposta síncrona.
 3. Executar o Office Script versionado em
    `outputs/checkin-v1/power-automate/include-checkin.office-script.ts.txt`,
    passando `string(triggerBody())`.
@@ -145,8 +155,11 @@ Passos obrigatórios:
   cada instância do provider pertence a um único tenant/client.
 - O fluxo nunca registra o corpo completo no histórico de erro.
 - A aquisição do token tem limite de 5 segundos e a chamada do fluxo, 10
-  segundos. A resposta aceita é JSON `200`, limitada e deve repetir o mesmo
-  identificador.
+  segundos. O retorno inicial `202` só é aceito com uma URL `Location` HTTPS de
+  host permitido. O backend consulta essa URL sem encaminhar o token Entra e só
+  aceita como confirmação o JSON `200` final, limitado e contendo o mesmo
+  identificador. Timeout, URL ausente/insegura ou resposta diferente mantêm a
+  tentativa pendente para repetição idempotente.
 - A inclusão não usa `List rows present in a table` seguido de `Add a row`.
   A Microsoft documenta que alterações do conector Excel podem levar até 30
   segundos para aparecer; esse intervalo permitiria duplicidade após resposta
@@ -157,6 +170,11 @@ Passos obrigatórios:
 - Antes do piloto, exportar os dois fluxos como solução, remover referências de
   conexão/segredos, registrar a versão e ensaiar importação e rollback em
   staging.
+- Durante a configuração de staging, uma credencial foi inserida por engano em
+  um campo de identidade. Ela foi revogada imediatamente, o service principal
+  foi desativado e a revisão dos registros não encontrou acessos. Uma nova
+  credencial deve ser criada diretamente no gerenciador de secrets do backend;
+  nunca deve ser colada no Power Automate, em chat, Git ou captura de tela.
 
 Referências oficiais:
 
@@ -164,3 +182,4 @@ Referências oficiais:
 - https://learn.microsoft.com/en-us/office/dev/scripts/develop/power-automate-integration
 - https://learn.microsoft.com/en-us/office/dev/scripts/testing/platform-limits
 - https://learn.microsoft.com/en-us/power-automate/limits-and-config
+- https://learn.microsoft.com/en-us/power-automate/guidance/coding-guidelines/asychronous-flow-pattern

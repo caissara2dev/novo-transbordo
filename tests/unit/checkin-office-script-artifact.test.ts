@@ -124,7 +124,7 @@ function workbookWith(table: FakeTable) {
 }
 
 describe("Office Script de inclusão do Check-in V1", () => {
-  it("versiona um schema estrito e um payload utilizável no gatilho HTTP", () => {
+  it("versiona um schema compatível e um payload utilizável no gatilho HTTP", () => {
     const schema = JSON.parse(fs.readFileSync(SCHEMA_PATH, "utf8")) as {
       additionalProperties: boolean;
       required: string[];
@@ -143,6 +143,9 @@ describe("Office Script de inclusão do Check-in V1", () => {
     ]);
     expect(schema.properties.record.additionalProperties).toBe(false);
     expect(schema.properties.record.required).toHaveLength(17);
+    // O gatilho HTTP do Power Automate rejeita `pattern` quando a validação do
+    // schema está ativa. As invariantes de formato permanecem no Office Script.
+    expect(JSON.stringify(schema)).not.toContain('"pattern"');
     expect(sample).toMatchObject({
       schemaVersion: "checkin-excel.v1",
       operation: "INCLUDE",
