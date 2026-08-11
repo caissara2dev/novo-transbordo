@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "checkin-excel.v1",
+  "operation": "INCLUDE",
+  "idempotencyKey": "LT-23456789",
+  "record": {
+    "identifier": "LT-23456789",
+    "startedAtIso": "2026-08-11T12:00:00.000Z",
+    "language": "pt-BR",
+    "email": "",
+    "name": "",
+    "driverName": "Motorista de Teste",
+    "driverLicense": "05555930435",
+    "driverPhone": "13999999999",
+    "plate": "ABC1D23",
+    "carrierName": "Transportadora de Teste",
+    "vehicleType": "Bitrem",
+    "product": "Produto de Teste",
+    "originPlant": "Usina de Teste",
+    "originInvoiceNumbers": "NF-USINA-TESTE-001",
+    "remittanceInvoiceNumber": "NF-REMESSA-TESTE-001",
+    "whatsappNoticeAccepted": "Ciente",
+    "queueLocationAccepted": "Ciente"
+  }
+}

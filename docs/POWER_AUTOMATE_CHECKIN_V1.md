@@ -80,15 +80,20 @@ Requisição:
 
 Passos obrigatórios:
 
-1. Validar `schemaVersion`, operação e formato `LT-XXXXXXXX`.
+1. Colar o schema versionado em
+   `outputs/checkin-v1/power-automate/include-request.schema.json` no gatilho.
 2. Limitar a concorrência do gatilho a `1`.
-3. Procurar a linha por `Identificador de check-in`.
-4. Se existir exatamente uma, não inserir outra e responder `ALREADY_EXISTS`.
-5. Se não existir, obter o maior `Id`, somar um e adicionar a linha.
-6. Usar `startedAtIso` em `Start time`; preencher `Completion time` somente
-   depois de a adição ser confirmada; manter Email/Name vazios e Language
-   `pt-BR`.
-7. Responder HTTP `200` com JSON estrito:
+3. Executar o Office Script versionado em
+   `outputs/checkin-v1/power-automate/include-checkin.office-script.ts.txt`,
+   passando `string(triggerBody())`.
+4. O script valida versão, operação, chave, tabela e os 19 cabeçalhos antes de
+   escrever.
+5. Se existir exatamente uma linha com o identificador, não inserir outra e
+   retornar `ALREADY_EXISTS`; mais de uma linha é erro explícito.
+6. Se não existir, obter o maior `Id`, somar um e adicionar a linha na ordem
+   oficial. `Start time` usa `startedAtIso`; `Completion time` é criado na mesma
+   execução; Email/Name ficam vazios e Language é `pt-BR`.
+7. Envolver o resultado do script no envelope HTTP `200` estrito:
 
 ```json
 {
@@ -142,6 +147,20 @@ Passos obrigatórios:
 - A aquisição do token tem limite de 5 segundos e a chamada do fluxo, 10
   segundos. A resposta aceita é JSON `200`, limitada e deve repetir o mesmo
   identificador.
+- A inclusão não usa `List rows present in a table` seguido de `Add a row`.
+  A Microsoft documenta que alterações do conector Excel podem levar até 30
+  segundos para aparecer; esse intervalo permitiria duplicidade após resposta
+  perdida. O Office Script lê, verifica e adiciona na mesma sessão do workbook.
+- O gatilho usa concorrência `1`. O limite do Office Script é 1.600 execuções
+  por usuário/dia e 120 segundos por operação; o piloto deve medir volume e
+  duração antes da promoção.
 - Antes do piloto, exportar os dois fluxos como solução, remover referências de
   conexão/segredos, registrar a versão e ensaiar importação e rollback em
   staging.
+
+Referências oficiais:
+
+- https://learn.microsoft.com/en-us/connectors/excelonlinebusiness/
+- https://learn.microsoft.com/en-us/office/dev/scripts/develop/power-automate-integration
+- https://learn.microsoft.com/en-us/office/dev/scripts/testing/platform-limits
+- https://learn.microsoft.com/en-us/power-automate/limits-and-config

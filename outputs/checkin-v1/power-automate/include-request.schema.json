@@ -1,0 +1,124 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "operation",
+    "idempotencyKey",
+    "record"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "enum": ["checkin-excel.v1"]
+    },
+    "operation": {
+      "type": "string",
+      "enum": ["INCLUDE"]
+    },
+    "idempotencyKey": {
+      "type": "string",
+      "pattern": "^LT-[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{8}$"
+    },
+    "record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "identifier",
+        "startedAtIso",
+        "language",
+        "email",
+        "name",
+        "driverName",
+        "driverLicense",
+        "driverPhone",
+        "plate",
+        "carrierName",
+        "vehicleType",
+        "product",
+        "originPlant",
+        "originInvoiceNumbers",
+        "remittanceInvoiceNumber",
+        "whatsappNoticeAccepted",
+        "queueLocationAccepted"
+      ],
+      "properties": {
+        "identifier": {
+          "type": "string",
+          "pattern": "^LT-[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{8}$"
+        },
+        "startedAtIso": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "language": {
+          "type": "string",
+          "enum": ["pt-BR"]
+        },
+        "email": {
+          "type": "string",
+          "enum": [""]
+        },
+        "name": {
+          "type": "string",
+          "enum": [""]
+        },
+        "driverName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 121
+        },
+        "driverLicense": {
+          "type": "string",
+          "pattern": "^[0-9]{11}$"
+        },
+        "driverPhone": {
+          "type": "string",
+          "pattern": "^[0-9]{11}$"
+        },
+        "plate": {
+          "type": "string",
+          "pattern": "^[A-Z]{3}([0-9]{4}|[0-9][A-Z][0-9]{2})$"
+        },
+        "carrierName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 121
+        },
+        "vehicleType": {
+          "type": "string",
+          "enum": ["Bitrem", "Rodotrem", "Vanderleia"]
+        },
+        "product": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 121
+        },
+        "originPlant": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 121
+        },
+        "originInvoiceNumbers": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 251
+        },
+        "remittanceInvoiceNumber": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 251
+        },
+        "whatsappNoticeAccepted": {
+          "type": "string",
+          "enum": ["Ciente"]
+        },
+        "queueLocationAccepted": {
+          "type": "string",
+          "enum": ["Ciente"]
+        }
+      }
+    }
+  }
+}

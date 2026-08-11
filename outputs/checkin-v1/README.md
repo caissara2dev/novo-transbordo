@@ -15,4 +15,6 @@ A fonte oficial foi inspecionada localmente em 10/08/2026. As 1.692 respostas
 existentes foram removidas da cópia, sem alterar o arquivo de origem e sem
 versionar dados pessoais. Na mesma data, o upload manual do arquivo sanitizado
 foi confirmado na biblioteca `Terminal - Line`, pasta `Documentos/linebot`.
-Os fluxos do Power Automate ainda não foram configurados nem validados.
+O contrato, o schema, o payload de teste e o Office Script de inclusão estão em
+`power-automate/`. O fluxo do Power Automate ainda não foi configurado nem
+validado ponta a ponta.
