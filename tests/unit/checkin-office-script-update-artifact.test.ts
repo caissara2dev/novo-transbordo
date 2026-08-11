@@ -195,6 +195,13 @@ function loadMain() {
 }
 
 describe("Office Script de atualização do Check-in V1", () => {
+  it("declara explicitamente os tipos que o compilador do Office Scripts não infere", () => {
+    const source = fs.readFileSync(SCRIPT_PATH, "utf8");
+
+    expect(source).toContain("const matchingIndexes: number[] = rows.flatMap");
+    expect(source).toContain("const rowIndex: number = matchingIndexes[0]");
+  });
+
   it("versiona um schema compatível e um exemplo com hash não sensível", () => {
     const schema = JSON.parse(fs.readFileSync(SCHEMA_PATH, "utf8")) as {
       additionalProperties: boolean;

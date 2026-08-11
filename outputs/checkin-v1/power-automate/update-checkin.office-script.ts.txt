@@ -254,14 +254,14 @@ function updateMatchingRow(
   rows: (string | number | boolean)[][],
   request: UpdateRequest
 ): "UPDATED" | "UNCHANGED" {
-  const matchingIndexes = rows.flatMap((row, index) =>
+  const matchingIndexes: number[] = rows.flatMap((row, index) =>
     String(row[IDENTIFIER_COLUMN_INDEX]) === request.identifier ? [index] : []
   );
   if (matchingIndexes.length === 0) throw new Error("CHECKIN_NAO_ENCONTRADO");
   if (matchingIndexes.length > 1) {
     throw new Error("CHECKIN_DUPLICADO_NA_PLANILHA");
   }
-  const rowIndex = matchingIndexes[0];
+  const rowIndex: number = matchingIndexes[0];
   const row = rows[rowIndex];
   const range = table.getRangeBetweenHeaderAndTotal();
   let changed = false;
