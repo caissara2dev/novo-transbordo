@@ -90,6 +90,12 @@ Eventos são a fonte de verdade. `containerStates` é uma projeção do último
 estado operacional válido e não substitui a reexecução da linha do tempo ao
 validar eventos retroativos.
 
+Uma transferência entre containers continua sendo um único evento produtivo,
+mas produz dois efeitos de ciclo: `DESTINATION` no container que recebe a carga
+e `SOURCE` no Pulmão que a fornece. O vínculo com ambos os ciclos fica no evento
+para preservar auditoria sem duplicar duração ou indicadores. Consulte a
+decisão em `docs/adr/0001-transferencia-entre-containers.md`.
+
 ### Dados
 
 Coleções principais:
@@ -186,6 +192,13 @@ antigos.
   afetada.
 - Evento, revisão, gap, lock e projeção não podem ficar parcialmente
   atualizados.
+- Transferências verificam separadamente as versões da origem e do destino e
+  reconstroem as duas linhas do tempo na mesma transação.
+- O estado interno terminal `TRANSFER_EMPTIED` encerra o ciclo da origem sem se
+  tornar uma opção operacional selecionável nem um container aberto.
+
+O modelo não registra peso ou volume transferido. A confirmação de esvaziamento
+determina apenas se a origem permanece aberta como Pulmão ou encerra seu ciclo.
 
 Relatórios tratam eventos legados com fallback de produtividade, ordenam por
 timestamps completos e protegem exportações CSV contra interpretação de
