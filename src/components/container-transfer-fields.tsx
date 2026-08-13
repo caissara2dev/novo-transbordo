@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { apiFetch } from "@/lib/auth/api-fetch";
 import { formatContainerForInput } from "@/lib/domain/identifiers";
 import {
@@ -25,6 +25,46 @@ type ContainerTransferFieldsProps = {
   onChange: (patch: Partial<TransferFields>) => void;
 };
 
+async function fetchBufferContainers(params: {
+  query: string;
+  signal: AbortSignal;
+  cursor?: string;
+  accumulated?: ContainerStateApiItem[];
+  visitedCursors?: string[];
+}): Promise<ContainerStateApiItem[]> {
+  const searchParams = new URLSearchParams({
+    scope: "open",
+    status: "BUFFER",
+    query: params.query.trim(),
+    limit: "200"
+  });
+  if (params.cursor) searchParams.set("cursor", params.cursor);
+
+  const response = await apiFetch<PaginatedResponse<ContainerStateApiItem>>(
+    `/api/containers?${searchParams.toString()}`,
+    { signal: params.signal }
+  );
+  const accumulated = params.accumulated || [];
+  const merged = [
+    ...accumulated,
+    ...(response.items || []).filter(
+      (item) =>
+        item.status === "BUFFER" &&
+        !accumulated.some((current) => current.container === item.container)
+    )
+  ];
+  const nextCursor = response.nextCursor;
+  const visitedCursors = params.visitedCursors || [];
+  if (!nextCursor || visitedCursors.includes(nextCursor)) return merged;
+
+  return fetchBufferContainers({
+    ...params,
+    cursor: nextCursor,
+    accumulated: merged,
+    visitedCursors: [...visitedCursors, nextCursor]
+  });
+}
+
 export function ContainerTransferFields({
   fields,
   onChange
@@ -33,7 +73,12 @@ export function ContainerTransferFields({
   const [items, setItems] = useState<ContainerStateApiItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadedQuery, setLoadedQuery] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
   const onChangeRef = useRef(onChange);
+  const comboboxId = useId();
+  const listboxId = `${comboboxId}-listbox`;
 
   useEffect(() => {
     onChangeRef.current = onChange;
@@ -45,29 +90,23 @@ export function ContainerTransferFields({
     }
 
     const controller = new AbortController();
+    const fetchQuery = query.trim();
     const timer = window.setTimeout(async () => {
       setLoading(true);
       setError(null);
-      const searchParams = new URLSearchParams({
-        scope: "open",
-        status: "BUFFER",
-        query: query.trim()
-      });
-
       try {
-        const response = await apiFetch<
-          PaginatedResponse<ContainerStateApiItem>
-        >(`/api/containers?${searchParams.toString()}`, {
+        const candidates = await fetchBufferContainers({
+          query,
           signal: controller.signal
         });
         if (controller.signal.aborted) return;
-
-        setItems(
-          (response.items || []).filter((item) => item.status === "BUFFER")
-        );
+        setItems(candidates);
+        setLoadedQuery(fetchQuery);
+        setActiveIndex(candidates.length ? 0 : -1);
       } catch (reason) {
         if (controller.signal.aborted) return;
         setItems([]);
+        setLoadedQuery(fetchQuery);
         setError(
           reason instanceof Error
             ? reason.message
@@ -155,14 +194,30 @@ export function ContainerTransferFields({
     formatContainerForInput(fields.sourceContainer) ===
       formatContainerForInput(fields.container);
 
-  const selectSource = (container: string) => {
-    const selected = candidates.find((item) => item.container === container);
+  const selectSource = (selected: ContainerStateApiItem) => {
+    setQuery(selected.container);
+    setOpen(false);
     onChangeRef.current({
-      sourceContainer: selected?.container || "",
+      sourceContainer: selected.container,
       sourceContainerEmptied: null,
-      expectedSourceContainerStateVersion: selected?.version ?? null,
-      clientId: selected?.clientId || ""
+      expectedSourceContainerStateVersion: selected.version,
+      clientId: selected.clientId
     });
+  };
+
+  const clearSelectedSource = (nextQuery: string) => {
+    if (
+      fields.sourceContainer &&
+      formatContainerForInput(fields.sourceContainer) !==
+        formatContainerForInput(nextQuery)
+    ) {
+      onChangeRef.current({
+        sourceContainer: "",
+        sourceContainerEmptied: null,
+        expectedSourceContainerStateVersion: null,
+        clientId: ""
+      });
+    }
   };
 
   return (
@@ -183,6 +238,8 @@ export function ContainerTransferFields({
               setQuery("");
               setItems([]);
               setError(null);
+              setLoadedQuery(null);
+              setOpen(false);
               onChangeRef.current({
                 loadSourceType: "TRUCK",
                 sourceContainer: "",
@@ -205,7 +262,12 @@ export function ContainerTransferFields({
           <input
             checked={fields.loadSourceType === "BUFFER_CONTAINER"}
             name="load-source-type"
-            onChange={() =>
+            onChange={() => {
+              setQuery("");
+              setItems([]);
+              setError(null);
+              setLoadedQuery(null);
+              setOpen(false);
               onChangeRef.current({
                 loadSourceType: "BUFFER_CONTAINER",
                 plate: "",
@@ -213,8 +275,8 @@ export function ContainerTransferFields({
                 sourceContainer: "",
                 sourceContainerEmptied: null,
                 expectedSourceContainerStateVersion: null
-              })
-            }
+              });
+            }}
             type="radio"
           />
           <span>
@@ -226,42 +288,121 @@ export function ContainerTransferFields({
 
       {fields.loadSourceType === "BUFFER_CONTAINER" ? (
         <div className="grid gap-3 sm:grid-cols-2">
-          <label className="field-label">
-            Buscar container pulmão
-            <input
-              className="input-ui"
-              onChange={(event) =>
-                setQuery(formatContainerForInput(event.target.value))
+          <div
+            className="relative sm:col-span-2"
+            onBlur={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget)) {
+                setOpen(false);
               }
-              placeholder="ABCU1234560"
+            }}
+          >
+            <label className="field-label" htmlFor={comboboxId}>
+              Container de origem *
+            </label>
+            <input
+              aria-activedescendant={
+                open && candidates[activeIndex]
+                  ? `${listboxId}-option-${activeIndex}`
+                  : undefined
+              }
+              aria-autocomplete="list"
+              aria-controls={listboxId}
+              aria-expanded={open}
+              className="input-ui"
+              id={comboboxId}
+              onChange={(event) => {
+                const nextQuery = formatContainerForInput(event.target.value);
+                setQuery(nextQuery);
+                setLoadedQuery(null);
+                setOpen(true);
+                setActiveIndex(0);
+                clearSelectedSource(nextQuery);
+              }}
+              onFocus={() => {
+                setOpen(true);
+                setActiveIndex(candidates.length ? 0 : -1);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  setOpen(false);
+                  return;
+                }
+                if (event.key === "ArrowDown") {
+                  event.preventDefault();
+                  setOpen(true);
+                  setActiveIndex((current) =>
+                    candidates.length
+                      ? Math.min(current + 1, candidates.length - 1)
+                      : -1
+                  );
+                  return;
+                }
+                if (event.key === "ArrowUp") {
+                  event.preventDefault();
+                  setActiveIndex((current) =>
+                    candidates.length ? Math.max(current - 1, 0) : -1
+                  );
+                  return;
+                }
+                if (event.key === "Enter" && candidates[activeIndex]) {
+                  event.preventDefault();
+                  selectSource(candidates[activeIndex]);
+                }
+              }}
+              placeholder="Digite ou selecione um Pulmão"
+              required
+              role="combobox"
               type="search"
               value={query}
             />
-          </label>
-          <label className="field-label">
-            Container de origem *
-            <select
-              className="select-ui"
-              disabled={loading}
-              onChange={(event) => selectSource(event.target.value)}
-              required
-              value={fields.sourceContainer}
-            >
-              <option value="">
-                {loading ? "Consultando…" : "Selecione um pulmão"}
-              </option>
-              {candidates.map((item) => (
-                <option key={item.container} value={item.container}>
-                  {item.container} · {item.clientNameSnapshot || "Sem cliente"}
-                </option>
-              ))}
-            </select>
-          </label>
-          {error ? <div className="notice error sm:col-span-2">{error}</div> : null}
-          {!loading && !error && !candidates.length ? (
-            <p className="text-sm text-slate-500 sm:col-span-2">
-              Nenhum container pulmão aberto foi encontrado.
-            </p>
+            {open ? (
+              <div
+                className="absolute z-20 mt-1 max-h-60 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-lg"
+                id={listboxId}
+                role="listbox"
+              >
+                {loading || loadedQuery !== query.trim() ? (
+                  <p className="px-3 py-2 text-sm text-slate-500">
+                    Consultando…
+                  </p>
+                ) : null}
+                {!loading &&
+                loadedQuery === query.trim() &&
+                !error &&
+                !candidates.length ? (
+                  <p className="px-3 py-2 text-sm text-slate-500">
+                    Nenhum container Pulmão aberto foi encontrado.
+                  </p>
+                ) : null}
+                {!loading
+                  ? candidates.map((item, index) => (
+                      <button
+                        aria-selected={fields.sourceContainer === item.container}
+                        className={`block w-full rounded-lg px-3 py-2 text-left text-sm ${
+                          activeIndex === index
+                            ? "bg-slate-100 text-slate-950"
+                            : "bg-white text-slate-700"
+                        }`}
+                        id={`${listboxId}-option-${index}`}
+                        key={item.container}
+                        onClick={() => selectSource(item)}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onMouseEnter={() => setActiveIndex(index)}
+                        role="option"
+                        type="button"
+                      >
+                        <strong>{item.container}</strong>
+                        <span className="ml-2 text-slate-500">
+                          {item.clientNameSnapshot || "Sem cliente"}
+                        </span>
+                      </button>
+                    ))
+                  : null}
+              </div>
+            ) : null}
+          </div>
+          {error ? (
+            <div className="notice error sm:col-span-2">{error}</div>
           ) : null}
           {fields.sourceContainer ? (
             <fieldset className="space-y-2 sm:col-span-2">

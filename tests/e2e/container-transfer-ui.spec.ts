@@ -93,6 +93,13 @@ test("selects a buffer source, locks its client and clears it when returning to 
     eventCreatedAt: "2026-08-13T12:00:00.000Z",
     version: 7
   };
+  const secondBuffer = {
+    ...buffer,
+    container: "MSCU 663987-0",
+    cycleId: "cycle-source-2",
+    latestEventId: "event-source-2",
+    version: 4
+  };
 
   await page.route("**/api/clients*", (route) =>
     route.fulfill(
@@ -121,10 +128,24 @@ test("selects a buffer source, locks its client and clears it when returning to 
     const url = new URL(route.request().url());
     expect(url.searchParams.get("scope")).toBe("open");
     expect(url.searchParams.get("status")).toBe("BUFFER");
+    expect(url.searchParams.get("limit")).toBe("200");
+    const query = url.searchParams.get("query") || "";
+    const matchingItems = [buffer, secondBuffer].filter((item) =>
+      item.container.replace(/[^A-Z0-9]/g, "").includes(
+        query.replace(/[^A-Z0-9]/g, "")
+      )
+    );
+    const cursor = url.searchParams.get("cursor");
+    const items = !query
+      ? cursor === "second-page"
+        ? [secondBuffer]
+        : [buffer]
+      : matchingItems;
+    const nextCursor = !query && !cursor ? "second-page" : null;
     return route.fulfill(
       json({
         ok: true,
-        data: { items: [buffer], nextCursor: null, incomplete: false }
+        data: { items, nextCursor, incomplete: false }
       })
     );
   });
@@ -139,10 +160,27 @@ test("selects a buffer source, locks its client and clears it when returning to 
   await createForm.getByLabel("Container pulmão").check();
 
   await expect(createForm.getByLabel("Placa *")).toHaveCount(0);
+  await expect(createForm.getByLabel("Buscar container pulmão")).toHaveCount(0);
   await expect(createForm.getByLabel("Container de origem *")).toBeVisible();
-  await createForm
-    .getByLabel("Container de origem *")
-    .selectOption("ABCU 123456-0");
+  await createForm.getByLabel("Container de origem *").click();
+  await expect(
+    createForm.getByRole("option", { name: /ABCU 123456-0/ })
+  ).toBeVisible();
+  await expect(
+    createForm.getByRole("option", { name: /MSCU 663987-0/ })
+  ).toBeVisible();
+
+  await createForm.getByLabel("Container de origem *").fill("ABCU");
+  await expect(
+    createForm.getByRole("option", { name: /ABCU 123456-0/ })
+  ).toBeVisible();
+  await expect(
+    createForm.getByRole("option", { name: /MSCU 663987-0/ })
+  ).toHaveCount(0);
+  await createForm.getByRole("option", { name: /ABCU 123456-0/ }).click();
+  await expect(createForm.getByLabel("Container de origem *")).toHaveValue(
+    "ABCU 123456-0"
+  );
 
   await expect(createForm.getByLabel("Cliente *")).toHaveValue("client-1");
   await expect(createForm.getByLabel("Cliente *")).toBeDisabled();
@@ -270,6 +308,10 @@ test("shows the source instead of a plate in global and container histories", as
 
   await historyItem.getByRole("button", { name: "Editar" }).click();
   await expect(page.getByRole("heading", { name: "Editar lançamento" })).toBeVisible();
+  const editPanel = page.getByTestId("event-edit-panel");
+  await expect(editPanel.getByLabel("Container de origem *")).toHaveValue(
+    "ABCU1234560"
+  );
   await page.getByRole("button", { name: "Salvar edição" }).click();
   await expect.poll(() => editedSourceVersion).toBe(9);
 

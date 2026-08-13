@@ -26,6 +26,8 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o 
   carga de carreta.
 - O ciclo valida que a origem esteja aberta como Pulmão e que origem e destino
   sejam containers diferentes do mesmo cliente.
+- A seleção do container de origem usa um único campo pesquisável, que lista
+  todos os Pulmões abertos e filtra os resultados durante a digitação.
 
 ## [2.2.1] - 2026-08-11
 
