@@ -5,7 +5,7 @@ import {
   validateEventInput
 } from "@/lib/domain/validation";
 import { adminDb } from "@/lib/firebase/admin";
-import { reconcileContainerTimelinesInTransaction } from "@/lib/server/container-states";
+import { reconcileEventContainerEffectsInTransaction } from "@/lib/server/container-event-effects";
 import { previewEventGap, timelineLockRef } from "@/lib/server/gaps";
 import { EventDoc, UserDoc } from "@/types/domain";
 import {
@@ -178,10 +178,14 @@ export async function updateEvent(
 
   const {
     expectedContainerStateVersion: _expectedContainerStateVersion,
+    expectedSourceContainerStateVersion: _expectedSourceContainerStateVersion,
     ...validatedEventForStorage
   } = validated.event;
   void _expectedContainerStateVersion;
+  void _expectedSourceContainerStateVersion;
   const sameContainer = existing.container === validated.event.container;
+  const sameSourceContainer =
+    (existing.sourceContainer || null) === validated.event.sourceContainer;
   const canPreserveCycle =
     sameContainer &&
     Boolean(existing.containerCycleId) &&
@@ -196,6 +200,10 @@ export async function updateEvent(
     containerCycleId: canPreserveCycle ? existing.containerCycleId : null,
     previousContainerEventId: null,
     containerStateVersion: existing.containerStateVersion ?? null,
+    sourceContainerCycleId:
+      sameSourceContainer ? existing.sourceContainerCycleId || null : null,
+    previousSourceContainerEventId: null,
+    sourceContainerStateVersion: existing.sourceContainerStateVersion ?? null,
     startAt,
     endAt,
     durationMinutes: validated.durationMinutes,
@@ -218,6 +226,11 @@ export async function updateEvent(
     "containerReason",
     "containerCycleId",
     "previousContainerEventId",
+    "loadSourceType",
+    "sourceContainer",
+    "sourceContainerEmptied",
+    "sourceContainerCycleId",
+    "previousSourceContainerEventId",
     "clientId",
     "shiftDate",
     "shiftType",
@@ -272,35 +285,16 @@ export async function updateEvent(
       );
     }
 
-    const removalChanges: Parameters<
-      typeof reconcileContainerTimelinesInTransaction
-    >[0]["changes"] =
-      existing.container && !sameContainer
-        ? [
-            {
-              rawContainer: existing.container,
-              override: { id: eventId, data: null }
-            }
-          ]
-        : [];
-    const targetPlanIndex = validated.event.container
-      ? removalChanges.length
-      : -1;
-    const changes: Parameters<
-      typeof reconcileContainerTimelinesInTransaction
-    >[0]["changes"] = validated.event.container
-      ? [
-          ...removalChanges,
-          {
-            rawContainer: validated.event.container,
-            override: { id: eventId, data: provisionalEvent },
-            expectedVersion: validated.event.expectedContainerStateVersion
-          }
-        ]
-      : removalChanges;
-    const containerPlans = await reconcileContainerTimelinesInTransaction({
+    const containerEffects = await reconcileEventContainerEffectsInTransaction({
       transaction,
-      changes,
+      eventId,
+      before: existing,
+      after: provisionalEvent,
+      expectedContainerStateVersion:
+        validated.event.expectedContainerStateVersion,
+      expectedSourceContainerStateVersion:
+        validated.event.expectedSourceContainerStateVersion,
+      requireSourceCurrentlyOpen: true,
       reservedWrites:
         1 +
         linkedAutomaticSnap.docs.filter((doc) => !doc.data().deleted).length +
@@ -316,13 +310,9 @@ export async function updateEvent(
         (oldLockRef.path === newLockRef.path ? 1 : 2) +
         1
     });
-    const targetPlan =
-      targetPlanIndex >= 0 ? containerPlans[targetPlanIndex] : null;
     const nextEvent: EventDoc = {
       ...provisionalEvent,
-      containerCycleId: targetPlan?.cycleId || null,
-      previousContainerEventId: targetPlan?.previousEventId || null,
-      containerStateVersion: targetPlan?.stateVersion || null
+      ...containerEffects
     };
     const diff = collectChangedFields(
       transactionalEventSnap.data() as Record<string, unknown>,
@@ -337,6 +327,10 @@ export async function updateEvent(
       containerCycleId: nextEvent.containerCycleId,
       previousContainerEventId: nextEvent.previousContainerEventId,
       containerStateVersion: nextEvent.containerStateVersion,
+      sourceContainerCycleId: nextEvent.sourceContainerCycleId || null,
+      previousSourceContainerEventId:
+        nextEvent.previousSourceContainerEventId || null,
+      sourceContainerStateVersion: nextEvent.sourceContainerStateVersion || null,
       startAt,
       endAt,
       durationMinutes: validated.durationMinutes,

@@ -1,5 +1,11 @@
 const REQUIRED_EVENT_HISTORY_INDEXES = [
   [
+    ["sourceContainer", "ASCENDING"],
+    ["deleted", "ASCENDING"],
+    ["endAt", "DESCENDING"],
+    ["createdAt", "DESCENDING"]
+  ],
+  [
     ["deleted", "ASCENDING"],
     ["startAt", "DESCENDING"]
   ],

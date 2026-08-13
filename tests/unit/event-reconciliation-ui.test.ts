@@ -109,6 +109,7 @@ describe("event reconciliation UI", () => {
           gapVersion: "restore-v4",
           changedSinceDeletion: true,
           expectedContainerStateVersion: 12,
+          expectedSourceContainerStateVersion: 7,
           reconciliations: []
         },
         {}
@@ -116,7 +117,8 @@ describe("event reconciliation UI", () => {
     ).toEqual({
       gapVersion: "restore-v4",
       gapJustificationsByEvent: {},
-      expectedContainerStateVersion: 12
+      expectedContainerStateVersion: 12,
+      expectedSourceContainerStateVersion: 7
     });
   });
 });

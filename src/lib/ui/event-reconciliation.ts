@@ -11,7 +11,9 @@ export function buildRestoreRequestPayload(
   return {
     gapVersion: preview.gapVersion,
     gapJustificationsByEvent,
-    expectedContainerStateVersion: preview.expectedContainerStateVersion
+    expectedContainerStateVersion: preview.expectedContainerStateVersion,
+    expectedSourceContainerStateVersion:
+      preview.expectedSourceContainerStateVersion ?? null
   };
 }
 

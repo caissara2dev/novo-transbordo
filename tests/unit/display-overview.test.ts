@@ -123,6 +123,46 @@ describe("display overview", () => {
     ]);
   });
 
+  it("counts a transfer once and excludes an emptied source from open containers", () => {
+    const result = buildDisplayOverview({
+      operationalDate: "2026-07-24",
+      generatedAt: "2026-07-24T12:00:00.000Z",
+      events: [
+        {
+          category: "PRODUTIVO",
+          productive: true,
+          deleted: false,
+          durationMinutes: 12,
+          container: "ABCU 123456-0",
+          containerStatus: "FULL",
+          clientId: "a",
+          clientNameSnapshot: "Alfa"
+        }
+      ],
+      containerStates: [
+        {
+          status: "TRANSFER_EMPTIED",
+          clientId: "a",
+          clientNameSnapshot: "Alfa"
+        },
+        {
+          status: "PARTIAL",
+          clientId: "a",
+          clientNameSnapshot: "Alfa"
+        }
+      ]
+    });
+
+    expect(result.finalizedTotal).toBe(1);
+    expect(result.averageProductiveMinutes).toBe(12);
+    expect(result.openContainers).toEqual({
+      total: 1,
+      partial: 1,
+      buffer: 0,
+      blendPartial: 0
+    });
+  });
+
   it("returns an empty, stable state when there is no movement", () => {
     const result = buildDisplayOverview({
       operationalDate: "2026-07-24",

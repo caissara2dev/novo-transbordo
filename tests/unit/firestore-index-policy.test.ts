@@ -22,7 +22,7 @@ function readManifest(): FirestoreIndexManifest {
 }
 
 describe("política de índices do histórico", () => {
-  it("mantém as sete combinações exigidas pela paginação", () => {
+  it("mantém as combinações exigidas pelos históricos global e de container", () => {
     expect(findMissingEventHistoryIndexes(readManifest())).toEqual([]);
   });
 
@@ -44,5 +44,19 @@ describe("política de índices do histórico", () => {
     expect(
       findMissingEventHistoryIndexes(withoutAdminActiveHistory)
     ).toEqual(["deleted:ASCENDING|startAt:DESCENDING"]);
+  });
+
+  it("exige o índice que consulta transferências pelo container de origem", () => {
+    const manifest = readManifest();
+    const withoutSourceHistory = {
+      ...manifest,
+      indexes: manifest.indexes.filter(
+        (index) => index.fields[0]?.fieldPath !== "sourceContainer"
+      )
+    };
+
+    expect(findMissingEventHistoryIndexes(withoutSourceHistory)).toContain(
+      "sourceContainer:ASCENDING|deleted:ASCENDING|endAt:DESCENDING|createdAt:DESCENDING"
+    );
   });
 });

@@ -2,7 +2,7 @@ import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpError } from "@/lib/domain/errors";
 import { validateEventInput } from "@/lib/domain/validation";
 import { adminDb } from "@/lib/firebase/admin";
-import { reconcileContainerTimelineInTransaction } from "@/lib/server/container-states";
+import { reconcileEventContainerEffectsInTransaction } from "@/lib/server/container-event-effects";
 import { previewEventGap, timelineLockRef } from "@/lib/server/gaps";
 import { EventDoc } from "@/types/domain";
 import {
@@ -74,13 +74,21 @@ export async function createEvent(
         createdAt: now
       })
     : [];
+  const {
+    expectedContainerStateVersion,
+    expectedSourceContainerStateVersion,
+    ...validatedEventForStorage
+  } = validated.event;
   const payload: Omit<
     EventDoc,
-    "containerCycleId" | "previousContainerEventId" | "containerStateVersion"
-  > & {
-    expectedContainerStateVersion: number | null;
-  } = {
-    ...validated.event,
+    | "containerCycleId"
+    | "previousContainerEventId"
+    | "containerStateVersion"
+    | "sourceContainerCycleId"
+    | "previousSourceContainerEventId"
+    | "sourceContainerStateVersion"
+  > = {
+    ...validatedEventForStorage,
     productive: validated.productive,
     origin: "MANUAL",
     generatedForEventId: null,
@@ -118,28 +126,24 @@ export async function createEvent(
       ...payload,
       containerCycleId: null,
       previousContainerEventId: null,
-      containerStateVersion: null
+      containerStateVersion: null,
+      sourceContainerCycleId: null,
+      previousSourceContainerEventId: null,
+      sourceContainerStateVersion: null
     } satisfies EventDoc;
-    const containerPlan = await reconcileContainerTimelineInTransaction({
+    const containerEffects = await reconcileEventContainerEffectsInTransaction({
       transaction,
-      rawContainer: payload.container,
-      override: {
-        id: ref.id,
-        data: provisionalEvent
-      },
-      expectedVersion: payload.expectedContainerStateVersion,
+      eventId: ref.id,
+      before: null,
+      after: provisionalEvent,
+      expectedContainerStateVersion,
+      expectedSourceContainerStateVersion,
+      requireSourceCurrentlyOpen: true,
       reservedWrites: autoEvents.length + 2
     });
-    const {
-      expectedContainerStateVersion: _expectedContainerStateVersion,
-      ...storedPayload
-    } = payload;
-    void _expectedContainerStateVersion;
     transaction.set(ref, {
-      ...storedPayload,
-      containerCycleId: containerPlan.cycleId,
-      previousContainerEventId: containerPlan.previousEventId,
-      containerStateVersion: containerPlan.stateVersion
+      ...payload,
+      ...containerEffects
     });
 
     for (const automatic of autoEvents) {

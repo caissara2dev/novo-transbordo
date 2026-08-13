@@ -56,6 +56,9 @@ describe("staging anonymization", () => {
       clientNameSnapshot: "Acme Transportes",
       plate: "ABC-1234",
       container: "CONT-123",
+      sourceContainer: "CONT-456",
+      relatedContainer: "CONT-789",
+      loadSourceType: "BUFFER_CONTAINER",
       notes: "Telefone do motorista: 11999999999",
       createdByUid: "user-1",
       createdByEmail: "operator@example.com",
@@ -90,6 +93,9 @@ describe("staging anonymization", () => {
       clientNameSnapshot: "Cliente 6FEB5657",
       plate: "TST-9F33",
       container: "CT-B12C50C47A36",
+      sourceContainer: "CT-445907749A67",
+      relatedContainer: "CT-4359B215DFD1",
+      loadSourceType: "BUFFER_CONTAINER",
       notes: "Texto anonimizado 7F4C57BB",
       createdByUid: "uid-1eccb29fda6a",
       createdByEmail: "actor-904eed96765f@example.invalid",
@@ -105,6 +111,8 @@ describe("staging anonymization", () => {
     expect(JSON.stringify(anonymized)).not.toContain("Acme");
     expect(JSON.stringify(anonymized)).not.toContain("11999999999");
     expect(JSON.stringify(anonymized)).not.toContain("operator@example.com");
+    expect(JSON.stringify(anonymized)).not.toContain("CONT-456");
+    expect(JSON.stringify(anonymized)).not.toContain("CONT-789");
     expect(source.clientId).toBe("client-1");
   });
 

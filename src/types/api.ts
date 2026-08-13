@@ -40,13 +40,16 @@ export type ContainerLookupResponse = {
 };
 
 export type ContainerHistoryItem = EventApiItem & {
-  status: ContainerStatus;
+  status: ContainerStateDoc["status"];
+  containerRole: "DESTINATION" | "SOURCE";
+  relatedContainer: string | null;
 };
 
 export type RestoreEventPreviewResponse = {
   gapVersion: string;
   changedSinceDeletion: boolean;
   expectedContainerStateVersion: number | null;
+  expectedSourceContainerStateVersion?: number | null;
   reconciliations: NonNullable<GapPreview["reconciliations"]>;
 };
 
@@ -176,6 +179,9 @@ export type ReportDrilldownRow = {
   container: string | null;
   containerStatus: ContainerStatus | null;
   containerReason: string | null;
+  loadSourceType: "TRUCK" | "BUFFER_CONTAINER" | null;
+  sourceContainer: string | null;
+  sourceContainerEmptied: boolean | null;
   createdByEmail: string;
   updatedByEmail: string;
   createdAt: string;

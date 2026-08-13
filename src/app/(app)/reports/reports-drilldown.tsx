@@ -48,6 +48,7 @@ export function ReportsDrilldown({
               <th>Horário</th>
               <th>Duração</th>
               <th>Cliente</th>
+              <th>Origem da carga</th>
               <th>Container</th>
               <th>Estado</th>
               <th>Motivo</th>
@@ -71,6 +72,13 @@ export function ReportsDrilldown({
                 </td>
                 <td>{formatMinutes(row.durationMinutes)}</td>
                 <td>{row.clientNameSnapshot || "-"}</td>
+                <td>
+                  {row.loadSourceType === "BUFFER_CONTAINER"
+                    ? `Container ${row.sourceContainer || "—"}`
+                    : row.loadSourceType === "TRUCK"
+                      ? `Carreta ${row.plate || "—"}`
+                      : "-"}
+                </td>
                 <td>{row.container || "-"}</td>
                 <td>
                   {row.containerStatus

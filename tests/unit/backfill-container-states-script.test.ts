@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   PRODUCTION_BACKFILL_CONFIRMATION,
+  buildContainerStateBackfillCandidates,
   buildContainerStateBackfillPatch,
   parseArgs,
   validateBackfillRequest
@@ -159,5 +160,91 @@ describe("container state backfill CLI policy", () => {
     });
 
     expect(patch).toBeNull();
+  });
+
+  it("reconstructs both sides of a container transfer without requiring a truck plate", () => {
+    const candidates = buildContainerStateBackfillCandidates([
+      {
+        id: "buffer-created",
+        data: {
+          category: "PRODUTIVO",
+          container: "MSCU 663987-0",
+          containerStatus: "BUFFER",
+          containerReason: "Reserva operacional",
+          containerCycleId: "cycle-source",
+          clientId: "client-1",
+          clientNameSnapshot: "Cliente",
+          plate: "AAA-1A23",
+          pump: "BOMBA_1",
+          endAt: "2026-07-27T08:00:00.000Z",
+          createdAt: "2026-07-27T08:01:00.000Z"
+        }
+      },
+      {
+        id: "transfer",
+        data: {
+          category: "PRODUTIVO",
+          loadSourceType: "BUFFER_CONTAINER",
+          sourceContainer: "MSCU 663987-0",
+          sourceContainerEmptied: false,
+          sourceContainerCycleId: "cycle-source",
+          previousSourceContainerEventId: "buffer-created",
+          container: "ABCU 123456-0",
+          containerStatus: "FULL",
+          containerCycleId: "cycle-destination",
+          clientId: "client-1",
+          clientNameSnapshot: "Cliente",
+          plate: null,
+          pump: "BOMBA_1",
+          endAt: "2026-07-27T09:00:00.000Z",
+          createdAt: "2026-07-27T09:01:00.000Z"
+        }
+      }
+    ]);
+
+    expect(candidates.get("MSCU6639870")).toMatchObject({
+      id: "transfer",
+      status: "BUFFER",
+      data: {
+        container: "MSCU 663987-0",
+        plate: "AAA-1A23",
+        latestEventRole: "SOURCE",
+        relatedContainer: "ABCU 123456-0"
+      }
+    });
+    expect(candidates.get("ABCU1234560")).toMatchObject({
+      id: "transfer",
+      status: "FULL",
+      data: {
+        plate: null,
+        latestEventRole: "DESTINATION",
+        relatedContainer: "MSCU 663987-0"
+      }
+    });
+  });
+
+  it("marks an emptied source as terminal during reconstruction", () => {
+    const candidates = buildContainerStateBackfillCandidates([
+      {
+        id: "transfer",
+        data: {
+          category: "PRODUTIVO",
+          loadSourceType: "BUFFER_CONTAINER",
+          sourceContainer: "MSCU 663987-0",
+          sourceContainerEmptied: true,
+          sourceContainerCycleId: "cycle-source",
+          container: "ABCU 123456-0",
+          containerStatus: "PARTIAL",
+          containerCycleId: "cycle-destination",
+          clientId: "client-1",
+          plate: null,
+          pump: "BOMBA_2",
+          endAt: "2026-07-27T09:00:00.000Z",
+          createdAt: "2026-07-27T09:01:00.000Z"
+        }
+      }
+    ]);
+
+    expect(candidates.get("MSCU6639870")?.status).toBe("TRANSFER_EMPTIED");
   });
 });
