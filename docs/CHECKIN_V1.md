@@ -1,8 +1,8 @@
 # Check-in Line V1 — PRD e contrato de integração
 
 **Estado do documento:** contrato aprovado para implementação
-**Baseline do TransbordoLine:** `v2.2.0` no commit `a347a3f`
-**Versão-alvo do TransbordoLine:** `v2.3.0` (o pacote permanece em `2.2.0` até a aprovação da release)
+**Baseline original da PRD:** TransbordoLine `v2.2.0` no commit `a347a3f`
+**Versão-alvo atual do TransbordoLine:** `v2.4.0`, posterior à transferência entre containers da `v2.3.0`
 **Versão-alvo do aplicativo público:** `v1.0.0`
 **Domínio público aprovado:** `fila.linebot.com.br`
 

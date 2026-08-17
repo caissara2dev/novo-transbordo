@@ -57,7 +57,20 @@ function eventListItem(doc: FirebaseFirestore.QueryDocumentSnapshot) {
     gapSegmentId: data.gapSegmentId || null,
     justificationWaived: Boolean(data.justificationWaived),
     startsNewContainerCycle: Boolean(data.startsNewContainerCycle),
-    blendConfirmed: Boolean(data.blendConfirmed)
+    blendConfirmed: Boolean(data.blendConfirmed),
+    loadSourceType:
+      data.productive ?? data.category === "PRODUTIVO"
+        ? data.loadSourceType || "TRUCK"
+        : null,
+    sourceContainer: data.sourceContainer || null,
+    sourceContainerEmptied:
+      data.loadSourceType === "BUFFER_CONTAINER"
+        ? Boolean(data.sourceContainerEmptied)
+        : null,
+    sourceContainerCycleId: data.sourceContainerCycleId || null,
+    previousSourceContainerEventId:
+      data.previousSourceContainerEventId || null,
+    sourceContainerStateVersion: data.sourceContainerStateVersion ?? null
   };
 }
 
@@ -91,6 +104,8 @@ function containerHistoryEntry(
     pump: data.pump,
     plate: data.plate || null,
     status,
+    role: "DESTINATION",
+    relatedContainer: data.sourceContainer || null,
     deleted: Boolean(data.deleted)
   };
 }

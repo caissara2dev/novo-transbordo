@@ -5,7 +5,7 @@ Todas as alterações relevantes deste projeto serão registradas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o projeto usa
 [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
-## [Unreleased]
+## [2.4.0] - Em desenvolvimento
 
 ### Adicionado
 
@@ -35,6 +35,42 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o 
   exclusivamente de servidor.
 - Correções e bypass de GPS reservam uma versão durável antes de alterar o Excel,
   impedindo patches concorrentes e permitindo retry com a mesma chave.
+
+## [2.3.0] - Em desenvolvimento
+
+### Adicionado
+
+- Lançamentos produtivos podem receber carga de um container atualmente aberto
+  como Pulmão, além do fluxo existente por carreta.
+- Transferências registram o container de origem, o container de destino e a
+  confirmação de esvaziamento completo da origem.
+- O histórico apresenta o mesmo evento pela perspectiva dos dois containers,
+  sem duplicar duração ou produtividade nos indicadores.
+- Estado interno terminal `Esvaziado por transferência` para encerrar o ciclo
+  do Pulmão que ficou vazio.
+
+### Alterado
+
+- Criação, edição, exclusão e restauração reconciliam atomicamente as linhas do
+  tempo e projeções da origem e do destino.
+- Eventos produtivos legados sem origem explícita continuam interpretados como
+  carga de carreta.
+- O ciclo valida que a origem esteja aberta como Pulmão e que origem e destino
+  sejam containers diferentes do mesmo cliente.
+- A seleção do container de origem usa um único campo pesquisável, que lista
+  todos os Pulmões abertos e filtra os resultados durante a digitação.
+
+## [2.2.1] - 2026-08-11
+
+### Corrigido
+
+- Ao selecionar `Editar` no histórico, o formulário de edição passa a ser revelado no topo da
+  tela e recebe foco, inclusive quando o mesmo lançamento é selecionado novamente.
+
+### Segurança
+
+- As resoluções transitivas de `brace-expansion` e `nanoid` foram atualizadas para versões
+  corrigidas, mantendo a auditoria das dependências de produção sem vulnerabilidades conhecidas.
 
 ## [2.2.0] - 2026-07-27
 
@@ -120,3 +156,5 @@ Não existe release nem tag `v2.1.0` separada.
 
 [2.0.0]: https://github.com/caissara2dev/novo-transbordo/releases/tag/v2.0.0
 [2.2.0]: https://github.com/caissara2dev/novo-transbordo/releases/tag/v2.2.0
+[2.2.1]: https://github.com/caissara2dev/novo-transbordo/releases/tag/v2.2.1
+[2.3.0]: https://github.com/caissara2dev/novo-transbordo/compare/v2.2.1...v2.3.0

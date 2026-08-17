@@ -134,6 +134,67 @@ describe("domain input boundaries", () => {
     });
   });
 
+  it("normalizes a productive transfer from a buffer container without a truck plate", () => {
+    const transfer = validateEventInput(
+      validInput({
+        category: "PRODUTIVO",
+        clientId: "client",
+        plate: null,
+        container: "ABCU1234560",
+        containerStatus: "PARTIAL",
+        containerReason: "Ainda receberá complemento",
+        loadSourceType: "BUFFER_CONTAINER",
+        sourceContainer: "MSCU6639870",
+        sourceContainerEmptied: false,
+        expectedContainerStateVersion: 2,
+        expectedSourceContainerStateVersion: 4,
+        notes: null
+      })
+    );
+
+    expect(transfer.event).toMatchObject({
+      loadSourceType: "BUFFER_CONTAINER",
+      plate: null,
+      container: "ABCU 123456-0",
+      sourceContainer: "MSCU 663987-0",
+      sourceContainerEmptied: false,
+      expectedSourceContainerStateVersion: 4
+    });
+  });
+
+  it("rejects invalid buffer-container transfer identities", () => {
+    const transfer = {
+      category: "PRODUTIVO",
+      clientId: "client",
+      plate: null,
+      container: "ABCU1234560",
+      containerStatus: "FULL",
+      loadSourceType: "BUFFER_CONTAINER",
+      sourceContainerEmptied: true,
+      expectedContainerStateVersion: 0,
+      expectedSourceContainerStateVersion: 1,
+      notes: null
+    };
+
+    expect(() =>
+      validateEventInput(validInput(transfer))
+    ).toThrow("Container de origem é obrigatório");
+    expect(() =>
+      validateEventInput(
+        validInput({ ...transfer, sourceContainer: "ABCU1234560" })
+      )
+    ).toThrow("origem deve ser diferente");
+    expect(() =>
+      validateEventInput(
+        validInput({
+          ...transfer,
+          sourceContainer: "MSCU6639870",
+          sourceContainerEmptied: null
+        })
+      )
+    ).toThrow("Informe se o container de origem foi esvaziado");
+  });
+
   it("reports only real changed fields and enforces role boundaries", () => {
     expect(
       collectChangedFields(

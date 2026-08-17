@@ -1,7 +1,7 @@
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpError } from "@/lib/domain/errors";
 import { adminDb } from "@/lib/firebase/admin";
-import { reconcileContainerTimelineInTransaction } from "@/lib/server/container-states";
+import { reconcileEventContainerEffectsInTransaction } from "@/lib/server/container-event-effects";
 import { prepareDeletionGap, timelineLockRef } from "@/lib/server/gaps";
 import type { StoredCheckin } from "@/types/checkins";
 import { EventDoc, UserRole } from "@/types/domain";
@@ -87,10 +87,11 @@ export async function softDeleteEvent(
         "A linha do tempo mudou durante a exclusão. Atualize e tente novamente."
       );
     }
-    await reconcileContainerTimelineInTransaction({
+    await reconcileEventContainerEffectsInTransaction({
       transaction,
-      rawContainer: existing.container,
-      override: { id: eventId, data: null },
+      eventId,
+      before: existing,
+      after: null,
       reservedWrites:
         2 +
         linkedAutomaticSnap.docs.filter((doc) => !doc.data().deleted).length +

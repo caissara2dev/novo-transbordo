@@ -594,6 +594,7 @@ describe("public event command service", () => {
     });
   });
 
+
   it("rejects invalid creation commands before committing any writes", async () => {
     await expect(
       createEvent(
@@ -947,6 +948,7 @@ describe("public event command service", () => {
     });
   });
 
+
   it("deletes and restores an event through the reconciliation preview", async () => {
     const created = await createEvent(
       eventInput({ pump: "BOMBA_2" }),
@@ -987,6 +989,7 @@ describe("public event command service", () => {
       deletionTimelineVersion: null
     });
   });
+
 
   it("guards deletion and restoration invalid states", async () => {
     await expect(

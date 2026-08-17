@@ -52,6 +52,7 @@ export default defineConfig({
             RATE_LIMIT_MODE: "off",
             FIREBASE_PROJECT_ID: e2eProjectId,
             FIREBASE_AUTH_EMULATOR_HOST: "127.0.0.1:9199",
+            NEXT_PUBLIC_APP_ENV: "staging",
             NEXT_PUBLIC_USE_FIREBASE_EMULATOR: "true",
             NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST: "127.0.0.1:9199",
             NEXT_PUBLIC_FIREBASE_API_KEY: "demo-api-key",

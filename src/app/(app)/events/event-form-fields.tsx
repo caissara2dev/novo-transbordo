@@ -6,6 +6,7 @@ import {
   SetStateAction
 } from "react";
 import { ContainerStatusFields } from "@/components/container-status-fields";
+import { ContainerTransferFields } from "@/components/container-transfer-fields";
 import { categoryRules } from "@/lib/domain/constants";
 import {
   formatContainerForInput,
@@ -177,6 +178,10 @@ export function EventFormFields({
                   form.category === "PRODUTIVO"
                     ? null
                     : form.containerStatus || "FULL",
+                loadSourceType: "TRUCK",
+                sourceContainer: "",
+                sourceContainerEmptied: null,
+                expectedSourceContainerStateVersion: null,
                 gapPreview: null,
                 gapJustifications: [],
                 gapJustificationsByEvent: {}
@@ -211,7 +216,11 @@ export function EventFormFields({
                     containerReason: "",
                     startsNewContainerCycle: false,
                     blendConfirmed: false,
-                    expectedContainerStateVersion: null
+                    expectedContainerStateVersion: null,
+                    loadSourceType: "TRUCK",
+                    sourceContainer: "",
+                    sourceContainerEmptied: null,
+                    expectedSourceContainerStateVersion: null
                   })
                 }
                 type="button"
@@ -270,6 +279,13 @@ export function EventFormFields({
         </section>
       ) : null}
 
+      {form.category === "PRODUTIVO" ? (
+        <ContainerTransferFields
+          fields={form}
+          onChange={(patch) => setForm({ ...form, ...patch })}
+        />
+      ) : null}
+
       <label className="field-label col-span-2">
         Cliente {rules.requiresClient ? "*" : ""}
         <select
@@ -278,6 +294,10 @@ export function EventFormFields({
             setForm({ ...form, clientId: event.target.value })
           }
           required={rules.requiresClient}
+          disabled={
+            form.category === "PRODUTIVO" &&
+            form.loadSourceType === "BUFFER_CONTAINER"
+          }
           value={form.clientId}
         >
           <option value="">Selecione</option>
@@ -289,24 +309,33 @@ export function EventFormFields({
         </select>
       </label>
 
-      <label className="field-label">
-        Placa {rules.requiresPlate ? "*" : ""}
-        <input
-          className="input-ui"
-          onChange={(event) =>
-            setForm({
-              ...form,
-              plate: formatPlateForInput(event.target.value)
-            })
-          }
-          placeholder="AAA1234 ou AAA1A23"
-          required={rules.requiresPlate}
-          type="text"
-          value={form.plate}
-        />
-      </label>
+      {form.category !== "PRODUTIVO" || form.loadSourceType === "TRUCK" ? (
+        <label className="field-label">
+          Placa {rules.requiresPlate ? "*" : ""}
+          <input
+            className="input-ui"
+            onChange={(event) =>
+              setForm({
+                ...form,
+                plate: formatPlateForInput(event.target.value)
+              })
+            }
+            placeholder="AAA1234 ou AAA1A23"
+            required={rules.requiresPlate}
+            type="text"
+            value={form.plate}
+          />
+        </label>
+      ) : null}
 
-      <label className="field-label">
+      <label
+        className={`field-label ${
+          form.category === "PRODUTIVO" &&
+          form.loadSourceType === "BUFFER_CONTAINER"
+            ? "col-span-2"
+            : ""
+        }`}
+      >
         Container {rules.requiresContainer ? "*" : ""}
         <input
           className="input-ui"
@@ -350,6 +379,12 @@ export function EventFormFields({
         disabled={
           loading ||
           gapState.loading ||
+          (form.category === "PRODUTIVO" &&
+            form.loadSourceType === "BUFFER_CONTAINER" &&
+            (form.sourceContainerEmptied === null ||
+              !form.sourceContainer ||
+              formatContainerForInput(form.sourceContainer) ===
+                formatContainerForInput(form.container))) ||
           Boolean(
             form.category === "PRODUTIVO" &&
               form.startTime &&

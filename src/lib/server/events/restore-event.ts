@@ -1,7 +1,7 @@
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpError } from "@/lib/domain/errors";
 import { adminDb } from "@/lib/firebase/admin";
-import { reconcileContainerTimelineInTransaction } from "@/lib/server/container-states";
+import { reconcileEventContainerEffectsInTransaction } from "@/lib/server/container-event-effects";
 import { timelineLockRef } from "@/lib/server/gaps";
 import { EventDoc } from "@/types/domain";
 import type { StoredCheckin } from "@/types/checkins";
@@ -18,6 +18,8 @@ export async function previewEventRestore(eventId: string) {
     gapVersion: plan.gapVersion,
     changedSinceDeletion: plan.changedSinceDeletion,
     expectedContainerStateVersion: plan.expectedContainerStateVersion,
+    expectedSourceContainerStateVersion:
+      plan.expectedSourceContainerStateVersion,
     reconciliations: plan.reconciliations.map(({ target, preview }) => ({
       eventId: target.id,
       preview
@@ -32,6 +34,7 @@ export async function restoreEvent(
     gapVersion?: string;
     gapJustificationsByEvent?: Record<string, unknown[]>;
     expectedContainerStateVersion?: number | null;
+    expectedSourceContainerStateVersion?: number | null;
   }
 ) {
   if (actor.role !== "ADMIN") {
@@ -55,6 +58,16 @@ export async function restoreEvent(
     throw new HttpError(
       409,
       "O estado do container mudou desde a prévia. Atualize a restauração e tente novamente."
+    );
+  }
+  if (
+    existing.sourceContainer &&
+    reconciliation?.expectedSourceContainerStateVersion !==
+      plan.expectedSourceContainerStateVersion
+  ) {
+    throw new HttpError(
+      409,
+      "O estado do container de origem mudou desde a prévia. Atualize a restauração e tente novamente."
     );
   }
   if (
@@ -191,11 +204,14 @@ export async function restoreEvent(
         { code: "CHECKIN_EVENT_MISMATCH" }
       );
     }
-    const containerPlan = await reconcileContainerTimelineInTransaction({
+    const containerEffects = await reconcileEventContainerEffectsInTransaction({
       transaction,
-      rawContainer: existing.container,
-      override: { id: eventId, data: restoredEvent },
-      expectedVersion: plan.expectedContainerStateVersion,
+      eventId,
+      before: null,
+      after: restoredEvent,
+      expectedContainerStateVersion: plan.expectedContainerStateVersion,
+      expectedSourceContainerStateVersion:
+        plan.expectedSourceContainerStateVersion,
       reservedWrites:
         2 +
         (checkinRef ? 2 : 0) +
@@ -220,9 +236,7 @@ export async function restoreEvent(
       deletedReason: null,
       deletionReconciliationEventId: null,
       deletionTimelineVersion: null,
-      containerCycleId: containerPlan.cycleId,
-      previousContainerEventId: containerPlan.previousEventId,
-      containerStateVersion: containerPlan.stateVersion,
+      ...containerEffects,
       updatedByUid: actor.uid,
       updatedByEmail: actor.email,
       updatedAt: FieldValue.serverTimestamp()

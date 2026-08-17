@@ -218,6 +218,40 @@ describe("public reports service", () => {
     expect(csv).toContain("SHIFT;NOITE;0;0;0;0;0");
   });
 
+  it("reports one transfer event while exposing its container source for audit", async () => {
+    inMemoryAdminDb.reset();
+    inMemoryAdminDb.seed(
+      "events",
+      "transfer",
+      reportEvent({
+        plate: null,
+        loadSourceType: "BUFFER_CONTAINER",
+        sourceContainer: "MSCU 663987-0",
+        sourceContainerEmptied: true
+      })
+    );
+
+    const overview = await getReportsOverview(baseFilters);
+    expect(overview.kpis.productiveEvents.current).toBe(1);
+    expect(overview.kpis.productiveMinutes.current).toBe(20);
+    const drilldown = await getReportsDrilldown({
+      filters: baseFilters,
+      source: "kpi",
+      cursor: 0,
+      limit: 20
+    });
+    expect(drilldown.rows).toEqual([
+      expect.objectContaining({
+        loadSourceType: "BUFFER_CONTAINER",
+        sourceContainer: "MSCU 663987-0",
+        sourceContainerEmptied: true
+      })
+    ]);
+    const csv = await exportReportsCsv({ filters: baseFilters, mode: "detailed" });
+    expect(csv).toContain("Origem da carga;Container de origem;Origem esvaziada");
+    expect(csv).toContain("CONTAINER PULMÃO;MSCU 663987-0;SIM");
+  });
+
   it("includes deleted records only when explicitly requested", async () => {
     const result = await getReportsDrilldown({
       filters: { ...baseFilters, includeDeleted: true },

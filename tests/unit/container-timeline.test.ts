@@ -186,4 +186,90 @@ describe("container timeline planner", () => {
       })
     ).not.toThrow();
   });
+
+  it("starts a new cycle automatically after a source container is emptied by transfer", () => {
+    const plan = planContainerTimeline({
+      events: [
+        baseEvent({
+          id: "buffer",
+          status: "BUFFER",
+          existingCycleId: "source-cycle"
+        }),
+        baseEvent({
+          id: "emptied-transfer",
+          status: "TRANSFER_EMPTIED",
+          operationalAtMs: 2_000,
+          existingCycleId: "source-cycle"
+        }),
+        baseEvent({
+          id: "next-use",
+          status: "PARTIAL",
+          operationalAtMs: 3_000
+        })
+      ],
+      createCycleId: () => "new-cycle"
+    });
+
+    expect(plan.events).toEqual([
+      {
+        id: "buffer",
+        containerCycleId: "source-cycle",
+        previousContainerEventId: null
+      },
+      {
+        id: "emptied-transfer",
+        containerCycleId: "source-cycle",
+        previousContainerEventId: "buffer"
+      },
+      {
+        id: "next-use",
+        containerCycleId: "new-cycle",
+        previousContainerEventId: null
+      }
+    ]);
+  });
+
+  it("treats each unlinked legacy closure as an independent cycle", () => {
+    let cycleSequence = 0;
+    const plan = planContainerTimeline({
+      events: [
+        baseEvent({
+          id: "legacy-full-1",
+          status: "FULL",
+          legacyClosedCycleBoundary: true
+        }),
+        baseEvent({
+          id: "legacy-full-2",
+          status: "FULL",
+          operationalAtMs: 2_000,
+          legacyClosedCycleBoundary: true
+        }),
+        baseEvent({
+          id: "modern-buffer",
+          status: "BUFFER",
+          operationalAtMs: 3_000,
+          existingCycleId: "modern-cycle"
+        })
+      ],
+      createCycleId: () => `legacy-cycle-${++cycleSequence}`
+    });
+
+    expect(plan.events).toEqual([
+      {
+        id: "legacy-full-1",
+        containerCycleId: "legacy-cycle-1",
+        previousContainerEventId: null
+      },
+      {
+        id: "legacy-full-2",
+        containerCycleId: "legacy-cycle-2",
+        previousContainerEventId: null
+      },
+      {
+        id: "modern-buffer",
+        containerCycleId: "modern-cycle",
+        previousContainerEventId: null
+      }
+    ]);
+  });
 });

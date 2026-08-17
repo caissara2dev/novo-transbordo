@@ -2,8 +2,8 @@ import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpError } from "@/lib/domain/errors";
 import { validateEventInput } from "@/lib/domain/validation";
 import { adminDb } from "@/lib/firebase/admin";
+import { reconcileEventContainerEffectsInTransaction } from "@/lib/server/container-event-effects";
 import { resolveCheckinRuntimeConfig } from "@/lib/server/checkins/config";
-import { reconcileContainerTimelineInTransaction } from "@/lib/server/container-states";
 import { previewEventGap, timelineLockRef } from "@/lib/server/gaps";
 import type { StoredCheckin } from "@/types/checkins";
 import { EventDoc, UserRole } from "@/types/domain";
@@ -31,12 +31,14 @@ const CHECKIN_ID_PATTERN =
 
 function rawLinkFields(raw: unknown): {
   category: unknown;
+  loadSourceType: unknown;
   checkInId: unknown;
   manualPlateReason: unknown;
 } {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return {
       category: undefined,
+      loadSourceType: undefined,
       checkInId: undefined,
       manualPlateReason: undefined
     };
@@ -44,6 +46,7 @@ function rawLinkFields(raw: unknown): {
   const value = raw as Record<string, unknown>;
   return {
     category: value.category,
+    loadSourceType: value.loadSourceType,
     checkInId: value.checkInId,
     manualPlateReason: value.manualPlateReason
   };
@@ -60,6 +63,9 @@ async function planCheckinLink(
   const fields = rawLinkFields(raw);
   const requestedCheckInId = normalizedOptionalText(fields.checkInId);
   const manualPlateReason = normalizedOptionalText(fields.manualPlateReason);
+  const isContainerTransfer =
+    fields.category === "PRODUTIVO" &&
+    fields.loadSourceType === "BUFFER_CONTAINER";
   const mode = resolveCheckinRuntimeConfig(process.env).mode;
 
   // `off` is a true rollback switch: the additive fields are ignored and the
@@ -85,6 +91,22 @@ async function planCheckinLink(
       400,
       "Um check-in só pode ser vinculado a um lançamento produtivo."
     );
+  }
+
+  if (requestedCheckInId && isContainerTransfer) {
+    throw new HttpError(
+      400,
+      "Um check-in de carreta não pode ser vinculado a uma transferência entre containers."
+    );
+  }
+
+  if (isContainerTransfer) {
+    return {
+      checkInId: null,
+      expectedVersion: null,
+      manualPlateReason: null,
+      rawForValidation: raw
+    };
   }
 
   if (requestedCheckInId) {
@@ -206,13 +228,21 @@ export async function createEvent(
         createdAt: now
       })
     : [];
+  const {
+    expectedContainerStateVersion,
+    expectedSourceContainerStateVersion,
+    ...validatedEventForStorage
+  } = validated.event;
   const payload: Omit<
     EventDoc,
-    "containerCycleId" | "previousContainerEventId" | "containerStateVersion"
-  > & {
-    expectedContainerStateVersion: number | null;
-  } = {
-    ...validated.event,
+    | "containerCycleId"
+    | "previousContainerEventId"
+    | "containerStateVersion"
+    | "sourceContainerCycleId"
+    | "previousSourceContainerEventId"
+    | "sourceContainerStateVersion"
+  > = {
+    ...validatedEventForStorage,
     ...(checkinLink.checkInId
       ? { checkInId: checkinLink.checkInId, manualPlateReason: null }
       : checkinLink.manualPlateReason
@@ -279,28 +309,24 @@ export async function createEvent(
       ...payload,
       containerCycleId: null,
       previousContainerEventId: null,
-      containerStateVersion: null
+      containerStateVersion: null,
+      sourceContainerCycleId: null,
+      previousSourceContainerEventId: null,
+      sourceContainerStateVersion: null
     } satisfies EventDoc;
-    const containerPlan = await reconcileContainerTimelineInTransaction({
+    const containerEffects = await reconcileEventContainerEffectsInTransaction({
       transaction,
-      rawContainer: payload.container,
-      override: {
-        id: ref.id,
-        data: provisionalEvent
-      },
-      expectedVersion: payload.expectedContainerStateVersion,
+      eventId: ref.id,
+      before: null,
+      after: provisionalEvent,
+      expectedContainerStateVersion,
+      expectedSourceContainerStateVersion,
+      requireSourceCurrentlyOpen: true,
       reservedWrites: autoEvents.length + 2 + (checkinRef ? 2 : 0)
     });
-    const {
-      expectedContainerStateVersion: _expectedContainerStateVersion,
-      ...storedPayload
-    } = payload;
-    void _expectedContainerStateVersion;
     transaction.set(ref, {
-      ...storedPayload,
-      containerCycleId: containerPlan.cycleId,
-      previousContainerEventId: containerPlan.previousEventId,
-      containerStateVersion: containerPlan.stateVersion
+      ...payload,
+      ...containerEffects
     });
 
     for (const automatic of autoEvents) {

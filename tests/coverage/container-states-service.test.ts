@@ -15,8 +15,7 @@ import {
   latestEventState,
   listContainerStates,
   lookupContainer,
-  rebuildContainerState,
-  reconcileContainerTimelineInTransaction
+  rebuildContainerState
 } from "@/lib/server/container-states";
 import { EventDoc } from "@/types/domain";
 
@@ -109,6 +108,126 @@ describe("public container state service", () => {
     });
   });
 
+  it("includes source-side transfers when falling back or rebuilding a projection", async () => {
+    const source = "MSCU 663987-0";
+    inMemoryAdminDb.seed("events", "source-buffer", event({
+      container: source,
+      containerStatus: "BUFFER",
+      containerReason: "Reserva operacional",
+      containerCycleId: "source-cycle",
+      endAt: Timestamp.fromMillis(2_000),
+      createdAt: Timestamp.fromMillis(2_100)
+    }));
+    inMemoryAdminDb.seed("events", "transfer", event({
+      container: CONTAINER,
+      containerStatus: "FULL",
+      plate: null,
+      loadSourceType: "BUFFER_CONTAINER",
+      sourceContainer: source,
+      sourceContainerEmptied: true,
+      sourceContainerCycleId: "source-cycle",
+      previousSourceContainerEventId: "source-buffer",
+      endAt: Timestamp.fromMillis(3_000),
+      createdAt: Timestamp.fromMillis(3_100)
+    }));
+
+    await expect(latestEventState(source)).resolves.toMatchObject({
+      latestEventId: "transfer",
+      latestEventRole: "SOURCE",
+      status: "TRANSFER_EMPTIED",
+      plate: "ABC-1234",
+      relatedContainer: CONTAINER
+    });
+    await rebuildContainerState(source);
+    expect(inMemoryAdminDb.read("containerStates", "MSCU6639870")).toMatchObject({
+      latestEventId: "transfer",
+      latestEventRole: "SOURCE",
+      status: "TRANSFER_EMPTIED"
+    });
+  });
+
+  it("keeps the latest closed legacy cycle available when projections are missing", async () => {
+    inMemoryAdminDb.seed("events", "legacy-first", event({
+      containerStatus: "FULL",
+      containerReason: null,
+      containerCycleId: null,
+      containerStateVersion: null,
+      endAt: Timestamp.fromMillis(2_000),
+      createdAt: Timestamp.fromMillis(2_100)
+    }));
+    inMemoryAdminDb.seed("events", "legacy-latest", event({
+      containerStatus: "FULL",
+      containerReason: null,
+      containerCycleId: null,
+      containerStateVersion: null,
+      endAt: Timestamp.fromMillis(3_000),
+      createdAt: Timestamp.fromMillis(3_100)
+    }));
+
+    await expect(latestEventState(CONTAINER)).resolves.toMatchObject({
+      latestEventId: "legacy-latest",
+      status: "FULL"
+    });
+  });
+
+  it("keeps a legacy Blend closure available without requiring missing cycle links", async () => {
+    inMemoryAdminDb.seed("events", "legacy-first", event({
+      containerStatus: "FULL",
+      containerReason: null,
+      containerCycleId: null,
+      containerStateVersion: null,
+      endAt: Timestamp.fromMillis(2_000),
+      createdAt: Timestamp.fromMillis(2_100)
+    }));
+    inMemoryAdminDb.seed("events", "legacy-blend", event({
+      containerStatus: "BLEND_FULL",
+      containerReason: null,
+      containerCycleId: null,
+      containerStateVersion: null,
+      endAt: Timestamp.fromMillis(3_000),
+      createdAt: Timestamp.fromMillis(3_100)
+    }));
+
+    await expect(latestEventState(CONTAINER)).resolves.toMatchObject({
+      latestEventId: "legacy-blend",
+      status: "BLEND_FULL"
+    });
+  });
+
+  it("reconstructs a modern open cycle after multiple independent legacy closures", async () => {
+    inMemoryAdminDb.seed("events", "legacy-first", event({
+      containerStatus: "FULL",
+      containerReason: null,
+      containerCycleId: null,
+      containerStateVersion: null,
+      endAt: Timestamp.fromMillis(2_000),
+      createdAt: Timestamp.fromMillis(2_100)
+    }));
+    inMemoryAdminDb.seed("events", "legacy-second", event({
+      containerStatus: "FULL",
+      containerReason: null,
+      containerCycleId: null,
+      containerStateVersion: null,
+      endAt: Timestamp.fromMillis(3_000),
+      createdAt: Timestamp.fromMillis(3_100)
+    }));
+    inMemoryAdminDb.seed("events", "modern-buffer", event({
+      containerStatus: "BUFFER",
+      containerReason: "Reserva operacional",
+      startsNewContainerCycle: true,
+      containerCycleId: "modern-cycle",
+      containerStateVersion: 3,
+      endAt: Timestamp.fromMillis(4_000),
+      createdAt: Timestamp.fromMillis(4_100)
+    }));
+
+    await expect(latestEventState(CONTAINER)).resolves.toMatchObject({
+      latestEventId: "modern-buffer",
+      status: "BUFFER",
+      cycleId: "modern-cycle"
+    });
+  });
+
   it("returns a materialized lookup and the valid next statuses", async () => {
     inMemoryAdminDb.seed("containerStates", "ABCU1234560", {
       container: CONTAINER,
@@ -164,91 +283,6 @@ describe("public container state service", () => {
     await expect(getContainerHistory("invalid")).rejects.toThrow(
       "Container inválido"
     );
-  });
-
-  it("rebuilds a retroactive timeline and updates downstream links atomically", async () => {
-    inMemoryAdminDb.seed(
-      "containerStates",
-      "ABCU1234560",
-      {
-        container: CONTAINER,
-        version: 4
-      }
-    );
-    inMemoryAdminDb.seed(
-      "events",
-      "first",
-      event({
-        endAt: Timestamp.fromMillis(1_000),
-        createdAt: Timestamp.fromMillis(1_100),
-        containerCycleId: "cycle-1"
-      }) as unknown as Record<string, unknown>
-    );
-    inMemoryAdminDb.seed(
-      "events",
-      "last",
-      event({
-        endAt: Timestamp.fromMillis(3_000),
-        createdAt: Timestamp.fromMillis(3_100),
-        containerStatus: "FULL",
-        containerReason: null,
-        containerCycleId: "cycle-1",
-        previousContainerEventId: "first"
-      }) as unknown as Record<string, unknown>
-    );
-
-    const retroactive = event({
-      endAt: Timestamp.fromMillis(2_000),
-      createdAt: Timestamp.fromMillis(2_100),
-      containerCycleId: null
-    });
-    const plan = await inMemoryAdminDb.runTransaction((transaction) =>
-      reconcileContainerTimelineInTransaction({
-        transaction: transaction as never,
-        rawContainer: CONTAINER,
-        override: { id: "retroactive", data: retroactive },
-        expectedVersion: 4
-      })
-    );
-
-    expect(plan).toMatchObject({
-      cycleId: "cycle-1",
-      previousEventId: "first",
-      stateVersion: 5
-    });
-    expect(inMemoryAdminDb.read("events", "last")).toMatchObject({
-      previousContainerEventId: "retroactive"
-    });
-    expect(inMemoryAdminDb.read("containerStates", "ABCU1234560")).toMatchObject({
-      latestEventId: "last",
-      previousEventId: "retroactive",
-      status: "FULL",
-      version: 5
-    });
-  });
-
-  it("rolls back the transaction when a stale expected version is observed", async () => {
-    inMemoryAdminDb.seed("containerStates", "ABCU1234560", {
-      container: CONTAINER,
-      version: 2,
-      sentinel: "unchanged"
-    });
-
-    await expect(
-      inMemoryAdminDb.runTransaction((transaction) =>
-        reconcileContainerTimelineInTransaction({
-          transaction: transaction as never,
-          rawContainer: CONTAINER,
-          override: { id: "new", data: event() },
-          expectedVersion: 1
-        })
-      )
-    ).rejects.toMatchObject({ status: 409 });
-    expect(inMemoryAdminDb.read("containerStates", "ABCU1234560")).toEqual({
-      container: CONTAINER,
-      version: 2,
-      sentinel: "unchanged"
-    });
   });
 
   it("removes an empty projection and supports the rebuild convenience API", async () => {
@@ -310,5 +344,39 @@ describe("public container state service", () => {
       id: "container-event",
       status: "PARTIAL"
     });
+  });
+
+  it("shows one transfer from the perspective of both source and destination histories", async () => {
+    inMemoryAdminDb.seed(
+      "events",
+      "transfer",
+      event({
+        plate: null,
+        container: CONTAINER,
+        containerStatus: "FULL",
+        loadSourceType: "BUFFER_CONTAINER",
+        sourceContainer: "MSCU 663987-0",
+        sourceContainerEmptied: true,
+        sourceContainerCycleId: "source-cycle",
+        previousSourceContainerEventId: "source-buffer"
+      }) as unknown as Record<string, unknown>
+    );
+
+    await expect(getContainerHistory(CONTAINER)).resolves.toEqual([
+      expect.objectContaining({
+        id: "transfer",
+        status: "FULL",
+        containerRole: "DESTINATION",
+        relatedContainer: "MSCU 663987-0"
+      })
+    ]);
+    await expect(getContainerHistory("MSCU6639870")).resolves.toEqual([
+      expect.objectContaining({
+        id: "transfer",
+        status: "TRANSFER_EMPTIED",
+        containerRole: "SOURCE",
+        relatedContainer: CONTAINER
+      })
+    ]);
   });
 });

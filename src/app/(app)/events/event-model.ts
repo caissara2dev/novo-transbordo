@@ -5,6 +5,7 @@ import {
   ContainerStatus,
   GapJustification,
   GapPreview,
+  LoadSourceType,
   Pump,
   ShiftType
 } from "@/types/domain";
@@ -32,6 +33,10 @@ export type EventFormState = {
   startsNewContainerCycle: boolean;
   blendConfirmed: boolean;
   expectedContainerStateVersion: number | null;
+  loadSourceType: LoadSourceType;
+  sourceContainer: string;
+  sourceContainerEmptied: boolean | null;
+  expectedSourceContainerStateVersion: number | null;
   notes: string;
   revisionReason?: string;
   gapPreview: GapPreview | null;
@@ -86,6 +91,10 @@ export function makeInitialForm(): EventFormState {
     startsNewContainerCycle: false,
     blendConfirmed: false,
     expectedContainerStateVersion: null,
+    loadSourceType: "TRUCK",
+    sourceContainer: "",
+    sourceContainerEmptied: null,
+    expectedSourceContainerStateVersion: null,
     notes: "",
     gapPreview: null,
     gapJustifications: [],
@@ -127,6 +136,23 @@ export function toPayload(form: EventFormState) {
     startsNewContainerCycle: form.startsNewContainerCycle,
     blendConfirmed: form.blendConfirmed,
     expectedContainerStateVersion: form.expectedContainerStateVersion,
+    loadSourceType:
+      form.category === "PRODUTIVO" ? form.loadSourceType : "TRUCK",
+    sourceContainer:
+      form.category === "PRODUTIVO" &&
+      form.loadSourceType === "BUFFER_CONTAINER"
+        ? form.sourceContainer || null
+        : null,
+    sourceContainerEmptied:
+      form.category === "PRODUTIVO" &&
+      form.loadSourceType === "BUFFER_CONTAINER"
+        ? form.sourceContainerEmptied
+        : null,
+    expectedSourceContainerStateVersion:
+      form.category === "PRODUTIVO" &&
+      form.loadSourceType === "BUFFER_CONTAINER"
+        ? form.expectedSourceContainerStateVersion
+        : null,
     notes: form.notes || null,
     revisionReason: form.revisionReason || null,
     gapVersion: form.gapPreview?.gapVersion || null,

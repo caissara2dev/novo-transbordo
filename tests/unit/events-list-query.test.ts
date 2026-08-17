@@ -284,7 +284,9 @@ describe("listEvents pagination", () => {
         endTime: "07:15",
         pump: "BOMBA_1",
         plate: "ABC-1234",
-        status: "PARTIAL"
+        status: "PARTIAL",
+        role: "DESTINATION",
+        relatedContainer: null
       }
     ]);
   });
