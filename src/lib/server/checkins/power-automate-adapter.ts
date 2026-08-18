@@ -10,6 +10,11 @@ import {
   type PowerAutomateAccessTokenProvider
 } from "@/lib/server/checkins/power-automate-auth";
 import { isAllowedPowerAutomateEndpoint } from "@/lib/server/checkins/power-automate-security";
+import {
+  createPreviewPowerAutomateDiagnosticReporter,
+  reportPowerAutomateDiagnostic,
+  type PowerAutomateDiagnosticReporter
+} from "@/lib/server/checkins/power-automate-diagnostics";
 import type {
   CheckinExcelAdapter,
   ExcelCheckinRecord
@@ -55,6 +60,7 @@ export type PowerAutomateCheckinAdapterConfig = {
   timeoutMs?: number;
   maxResponseBytes?: number;
   fetchImpl?: FetchImplementation;
+  diagnostics?: PowerAutomateDiagnosticReporter;
 };
 
 type PowerAutomateEnvironment = Record<string, string | undefined>;
@@ -199,6 +205,7 @@ async function awaitFinalResponse(params: {
   initialResponse: Response;
   fetchImpl: FetchImplementation;
   signal: AbortSignal;
+  authorization: string;
 }): Promise<Response> {
   let response = params.initialResponse;
   let pollUrl: string | undefined;
@@ -211,7 +218,10 @@ async function awaitFinalResponse(params: {
     await waitForPoll(pollIntervalMs(response), params.signal);
     response = await params.fetchImpl(pollUrl, {
       method: "GET",
-      headers: { accept: "application/json" },
+      headers: {
+        accept: "application/json",
+        authorization: params.authorization
+      },
       cache: "no-store",
       redirect: "manual",
       signal: params.signal
@@ -353,8 +363,20 @@ async function sendCommand(input: {
   timeoutMs: number;
   maxResponseBytes: number;
   fetchImpl: FetchImplementation;
+  diagnostics?: PowerAutomateDiagnosticReporter;
 }): Promise<{ confirmedAtIso: string }> {
   let timeout: ReturnType<typeof setTimeout> | undefined;
+  let controller: AbortController | undefined;
+  let failureReason:
+    | "token"
+    | "network"
+    | "timeout"
+    | "status"
+    | "content_type"
+    | "body"
+    | "schema"
+    | "poll" = "token";
+  let failureStatus: number | undefined;
   try {
     const headers: Record<string, string> = {
       accept: "application/json",
@@ -367,9 +389,11 @@ async function sendCommand(input: {
 
     // Token acquisition has its own 5-second budget. Start the independent
     // Power Automate request budget only after a usable token exists.
-    const controller = new AbortController();
-    timeout = setTimeout(() => controller.abort(), input.timeoutMs);
+    const requestController = new AbortController();
+    controller = requestController;
+    timeout = setTimeout(() => requestController.abort(), input.timeoutMs);
 
+    failureReason = "network";
     let response = await input.fetchImpl(input.endpoint, {
       method: "POST",
       headers,
@@ -378,22 +402,31 @@ async function sendCommand(input: {
       redirect: "manual",
       signal: controller.signal
     });
-    if (response.status === 401 || response.status === 403) {
-      // Do not repeat the idempotent command automatically. Clearing the
-      // rejected token makes the caller's explicit retry acquire a new one.
-      input.accessTokenProvider?.invalidateAccessToken();
-    }
+    failureReason = "poll";
     response = await awaitFinalResponse({
       initialResponse: response,
       fetchImpl: input.fetchImpl,
-      signal: controller.signal
+      signal: controller.signal,
+      authorization: headers.authorization
     });
-    if (response.status !== 200) throw upstreamError();
+    if (response.status === 401 || response.status === 403) {
+      // Do not repeat the idempotent command automatically. Clearing a token
+      // rejected by either the initial request or its asynchronous status
+      // endpoint makes the caller's explicit retry acquire a new one.
+      input.accessTokenProvider?.invalidateAccessToken();
+    }
+    if (response.status !== 200) {
+      failureReason = "status";
+      failureStatus = response.status;
+      throw upstreamError();
+    }
+    failureReason = "content_type";
     const contentType = response.headers.get("content-type") ?? "";
     if (contentType.split(";", 1)[0].trim().toLowerCase() !== "application/json") {
       throw upstreamError();
     }
 
+    failureReason = "body";
     const rawBody = await readBoundedBody(response, input.maxResponseBytes);
     let parsedBody: unknown;
     try {
@@ -401,6 +434,7 @@ async function sendCommand(input: {
     } catch {
       throw upstreamError();
     }
+    failureReason = "schema";
     const parsed = confirmationResponseSchema.safeParse(parsedBody);
     if (
       !parsed.success ||
@@ -411,6 +445,14 @@ async function sendCommand(input: {
     }
     return { confirmedAtIso: parsed.data.data.confirmedAtIso };
   } catch {
+    const reason = controller?.signal.aborted ? "timeout" : failureReason;
+    reportPowerAutomateDiagnostic(input.diagnostics, {
+      event: "power_automate_failure",
+      component: "flow",
+      reason,
+      operation: input.operation,
+      ...(failureStatus === undefined ? {} : { status: failureStatus })
+    });
     throw upstreamError();
   } finally {
     if (timeout !== undefined) clearTimeout(timeout);
@@ -446,7 +488,8 @@ export function createPowerAutomateCheckinAdapter(
         accessTokenProvider,
         timeoutMs,
         maxResponseBytes,
-        fetchImpl
+        fetchImpl,
+        diagnostics: config.diagnostics
       });
     },
     async updateIdempotently(record) {
@@ -460,7 +503,8 @@ export function createPowerAutomateCheckinAdapter(
         accessTokenProvider,
         timeoutMs,
         maxResponseBytes,
-        fetchImpl
+        fetchImpl,
+        diagnostics: config.diagnostics
       });
     }
   };
@@ -468,43 +512,60 @@ export function createPowerAutomateCheckinAdapter(
 
 export function createPowerAutomateCheckinAdapterFromEnv(
   environment: PowerAutomateEnvironment = process.env,
-  dependencies: { fetchImpl?: FetchImplementation } = {}
+  dependencies: {
+    fetchImpl?: FetchImplementation;
+    diagnostics?: PowerAutomateDiagnosticReporter;
+  } = {}
 ): PowerAutomateCheckinAdapter {
-  const authMode = environment.CHECKIN_POWER_AUTOMATE_AUTH_MODE?.trim();
-  if (authMode !== "entra-client-credentials") throw configurationError();
-  const tenantId = environment.CHECKIN_POWER_AUTOMATE_TENANT_ID ?? "";
-  const clientId = environment.CHECKIN_POWER_AUTOMATE_CLIENT_ID ?? "";
-  const clientSecret = environment.CHECKIN_POWER_AUTOMATE_CLIENT_SECRET ?? "";
-  const cached = tokenProvidersByEnvironment.get(environment);
-  const accessTokenProvider =
-    cached?.tenantId === tenantId &&
-    cached.clientId === clientId &&
-    cached.clientSecret === clientSecret &&
-    cached.fetchImpl === dependencies.fetchImpl
-      ? cached.provider
-      : createPowerAutomateEntraTokenProvider({
-          tenantId,
-          clientId,
-          clientSecret,
-          timeoutMs: DEFAULT_TOKEN_TIMEOUT_MS,
-          fetchImpl: dependencies.fetchImpl
-        });
-  if (accessTokenProvider !== cached?.provider) {
-    // The WeakMap never exposes credentials and lets obsolete environment
-    // objects be collected. A secret rotation rebuilds the provider.
-    tokenProvidersByEnvironment.set(environment, {
-      tenantId,
-      clientId,
-      clientSecret,
-      fetchImpl: dependencies.fetchImpl,
-      provider: accessTokenProvider
-    });
-  }
+  const diagnostics =
+    dependencies.diagnostics ??
+    createPreviewPowerAutomateDiagnosticReporter(environment);
+  try {
+    const authMode = environment.CHECKIN_POWER_AUTOMATE_AUTH_MODE?.trim();
+    if (authMode !== "entra-client-credentials") throw configurationError();
+    const tenantId = environment.CHECKIN_POWER_AUTOMATE_TENANT_ID ?? "";
+    const clientId = environment.CHECKIN_POWER_AUTOMATE_CLIENT_ID ?? "";
+    const clientSecret = environment.CHECKIN_POWER_AUTOMATE_CLIENT_SECRET ?? "";
+    const cached = tokenProvidersByEnvironment.get(environment);
+    const accessTokenProvider =
+      cached?.tenantId === tenantId &&
+      cached.clientId === clientId &&
+      cached.clientSecret === clientSecret &&
+      cached.fetchImpl === dependencies.fetchImpl
+        ? cached.provider
+        : createPowerAutomateEntraTokenProvider({
+            tenantId,
+            clientId,
+            clientSecret,
+            timeoutMs: DEFAULT_TOKEN_TIMEOUT_MS,
+            fetchImpl: dependencies.fetchImpl,
+            diagnostics
+          });
+    if (accessTokenProvider !== cached?.provider) {
+      // The WeakMap never exposes credentials and lets obsolete environment
+      // objects be collected. A secret rotation rebuilds the provider.
+      tokenProvidersByEnvironment.set(environment, {
+        tenantId,
+        clientId,
+        clientSecret,
+        fetchImpl: dependencies.fetchImpl,
+        provider: accessTokenProvider
+      });
+    }
 
-  return createPowerAutomateCheckinAdapter({
-    includeUrl: environment.CHECKIN_POWER_AUTOMATE_ADD_URL ?? "",
-    updateUrl: environment.CHECKIN_POWER_AUTOMATE_UPDATE_URL ?? "",
-    accessTokenProvider,
-    fetchImpl: dependencies.fetchImpl
-  });
+    return createPowerAutomateCheckinAdapter({
+      includeUrl: environment.CHECKIN_POWER_AUTOMATE_ADD_URL ?? "",
+      updateUrl: environment.CHECKIN_POWER_AUTOMATE_UPDATE_URL ?? "",
+      accessTokenProvider,
+      fetchImpl: dependencies.fetchImpl,
+      diagnostics
+    });
+  } catch {
+    reportPowerAutomateDiagnostic(diagnostics, {
+      event: "power_automate_failure",
+      component: "flow",
+      reason: "configuration"
+    });
+    throw configurationError();
+  }
 }

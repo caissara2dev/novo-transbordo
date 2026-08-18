@@ -32,8 +32,10 @@ resposta quando identificador, resultado e horário confirmam o contrato V1.
 O Power Automate não permite combinar concorrência no gatilho HTTP com uma ação
 `Response` síncrona. Por isso, a resposta do fluxo é assíncrona: o gatilho
 retorna `202` com uma URL temporária, e o backend consulta essa URL até receber
-o `200` final. O backend não considera `202` uma confirmação, não encaminha o
-token Entra para a URL de acompanhamento e rejeita URLs fora da allowlist.
+o `200` final. O backend não considera `202` uma confirmação e repete o mesmo
+token Entra na consulta somente depois de validar que a URL de acompanhamento é
+HTTPS, não contém credenciais e pertence à allowlist do Power Automate. URLs
+fora dessa allowlist são rejeitadas antes de qualquer nova requisição.
 
 ## Opções consideradas
 

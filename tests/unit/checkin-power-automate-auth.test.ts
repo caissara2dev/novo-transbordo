@@ -19,6 +19,152 @@ function tokenResponse(accessToken = "valid-access-token-with-sufficient-length"
 }
 
 describe("Power Automate Microsoft Entra token provider", () => {
+  it("reports only the allowlisted OAuth error code from a Microsoft rejection", async () => {
+    const diagnostics = vi.fn();
+    const provider = createPowerAutomateEntraTokenProvider({
+      tenantId: TENANT_ID,
+      clientId: CLIENT_ID,
+      clientSecret: CLIENT_SECRET,
+      diagnostics,
+      fetchImpl: vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            error: "invalid_client",
+            error_description:
+              "LEAK secret endpoint CNH 12345678900 and tenant details",
+            error_codes: [7000215],
+            trace_id: "LEAK-trace",
+            correlation_id: "LEAK-correlation"
+          }),
+          { status: 400, headers: { "content-type": "application/json" } }
+        )
+      )
+    });
+
+    await expect(provider.getAccessToken()).rejects.toThrow(
+      "A autenticação da sincronização oficial está temporariamente indisponível."
+    );
+    expect(diagnostics).toHaveBeenCalledOnce();
+    expect(diagnostics).toHaveBeenCalledWith({
+      event: "power_automate_failure",
+      component: "token",
+      reason: "status",
+      status: 400,
+      oauthError: "invalid_client"
+    });
+    const serialized = JSON.stringify(diagnostics.mock.calls);
+    for (const forbidden of [
+      CLIENT_SECRET,
+      TENANT_ID,
+      CLIENT_ID,
+      "LEAK",
+      "12345678900",
+      "7000215"
+    ]) {
+      expect(serialized).not.toContain(forbidden);
+    }
+  });
+
+  it("does not report an unrecognized OAuth error value", async () => {
+    const diagnostics = vi.fn();
+    const provider = createPowerAutomateEntraTokenProvider({
+      tenantId: TENANT_ID,
+      clientId: CLIENT_ID,
+      clientSecret: CLIENT_SECRET,
+      diagnostics,
+      fetchImpl: vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ error: "LEAK_custom_error" }), {
+          status: 400,
+          headers: { "content-type": "application/json" }
+        })
+      )
+    });
+
+    await expect(provider.getAccessToken()).rejects.toThrow(
+      "A autenticação da sincronização oficial está temporariamente indisponível."
+    );
+    expect(diagnostics).toHaveBeenCalledWith({
+      event: "power_automate_failure",
+      component: "token",
+      reason: "status",
+      status: 400
+    });
+    expect(JSON.stringify(diagnostics.mock.calls)).not.toContain("LEAK");
+  });
+
+  it("reports a sanitized Microsoft rejection without leaking upstream data", async () => {
+    const diagnostics = vi.fn();
+    const provider = createPowerAutomateEntraTokenProvider({
+      tenantId: TENANT_ID,
+      clientId: CLIENT_ID,
+      clientSecret: CLIENT_SECRET,
+      diagnostics,
+      fetchImpl: vi.fn().mockResolvedValue(
+        new Response("LEAK secret endpoint CNH 12345678900", { status: 401 })
+      )
+    });
+
+    await expect(provider.getAccessToken()).rejects.toThrow(
+      "A autenticação da sincronização oficial está temporariamente indisponível."
+    );
+    expect(diagnostics).toHaveBeenCalledOnce();
+    expect(diagnostics).toHaveBeenCalledWith({
+      event: "power_automate_failure",
+      component: "token",
+      reason: "status",
+      status: 401
+    });
+    const serialized = JSON.stringify(diagnostics.mock.calls);
+    for (const forbidden of [
+      CLIENT_SECRET,
+      TENANT_ID,
+      CLIENT_ID,
+      "LEAK",
+      "12345678900"
+    ]) {
+      expect(serialized).not.toContain(forbidden);
+    }
+  });
+
+  it("reports a sanitized token network failure", async () => {
+    const diagnostics = vi.fn();
+    const provider = createPowerAutomateEntraTokenProvider({
+      tenantId: TENANT_ID,
+      clientId: CLIENT_ID,
+      clientSecret: CLIENT_SECRET,
+      diagnostics,
+      fetchImpl: vi.fn().mockRejectedValue(
+        new Error("LEAK token URL and driver data")
+      )
+    });
+
+    await expect(provider.getAccessToken()).rejects.toThrow(
+      "A autenticação da sincronização oficial está temporariamente indisponível."
+    );
+    expect(diagnostics).toHaveBeenCalledWith({
+      event: "power_automate_failure",
+      component: "token",
+      reason: "network"
+    });
+    expect(JSON.stringify(diagnostics.mock.calls)).not.toContain("LEAK");
+  });
+
+  it("does not let a diagnostics failure replace the public error", async () => {
+    const provider = createPowerAutomateEntraTokenProvider({
+      tenantId: TENANT_ID,
+      clientId: CLIENT_ID,
+      clientSecret: CLIENT_SECRET,
+      diagnostics: () => {
+        throw new Error("diagnostics unavailable");
+      },
+      fetchImpl: vi.fn().mockResolvedValue(new Response(null, { status: 401 }))
+    });
+
+    await expect(provider.getAccessToken()).rejects.toThrow(
+      "A autenticação da sincronização oficial está temporariamente indisponível."
+    );
+  });
+
   it("obtains a client-credentials token for the Power Automate service", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(tokenResponse());
     const provider = createPowerAutomateEntraTokenProvider({

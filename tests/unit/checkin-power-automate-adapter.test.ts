@@ -48,6 +48,98 @@ function testTokenProvider() {
 }
 
 describe("Power Automate check-in adapter", () => {
+  it("reports a sanitized gateway rejection before a flow run starts", async () => {
+    const diagnostics = vi.fn();
+    const adapter = createPowerAutomateCheckinAdapter({
+      includeUrl: INCLUDE_URL,
+      updateUrl: UPDATE_URL,
+      accessTokenProvider: testTokenProvider(),
+      diagnostics,
+      fetchImpl: vi.fn().mockResolvedValue(
+        new Response("LEAK secret CNH phone plate", { status: 403 })
+      )
+    });
+
+    await expect(
+      adapter.includeIdempotently({
+        publicCode: "LT-23456789",
+        form: FORM,
+        startedAtIso: "2026-08-10T14:59:00.000Z"
+      })
+    ).rejects.toThrow("O registro oficial está temporariamente indisponível.");
+    expect(diagnostics).toHaveBeenCalledOnce();
+    expect(diagnostics).toHaveBeenCalledWith({
+      event: "power_automate_failure",
+      component: "flow",
+      reason: "status",
+      operation: "INCLUDE",
+      status: 403
+    });
+    const serialized = JSON.stringify(diagnostics.mock.calls);
+    for (const forbidden of [
+      INCLUDE_URL,
+      UPDATE_URL,
+      "test-entra-access-token",
+      "LT-23456789",
+      FORM.driverLicense,
+      FORM.driverPhone,
+      FORM.plate,
+      "LEAK"
+    ]) {
+      expect(serialized).not.toContain(forbidden);
+    }
+  });
+
+  it("reports a sanitized invalid flow response body", async () => {
+    const diagnostics = vi.fn();
+    const adapter = createPowerAutomateCheckinAdapter({
+      includeUrl: INCLUDE_URL,
+      updateUrl: UPDATE_URL,
+      accessTokenProvider: testTokenProvider(),
+      diagnostics,
+      fetchImpl: vi.fn().mockResolvedValue(
+        new Response("LEAK not-json", {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        })
+      )
+    });
+
+    await expect(
+      adapter.includeIdempotently({
+        publicCode: "LT-23456789",
+        form: FORM,
+        startedAtIso: "2026-08-10T14:59:00.000Z"
+      })
+    ).rejects.toThrow("O registro oficial está temporariamente indisponível.");
+    expect(diagnostics).toHaveBeenCalledWith({
+      event: "power_automate_failure",
+      component: "flow",
+      reason: "body",
+      operation: "INCLUDE"
+    });
+    expect(JSON.stringify(diagnostics.mock.calls)).not.toContain("LEAK");
+  });
+
+  it("reports a sanitized staging configuration failure", () => {
+    const diagnostics = vi.fn();
+
+    expect(() =>
+      createPowerAutomateCheckinAdapterFromEnv(
+        {
+          VERCEL_ENV: "preview",
+          CHECKIN_POWER_AUTOMATE_AUTH_MODE: "entra-client-credentials"
+        },
+        { diagnostics }
+      )
+    ).toThrow("Configuração da sincronização oficial inválida.");
+    expect(diagnostics).toHaveBeenCalledWith({
+      event: "power_automate_failure",
+      component: "flow",
+      reason: "configuration"
+    });
+  });
+
   it("posts a versioned, idempotent and Excel-safe inclusion payload", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(successResponse());
     const adapter = createPowerAutomateCheckinAdapter({
@@ -131,7 +223,7 @@ describe("Power Automate check-in adapter", () => {
     });
   });
 
-  it("confirms only after the asynchronous Power Automate run reaches its final response", async () => {
+  it("keeps the Entra authorization while polling an asynchronous Power Automate run", async () => {
     vi.useFakeTimers();
     try {
       const statusUrl =
@@ -144,7 +236,15 @@ describe("Power Automate check-in adapter", () => {
             headers: { location: statusUrl, "retry-after": "0" }
           })
         )
-        .mockResolvedValueOnce(successResponse());
+        .mockImplementationOnce(
+          (_url: string | URL | Request, init?: RequestInit) =>
+            Promise.resolve(
+              new Headers(init?.headers).get("authorization") ===
+                "Bearer test-entra-access-token"
+                ? successResponse()
+                : new Response(null, { status: 401 })
+            )
+        );
       const adapter = createPowerAutomateCheckinAdapter({
         includeUrl: INCLUDE_URL,
         updateUrl: UPDATE_URL,
@@ -173,7 +273,10 @@ describe("Power Automate check-in adapter", () => {
         cache: "no-store",
         redirect: "manual"
       });
-      expect(pollInit.headers).not.toHaveProperty("authorization");
+      expect(pollInit.headers).toMatchObject({
+        accept: "application/json",
+        authorization: "Bearer test-entra-access-token"
+      });
     } finally {
       vi.useRealTimers();
     }
@@ -399,6 +502,49 @@ describe("Power Automate check-in adapter", () => {
     expect(retryInit.headers).toMatchObject({
       authorization: "Bearer refreshed-entra-access-token"
     });
+  });
+
+  it("invalidates an Entra token rejected by the asynchronous status endpoint", async () => {
+    vi.useFakeTimers();
+    try {
+      const statusUrl =
+        "https://example.logic.azure.com/workflows/include/runs/status";
+      const fetchImpl = vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(null, {
+            status: 202,
+            headers: { location: statusUrl, "retry-after": "0" }
+          })
+        )
+        .mockResolvedValueOnce(new Response(null, { status: 401 }));
+      const invalidateAccessToken = vi.fn();
+      const adapter = createPowerAutomateCheckinAdapter({
+        includeUrl: INCLUDE_URL,
+        updateUrl: UPDATE_URL,
+        accessTokenProvider: {
+          getAccessToken: vi.fn().mockResolvedValue("rejected-access-token"),
+          invalidateAccessToken
+        },
+        fetchImpl
+      });
+
+      const confirmation = adapter.includeIdempotently({
+        publicCode: "LT-23456789",
+        form: FORM,
+        startedAtIso: "2026-08-10T14:59:00.000Z"
+      });
+      const rejectedConfirmation = expect(confirmation).rejects.toThrow(
+        "O registro oficial está temporariamente indisponível."
+      );
+      await vi.advanceTimersByTimeAsync(250);
+
+      await rejectedConfirmation;
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+      expect(invalidateAccessToken).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("updates the same identifier using only the update endpoint", async () => {

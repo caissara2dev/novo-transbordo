@@ -6,6 +6,11 @@ import {
   isPowerAutomateUuid,
   POWER_AUTOMATE_CLIENT_SECRET_MIN_LENGTH
 } from "@/lib/server/checkins/power-automate-security";
+import {
+  reportPowerAutomateDiagnostic,
+  type PowerAutomateDiagnosticReporter,
+  type PowerAutomateOAuthError
+} from "@/lib/server/checkins/power-automate-diagnostics";
 
 const MICROSOFT_LOGIN_ORIGIN = "https://login.microsoftonline.com";
 const POWER_AUTOMATE_SCOPE =
@@ -35,6 +40,7 @@ export type PowerAutomateEntraTokenProviderConfig = {
   fetchImpl?: FetchImplementation;
   now?: () => number;
   timeoutMs?: number;
+  diagnostics?: PowerAutomateDiagnosticReporter;
 };
 
 const tokenResponseSchema = z
@@ -45,6 +51,21 @@ const tokenResponseSchema = z
     access_token: z.string().min(20).max(16 * 1024)
   })
   .strict();
+
+const oauthErrorResponseSchema = z
+  .object({
+    error: z.enum([
+      "invalid_request",
+      "invalid_client",
+      "invalid_grant",
+      "unauthorized_client",
+      "unsupported_grant_type",
+      "invalid_scope",
+      "temporarily_unavailable",
+      "server_error"
+    ])
+  })
+  .passthrough();
 
 function configurationError(): HttpError {
   return new HttpError(500, GENERIC_CONFIGURATION_ERROR);
@@ -109,6 +130,19 @@ async function readBoundedBody(response: Response): Promise<string> {
   }
 }
 
+async function readOAuthError(
+  response: Response
+): Promise<PowerAutomateOAuthError | undefined> {
+  try {
+    const rawBody = await readBoundedBody(response);
+    const parsedBody: unknown = JSON.parse(rawBody);
+    const parsed = oauthErrorResponseSchema.safeParse(parsedBody);
+    return parsed.success ? parsed.data.error : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function createPowerAutomateEntraTokenProvider(
   config: PowerAutomateEntraTokenProviderConfig
 ): PowerAutomateAccessTokenProvider {
@@ -127,6 +161,15 @@ export function createPowerAutomateEntraTokenProvider(
     | undefined;
 
   async function requestToken(generation: number): Promise<string> {
+    let failureReason:
+      | "network"
+      | "timeout"
+      | "status"
+      | "content_type"
+      | "body"
+      | "schema" = "network";
+    let failureStatus: number | undefined;
+    let failureOAuthError: PowerAutomateOAuthError | undefined;
     const body = new URLSearchParams([
       ["grant_type", "client_credentials"],
       ["client_id", clientId],
@@ -138,6 +181,7 @@ export function createPowerAutomateEntraTokenProvider(
     let timeout: ReturnType<typeof setTimeout> | undefined;
     const timeoutFailure = new Promise<never>((_resolve, reject) => {
       timeout = setTimeout(() => {
+        failureReason = "timeout";
         controller.abort();
         reject(upstreamError());
       }, timeoutMs);
@@ -154,7 +198,13 @@ export function createPowerAutomateEntraTokenProvider(
         redirect: "manual",
         signal: controller.signal
       });
-      if (response.status !== 200) throw upstreamError();
+      if (response.status !== 200) {
+        failureReason = "status";
+        failureStatus = response.status;
+        failureOAuthError = await readOAuthError(response);
+        throw upstreamError();
+      }
+      failureReason = "content_type";
       const contentType = response.headers.get("content-type") ?? "";
       if (
         contentType.split(";", 1)[0].trim().toLowerCase() !==
@@ -163,6 +213,7 @@ export function createPowerAutomateEntraTokenProvider(
         throw upstreamError();
       }
 
+      failureReason = "body";
       const rawBody = await readBoundedBody(response);
       let parsedBody: unknown;
       try {
@@ -170,6 +221,7 @@ export function createPowerAutomateEntraTokenProvider(
       } catch {
         throw upstreamError();
       }
+      failureReason = "schema";
       const parsed = tokenResponseSchema.safeParse(parsedBody);
       if (!parsed.success) throw upstreamError();
       return parsed.data;
@@ -188,6 +240,15 @@ export function createPowerAutomateEntraTokenProvider(
       }
       return token.access_token;
     } catch {
+      reportPowerAutomateDiagnostic(config.diagnostics, {
+        event: "power_automate_failure",
+        component: "token",
+        reason: failureReason,
+        ...(failureStatus === undefined ? {} : { status: failureStatus }),
+        ...(failureOAuthError === undefined
+          ? {}
+          : { oauthError: failureOAuthError })
+      });
       throw upstreamError();
     } finally {
       if (timeout !== undefined) clearTimeout(timeout);
