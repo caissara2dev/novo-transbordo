@@ -197,12 +197,47 @@ describe("events API routes", () => {
 
     expect(res.status).toBe(201);
     expect(body.item.id).toBe("e1");
+    expect(eventMocks.createEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ category: "PRODUTIVO" }),
+      expect.objectContaining({
+        uid: "u1",
+        email: "operator@x.com",
+        role: "OPERATOR"
+      })
+    );
+  });
+
+  it("POST /api/events accepts additive check-in linkage fields", async () => {
+    const mod = await import("@/app/api/events/route");
+    const req = new NextRequest("http://localhost/api/events", {
+      method: "POST",
+      body: JSON.stringify({
+        ...validEventPayload(),
+        checkInId: "11111111-1111-4111-8111-111111111111",
+        manualPlateReason: null
+      }),
+      headers: { "content-type": "application/json" }
+    });
+
+    const res = await mod.POST(req);
+
+    expect(res.status).toBe(201);
+    expect(eventMocks.createEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        checkInId: "11111111-1111-4111-8111-111111111111"
+      }),
+      expect.objectContaining({ role: "OPERATOR" })
+    );
   });
 
   it.each([
     ["malformed JSON", "{"],
     ["unknown field", JSON.stringify({ ...validEventPayload(), admin: true })],
-    ["mistyped field", JSON.stringify({ ...validEventPayload(), blendConfirmed: "false" })]
+    ["mistyped field", JSON.stringify({ ...validEventPayload(), blendConfirmed: "false" })],
+    [
+      "invalid check-in id",
+      JSON.stringify({ ...validEventPayload(), checkInId: "checkin-1" })
+    ]
   ])("POST /api/events rejects %s", async (_label, body) => {
     const mod = await import("@/app/api/events/route");
     const response = await mod.POST(
@@ -250,6 +285,24 @@ describe("events API routes", () => {
     expect(eventMocks.softDeleteEvent).not.toHaveBeenCalled();
   });
 
+  it("PATCH cannot create or replace a productive check-in link", async () => {
+    authCtx.profile.role = "SUPERVISOR";
+    const mod = await import("@/app/api/events/[id]/route");
+    const response = await mod.PATCH(
+      new NextRequest("http://localhost/api/events/e1", {
+        method: "PATCH",
+        body: JSON.stringify({
+          ...validEventPayload(),
+          checkInId: "11111111-1111-4111-8111-111111111111"
+        })
+      }),
+      { params: Promise.resolve({ id: "e1" }) }
+    );
+
+    expect(response.status).toBe(400);
+    expect(eventMocks.updateEvent).not.toHaveBeenCalled();
+  });
+
   it("gap preview rejects malformed, unknown and mistyped fields", async () => {
     const mod = await import("@/app/api/events/gap-preview/route");
 
@@ -287,6 +340,7 @@ describe("events API routes", () => {
   });
 
   it("GET /api/events/:id/restore returns the current reconciliation preview", async () => {
+    authCtx.profile.role = "ADMIN";
     const mod = await import("@/app/api/events/[id]/restore/route");
     const req = new NextRequest("http://localhost/api/events/e1/restore");
 
@@ -302,6 +356,7 @@ describe("events API routes", () => {
   });
 
   it("POST /api/events/:id/restore confirms the container version from preview", async () => {
+    authCtx.profile.role = "ADMIN";
     const mod = await import("@/app/api/events/[id]/restore/route");
     const server = await import("@/lib/server/events");
     const req = new NextRequest("http://localhost/api/events/e1/restore", {
@@ -319,7 +374,7 @@ describe("events API routes", () => {
     expect(res.status).toBe(200);
     expect(server.restoreEvent).toHaveBeenCalledWith(
       "e1",
-      { uid: "u1", email: "operator@x.com" },
+      { uid: "u1", email: "operator@x.com", role: "ADMIN" },
       expect.objectContaining({ expectedContainerStateVersion: 4 })
     );
   });

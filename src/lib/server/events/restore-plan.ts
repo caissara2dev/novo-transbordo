@@ -20,6 +20,7 @@ export type RestorePlan = {
   gapVersion: string;
   changedSinceDeletion: boolean;
   expectedContainerStateVersion: number | null;
+  expectedSourceContainerStateVersion: number | null;
   reconciliations: RestoreReconciliation[];
 };
 
@@ -47,7 +48,12 @@ export async function prepareRestoreEvent(
     existing.shiftType,
     existing.pump
   );
-  const [lockSnap, daySnap, currentContainerState] = await Promise.all([
+  const [
+    lockSnap,
+    daySnap,
+    currentContainerState,
+    currentSourceContainerState
+  ] = await Promise.all([
     lockRef.get(),
     adminDb
       .collection("events")
@@ -56,6 +62,9 @@ export async function prepareRestoreEvent(
       .get(),
     existing.container
       ? getCurrentContainerState(existing.container)
+      : Promise.resolve(null),
+    existing.sourceContainer
+      ? getCurrentContainerState(existing.sourceContainer)
       : Promise.resolve(null)
   ]);
   const lockVersion = Number(lockSnap.data()?.version || 0);
@@ -137,6 +146,9 @@ export async function prepareRestoreEvent(
       existing.deletionTimelineVersion !== lockVersion,
     expectedContainerStateVersion: existing.container
       ? currentContainerState?.version ?? 0
+      : null,
+    expectedSourceContainerStateVersion: existing.sourceContainer
+      ? currentSourceContainerState?.version ?? 0
       : null,
     reconciliations
   };

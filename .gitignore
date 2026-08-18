@@ -34,3 +34,7 @@ output/
 tmp/
 .vercel
 /ECC/
+
+# Independent repositories and disposable local prototypes
+/agendamento-line-prototype/
+/checkin-line-app/

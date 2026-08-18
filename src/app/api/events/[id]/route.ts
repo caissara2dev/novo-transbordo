@@ -87,7 +87,8 @@ export async function DELETE(
     const body = await parseJsonBody(req, deleteEventBodySchema);
     const result = await softDeleteEvent(id, body.reason, {
       uid,
-      email
+      email,
+      role: profile.role
     }, {
       gapVersion: body.gapVersion,
       gapJustifications: body.gapJustifications

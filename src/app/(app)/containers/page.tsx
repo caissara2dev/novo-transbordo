@@ -228,9 +228,12 @@ export default function ContainersPage() {
                   <dd>{toDateTime(item.operationalAt)}</dd>
                 </div>
                 <div>
-                  <dt>Bomba / Placa</dt>
+                  <dt>
+                    {item.relatedContainer ? "Bomba / Contraparte" : "Bomba / Placa"}
+                  </dt>
                   <dd>
-                    {pumpShortLabelMap[item.pump]} · {item.plate}
+                    {pumpShortLabelMap[item.pump]} ·{" "}
+                    {item.relatedContainer || item.plate || "Sem placa"}
                   </dd>
                 </div>
               </dl>
@@ -279,8 +282,18 @@ export default function ContainersPage() {
                   {pumpShortLabelMap[event.pump]}
                 </h3>
                 <p>
-                  Placa {event.plate || "—"} · {event.clientNameSnapshot || "Sem cliente"}
+                  {event.relatedContainer
+                    ? `${event.containerRole === "SOURCE" ? "Destino" : "Origem"} ${event.relatedContainer}`
+                    : `Placa ${event.plate || "—"}`} ·{" "}
+                  {event.clientNameSnapshot || "Sem cliente"}
                 </p>
+                {event.containerRole === "SOURCE" ? (
+                  <p>
+                    {event.sourceContainerEmptied
+                      ? "Container de origem esvaziado pela transferência."
+                      : "Container de origem mantido como pulmão."}
+                  </p>
+                ) : null}
                 {event.containerReason ? <blockquote>{event.containerReason}</blockquote> : null}
               </div>
             </article>

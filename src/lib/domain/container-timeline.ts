@@ -1,17 +1,24 @@
 import { HttpError } from "@/lib/domain/errors";
-import { ContainerStatus, Pump } from "@/types/domain";
+import {
+  ContainerEventRole,
+  ContainerLifecycleStatus,
+  Pump
+} from "@/types/domain";
 
 export type ContainerTimelineEvent = {
   id: string;
   container: string;
-  status: ContainerStatus;
+  status: ContainerLifecycleStatus;
   clientId: string;
-  plate: string;
+  plate: string | null;
   pump: Pump;
   operationalAtMs: number;
   createdAtMs: number;
   startsNewCycle: boolean;
   existingCycleId: string | null;
+  role?: ContainerEventRole;
+  fromBufferTransfer?: boolean;
+  legacyClosedCycleBoundary?: boolean;
 };
 
 export type ContainerTimelineLink = {
@@ -44,12 +51,16 @@ export function assertTimelineTransactionWriteBudget(params: {
   }
 }
 
-function isBlend(status: ContainerStatus): boolean {
+function isBlend(status: ContainerLifecycleStatus): boolean {
   return status === "BLEND_FULL" || status === "BLEND_PARTIAL";
 }
 
-function isClosed(status: ContainerStatus): boolean {
-  return status === "FULL" || status === "BLEND_FULL";
+function isClosed(status: ContainerLifecycleStatus): boolean {
+  return (
+    status === "FULL" ||
+    status === "BLEND_FULL" ||
+    status === "TRANSFER_EMPTIED"
+  );
 }
 
 export function planContainerTimeline(params: {
@@ -67,10 +78,27 @@ export function planContainerTimeline(params: {
 
   for (const [index, event] of ordered.entries()) {
     const previous = planned.at(-1) || null;
-    const startsNewCycle = !previous || event.startsNewCycle;
+    const followsEmptiedTransfer = previous?.status === "TRANSFER_EMPTIED";
+    const followsIndependentLegacyCycle = Boolean(
+      previous?.legacyClosedCycleBoundary &&
+      event.existingCycleId &&
+      event.existingCycleId !== previous.containerCycleId
+    );
+    const startsNewCycle =
+      !previous ||
+      event.startsNewCycle ||
+      event.legacyClosedCycleBoundary ||
+      followsEmptiedTransfer ||
+      followsIndependentLegacyCycle;
 
     if (startsNewCycle) {
-      if (isBlend(event.status)) {
+      if (event.role === "SOURCE") {
+        throw new HttpError(
+          400,
+          "A origem da transferência exige um container Pulmão aberto."
+        );
+      }
+      if (isBlend(event.status) && !event.legacyClosedCycleBoundary) {
         throw new HttpError(
           400,
           previous
@@ -98,7 +126,23 @@ export function planContainerTimeline(params: {
       continue;
     }
 
-    if (isClosed(previous.status)) {
+    if (event.role === "SOURCE") {
+      if (previous.status !== "BUFFER") {
+        throw new HttpError(
+          409,
+          "O container de origem não está mais aberto como Pulmão."
+        );
+      }
+      if (previous.clientId !== event.clientId) {
+        throw new HttpError(
+          400,
+          "A origem e o destino devem pertencer ao mesmo cliente."
+        );
+      }
+      if (event.status !== "BUFFER" && event.status !== "TRANSFER_EMPTIED") {
+        throw new HttpError(400, "Estado inválido para a origem da transferência.");
+      }
+    } else if (isClosed(previous.status)) {
       throw new HttpError(
         409,
         "Este container estava cheio. Confirme que foi esvaziado para iniciar um novo ciclo."
@@ -112,10 +156,15 @@ export function planContainerTimeline(params: {
       );
     }
 
-    if (isBlend(event.status) && previous.clientId !== event.clientId) {
+    if (
+      (isBlend(event.status) || event.fromBufferTransfer) &&
+      previous.clientId !== event.clientId
+    ) {
       throw new HttpError(
         400,
-        "Blend só pode ser formado com cargas do mesmo cliente."
+        event.fromBufferTransfer
+          ? "A origem e o destino devem pertencer ao mesmo cliente."
+          : "Blend só pode ser formado com cargas do mesmo cliente."
       );
     }
 

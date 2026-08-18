@@ -316,6 +316,11 @@ export default function EventsPage() {
       startsNewContainerCycle: Boolean(item.startsNewContainerCycle),
       blendConfirmed: Boolean(item.blendConfirmed),
       expectedContainerStateVersion: item.containerStateVersion,
+      loadSourceType: item.loadSourceType || "TRUCK",
+      sourceContainer: item.sourceContainer || "",
+      sourceContainerEmptied: item.sourceContainerEmptied ?? null,
+      expectedSourceContainerStateVersion:
+        item.sourceContainerStateVersion ?? null,
       notes: item.notes || "",
       revisionReason: "",
       gapPreview: null,
@@ -617,6 +622,7 @@ export default function EventsPage() {
             />
           </label>
           <EventFormFields
+            key={editId}
             clients={clients}
             form={editForm}
             isEditing

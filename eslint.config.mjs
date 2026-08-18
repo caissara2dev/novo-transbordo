@@ -8,6 +8,7 @@ const config = [
       ".next/**",
       ".vercel/**",
       "coverage/**",
+      "checkin-line-app/**",
       "next-env.d.ts",
       "node_modules/**",
       "out/**",

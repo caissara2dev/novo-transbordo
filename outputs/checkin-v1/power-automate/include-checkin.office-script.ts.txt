@@ -1,0 +1,293 @@
+type IncludeResult = {
+  identifier: string;
+  confirmedAtIso: string;
+  result: "CREATED" | "ALREADY_EXISTS";
+};
+
+type CheckinRecord = {
+  identifier: string;
+  startedAtIso: string;
+  language: string;
+  email: string;
+  name: string;
+  driverName: string;
+  driverLicense: string;
+  driverPhone: string;
+  plate: string;
+  carrierName: string;
+  vehicleType: string;
+  product: string;
+  originPlant: string;
+  originInvoiceNumbers: string;
+  remittanceInvoiceNumber: string;
+  whatsappNoticeAccepted: string;
+  queueLocationAccepted: string;
+};
+
+const TABLE_NAME = "CheckinsV1";
+const IDENTIFIER_COLUMN_INDEX = 18;
+const FORMULA_PREFIX = /^[\s]*[=+\-@]/;
+const UNSAFE_CONTROLS = /[\u0000-\u0009\u000B-\u001F\u007F]/g;
+const EXPECTED_HEADERS = [
+  "Id",
+  "Start time",
+  "Completion time",
+  "Email",
+  "Name",
+  "Language",
+  "Nome completo do motorista",
+  "CNH do motorista",
+  "Telefone do motorista (com DDD)",
+  "Placa",
+  "Nome da Transportadora",
+  "Tipo de veículo",
+  "Produto",
+  "Usina de origem",
+  "Nº da(s) Nota(s) Fiscal(is) de USINA ",
+  "Nº da Nota Fiscal de Remessa",
+  "Estou ciente de que, após concluir o check-in, devo enviar a foto da NF de Usina para o WhatsApp da Line Transportes: (13) 99652-4561.",
+  "Estou ciente de que o check-in confirma somente minha chegada à Baixada Santista, não garante posição ou ordem de descarga, e devo aguardar o contato da Line por telefone ou WhatsApp.",
+  "Identificador de check-in"
+];
+const RECORD_KEYS = [
+  "identifier",
+  "startedAtIso",
+  "language",
+  "email",
+  "name",
+  "driverName",
+  "driverLicense",
+  "driverPhone",
+  "plate",
+  "carrierName",
+  "vehicleType",
+  "product",
+  "originPlant",
+  "originInvoiceNumbers",
+  "remittanceInvoiceNumber",
+  "whatsappNoticeAccepted",
+  "queueLocationAccepted"
+];
+const REQUEST_KEYS = [
+  "schemaVersion",
+  "operation",
+  "idempotencyKey",
+  "record"
+];
+
+function safeText(value: string): string {
+  const sanitized = value.replace(UNSAFE_CONTROLS, "");
+  return FORMULA_PREFIX.test(sanitized) ? `'${sanitized}` : sanitized;
+}
+
+function requireText(
+  raw: { [key: string]: unknown },
+  key: string,
+  maximumLength: number
+): string {
+  const value = raw[key];
+  if (
+    typeof value !== "string" ||
+    !value.trim() ||
+    value.length > maximumLength
+  ) {
+    throw new Error("REGISTRO_CHECKIN_V1_INVALIDO");
+  }
+  return safeText(value);
+}
+
+function parseRecord(recordJson: string): CheckinRecord {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(recordJson);
+  } catch {
+    throw new Error("REGISTRO_CHECKIN_V1_INVALIDO");
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("REGISTRO_CHECKIN_V1_INVALIDO");
+  }
+
+  const raw = parsed as { [key: string]: unknown };
+  const receivedKeys = Object.keys(raw);
+  if (
+    receivedKeys.length !== RECORD_KEYS.length ||
+    !RECORD_KEYS.every((key) => receivedKeys.includes(key))
+  ) {
+    throw new Error("REGISTRO_CHECKIN_V1_INVALIDO");
+  }
+
+  const identifier = requireText(raw, "identifier", 11);
+  const startedAtIso = requireText(raw, "startedAtIso", 40);
+  const language = requireText(raw, "language", 5);
+  const driverLicense = requireText(raw, "driverLicense", 11);
+  const driverPhone = requireText(raw, "driverPhone", 11);
+  const plate = requireText(raw, "plate", 7);
+  const vehicleType = requireText(raw, "vehicleType", 20);
+  const whatsappNoticeAccepted = requireText(
+    raw,
+    "whatsappNoticeAccepted",
+    6
+  );
+  const queueLocationAccepted = requireText(
+    raw,
+    "queueLocationAccepted",
+    6
+  );
+
+  if (
+    !/^LT-[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{8}$/.test(identifier) ||
+    !Number.isFinite(Date.parse(startedAtIso)) ||
+    language !== "pt-BR" ||
+    raw.email !== "" ||
+    raw.name !== "" ||
+    !/^\d{11}$/.test(driverLicense) ||
+    !/^\d{11}$/.test(driverPhone) ||
+    !/^[A-Z]{3}(?:\d{4}|\d[A-Z]\d{2})$/.test(plate) ||
+    !["Bitrem", "Rodotrem", "Vanderleia"].includes(vehicleType) ||
+    whatsappNoticeAccepted !== "Ciente" ||
+    queueLocationAccepted !== "Ciente"
+  ) {
+    throw new Error("REGISTRO_CHECKIN_V1_INVALIDO");
+  }
+
+  return {
+    identifier,
+    startedAtIso,
+    language,
+    email: "",
+    name: "",
+    driverName: requireText(raw, "driverName", 121),
+    driverLicense,
+    driverPhone,
+    plate,
+    carrierName: requireText(raw, "carrierName", 121),
+    vehicleType,
+    product: requireText(raw, "product", 121),
+    originPlant: requireText(raw, "originPlant", 121),
+    originInvoiceNumbers: requireText(raw, "originInvoiceNumbers", 251),
+    remittanceInvoiceNumber: requireText(
+      raw,
+      "remittanceInvoiceNumber",
+      251
+    ),
+    whatsappNoticeAccepted,
+    queueLocationAccepted
+  };
+}
+
+function parseRequest(requestJson: string): CheckinRecord {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(requestJson);
+  } catch {
+    throw new Error("REQUISICAO_CHECKIN_V1_INVALIDA");
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("REQUISICAO_CHECKIN_V1_INVALIDA");
+  }
+
+  const raw = parsed as { [key: string]: unknown };
+  const receivedKeys = Object.keys(raw);
+  if (
+    receivedKeys.length !== REQUEST_KEYS.length ||
+    !REQUEST_KEYS.every((key) => receivedKeys.includes(key)) ||
+    raw.schemaVersion !== "checkin-excel.v1" ||
+    raw.operation !== "INCLUDE" ||
+    typeof raw.idempotencyKey !== "string"
+  ) {
+    throw new Error("REQUISICAO_CHECKIN_V1_INVALIDA");
+  }
+
+  const record = parseRecord(JSON.stringify(raw.record));
+  if (raw.idempotencyKey !== record.identifier) {
+    throw new Error("REQUISICAO_CHECKIN_V1_INVALIDA");
+  }
+  return record;
+}
+
+function assertHeaders(table: ExcelScript.Table): void {
+  const headers = table.getHeaderRowRange().getTexts()[0] ?? [];
+  if (
+    headers.length !== EXPECTED_HEADERS.length ||
+    !EXPECTED_HEADERS.every((header, index) => headers[index] === header)
+  ) {
+    throw new Error("CABECALHOS_CHECKIN_V1_INVALIDOS");
+  }
+}
+
+function currentRows(
+  table: ExcelScript.Table
+): (string | number | boolean)[][] {
+  return table.getRowCount() === 0
+    ? []
+    : table.getRangeBetweenHeaderAndTotal().getValues();
+}
+
+function nextSequentialId(rows: (string | number | boolean)[][]): number {
+  let maximumId = 0;
+  for (const row of rows) {
+    const candidate = Number(row[0]);
+    if (!Number.isInteger(candidate) || candidate <= 0) {
+      throw new Error("ID_CHECKIN_V1_INVALIDO");
+    }
+    maximumId = Math.max(maximumId, candidate);
+  }
+  return maximumId + 1;
+}
+
+function main(
+  workbook: ExcelScript.Workbook,
+  requestJson: string
+): IncludeResult {
+  const table = workbook.getTable(TABLE_NAME);
+  if (!table || table.getName() !== TABLE_NAME) {
+    throw new Error("TABELA_CHECKIN_V1_NAO_ENCONTRADA");
+  }
+  assertHeaders(table);
+
+  const record = parseRequest(requestJson);
+  const rows = currentRows(table);
+  const matchingRows = rows.filter(
+    (row) => String(row[IDENTIFIER_COLUMN_INDEX]) === record.identifier
+  );
+  if (matchingRows.length > 1) {
+    throw new Error("CHECKIN_DUPLICADO_NA_PLANILHA");
+  }
+
+  const confirmedAtIso = new Date().toISOString();
+  if (matchingRows.length === 1) {
+    return {
+      identifier: record.identifier,
+      confirmedAtIso,
+      result: "ALREADY_EXISTS"
+    };
+  }
+
+  table.addRow(-1, [
+    nextSequentialId(rows),
+    record.startedAtIso,
+    confirmedAtIso,
+    record.email,
+    record.name,
+    record.language,
+    record.driverName,
+    record.driverLicense,
+    record.driverPhone,
+    record.plate,
+    record.carrierName,
+    record.vehicleType,
+    record.product,
+    record.originPlant,
+    record.originInvoiceNumbers,
+    record.remittanceInvoiceNumber,
+    record.whatsappNoticeAccepted,
+    record.queueLocationAccepted,
+    record.identifier
+  ]);
+
+  return {
+    identifier: record.identifier,
+    confirmedAtIso,
+    result: "CREATED"
+  };
+}

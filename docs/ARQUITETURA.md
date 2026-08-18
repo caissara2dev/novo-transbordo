@@ -90,6 +90,12 @@ Eventos são a fonte de verdade. `containerStates` é uma projeção do último
 estado operacional válido e não substitui a reexecução da linha do tempo ao
 validar eventos retroativos.
 
+Uma transferência entre containers continua sendo um único evento produtivo,
+mas produz dois efeitos de ciclo: `DESTINATION` no container que recebe a carga
+e `SOURCE` no Pulmão que a fornece. O vínculo com ambos os ciclos fica no evento
+para preservar auditoria sem duplicar duração ou indicadores. Consulte a
+decisão em `docs/adr/0001-transferencia-entre-containers.md`.
+
 ### Dados
 
 Coleções principais:
@@ -186,6 +192,13 @@ antigos.
   afetada.
 - Evento, revisão, gap, lock e projeção não podem ficar parcialmente
   atualizados.
+- Transferências verificam separadamente as versões da origem e do destino e
+  reconstroem as duas linhas do tempo na mesma transação.
+- O estado interno terminal `TRANSFER_EMPTIED` encerra o ciclo da origem sem se
+  tornar uma opção operacional selecionável nem um container aberto.
+
+O modelo não registra peso ou volume transferido. A confirmação de esvaziamento
+determina apenas se a origem permanece aberta como Pulmão ou encerra seu ciclo.
 
 Relatórios tratam eventos legados com fallback de produtividade, ordenam por
 timestamps completos e protegem exportações CSV contra interpretação de
@@ -226,3 +239,41 @@ O procedimento, os critérios de enforcement e o rollback estão em
 
 Testes unitários cobrem regras puras; integração cobre adaptadores, serviços e
 emuladores; E2E cobre os fluxos críticos vistos pelo usuário.
+
+## Check-in Line V1
+
+O formulário público é um aplicativo Next.js e repositório independentes. O
+navegador não recebe Firebase; fala apenas com o backend público, que valida
+Turnstile, corpo e origem e chama a API V1 do TransbordoLine com HMAC.
+
+```text
+Motorista/transportadora
+          |
+          v
+  App público Vercel
+          |
+     HMAC + replay
+          v
+ API Check-in V1 no TransbordoLine
+       /          \
+ Firestore       Power Automate -> Excel oficial
+       \
+        fila interna -> lançamento produtivo
+```
+
+O Firestore guarda pré-cadastro, estado operacional, índices HMAC, locks,
+auditoria e comandos de sincronização. A coordenada exata é transitória; apenas
+decisão, distância aproximada, precisão e horário persistem.
+
+Inclusões, correções e bypass de GPS usam comandos idempotentes. Nas mutações de
+gestor, uma reserva transacional incrementa a versão e bloqueia operações
+concorrentes antes do Excel. A confirmação externa consolida o patch; falha
+mantém a mesma reserva para retry.
+
+O vínculo de um check-in `CHAMADO` ao lançamento produtivo e a mudança para
+`EM_DESCARGA` ocorrem atomicamente. A flag `CHECKIN_INTEGRATION_MODE` mantém
+compatibilidade em `off`, permite piloto em `observe` e exige seleção em
+`enforce`.
+
+Detalhes do contrato estão em `docs/CHECKIN_V1.md`,
+`docs/POWER_AUTOMATE_CHECKIN_V1.md` e na ADR-0001.

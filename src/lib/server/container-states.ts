@@ -1,23 +1,23 @@
-import { randomUUID } from "node:crypto";
 import {
-  DocumentData,
   FieldPath,
-  FieldValue,
   Timestamp,
   Transaction
 } from "firebase-admin/firestore";
+import { randomUUID } from "node:crypto";
 import { normalizeContainer } from "@/lib/domain/identifiers";
 import { HttpError } from "@/lib/domain/errors";
 import {
-  assertTimelineTransactionWriteBudget,
-  ContainerTimelineEvent,
-  planContainerTimeline
-} from "@/lib/domain/container-timeline";
+  projectContainerStateFromEventRecords,
+  reconcileEventContainerEffectsInTransaction
+} from "@/lib/server/container-event-effects";
 import { adminDb } from "@/lib/firebase/admin";
+import {
+  containerDocumentKey,
+  eventContainerStatus
+} from "@/lib/server/container-state-core";
 import {
   ContainerStateDoc,
   ContainerStatus,
-  containerStatuses,
   EventDoc
 } from "@/types/domain";
 import {
@@ -63,81 +63,11 @@ function toMillis(value: unknown): number {
   return 0;
 }
 
-function toTimelineEvent(
-  id: string,
-  data: EventDoc
-): ContainerTimelineEvent | null {
-  const status = eventContainerStatus(data);
-  const container = normalizeContainer(data.container);
-
-  if (!status || !container || !data.clientId || !data.plate) {
-    return null;
-  }
-
-  return {
-    id,
-    container,
-    status,
-    clientId: data.clientId,
-    plate: data.plate,
-    pump: data.pump,
-    operationalAtMs: toMillis(data.endAt),
-    createdAtMs: toMillis(data.createdAt),
-    startsNewCycle: Boolean(data.startsNewContainerCycle),
-    existingCycleId: data.containerCycleId || null
-  };
-}
-
-export function containerDocumentKey(container: string): string {
-  return container.replace(/[^A-Z0-9]/gi, "").toUpperCase();
-}
-
-export function eventContainerStatus(data: DocumentData): ContainerStatus | null {
-  const raw = data.containerStatus;
-  if (containerStatuses.includes(raw as ContainerStatus)) {
-    return raw as ContainerStatus;
-  }
-
-  if (data.category === "PRODUTIVO" && data.container) {
-    return "FULL";
-  }
-
-  return null;
-}
-
-function stateFromEvent(
-  eventId: string,
-  data: DocumentData,
-  version: number
-): ContainerStateDoc | null {
-  const status = eventContainerStatus(data);
-  const container = normalizeContainer(data.container ? String(data.container) : null);
-
-  if (!status || !container || !data.clientId || !data.plate) {
-    return null;
-  }
-
-  return {
-    container,
-    status,
-    reason: data.containerReason ? String(data.containerReason) : null,
-    cycleId: String(data.containerCycleId || `legacy-${containerDocumentKey(container)}`),
-    latestEventId: eventId,
-    previousEventId: data.previousContainerEventId
-      ? String(data.previousContainerEventId)
-      : null,
-    clientId: String(data.clientId),
-    clientNameSnapshot: data.clientNameSnapshot
-      ? String(data.clientNameSnapshot)
-      : null,
-    plate: String(data.plate),
-    pump: data.pump as ContainerStateDoc["pump"],
-    operationalAt: data.endAt,
-    eventCreatedAt: data.createdAt,
-    version,
-    updatedAt: FieldValue.serverTimestamp()
-  };
-}
+export {
+  assertExpectedContainerStateVersion,
+  containerDocumentKey,
+  eventContainerStatus
+} from "@/lib/server/container-state-core";
 
 export function compareOperationalOrder(
   candidateOperationalAt: unknown,
@@ -150,33 +80,32 @@ export function compareOperationalOrder(
   return toMillis(candidateCreatedAt) - toMillis(current.eventCreatedAt);
 }
 
-export function assertExpectedContainerStateVersion(
-  expectedVersion: number | null,
-  observedVersion: number
-): void {
-  if (expectedVersion !== null && expectedVersion !== observedVersion) {
-    throw new HttpError(
-      409,
-      "O estado deste container foi alterado por outro usuário. Atualize e tente novamente."
-    );
-  }
-}
-
 export async function latestEventState(container: string): Promise<ContainerStateView | null> {
-  const snap = await adminDb
-    .collection("events")
-    .where("container", "==", container)
-    .where("deleted", "==", false)
-    .orderBy("endAt", "desc")
-    .orderBy("createdAt", "desc")
-    .limit(200)
-    .get();
-
-  for (const candidate of snap.docs) {
-    const state = stateFromEvent(candidate.id, candidate.data(), 0);
-    if (state) return state;
-  }
-  return null;
+  const [destinationSnap, sourceSnap] = await Promise.all([
+    adminDb
+      .collection("events")
+      .where("container", "==", container)
+      .where("deleted", "==", false)
+      .get(),
+    adminDb
+      .collection("events")
+      .where("sourceContainer", "==", container)
+      .where("deleted", "==", false)
+      .get()
+  ]);
+  const records = Array.from(
+    new Map(
+      [...destinationSnap.docs, ...sourceSnap.docs].map((doc) => [
+        doc.id,
+        { id: doc.id, data: doc.data() as EventDoc }
+      ])
+    ).values()
+  );
+  return projectContainerStateFromEventRecords({
+    container,
+    records,
+    version: 0
+  }) as ContainerStateView | null;
 }
 
 export async function getCurrentContainerState(
@@ -279,189 +208,17 @@ export function resolveContainerTransition(params: {
   };
 }
 
-type ContainerTimelineReconciliation = {
-  cycleId: string | null;
-  previousEventId: string | null;
-  stateVersion: number | null;
-};
-
-type ContainerTimelineChange = {
-  rawContainer: string | null;
-  override?: { id: string; data: EventDoc | null };
-  expectedVersion?: number | null;
-};
-
-export async function reconcileContainerTimelinesInTransaction(params: {
-  transaction: Transaction;
-  changes: ContainerTimelineChange[];
-  reservedWrites?: number;
-}): Promise<ContainerTimelineReconciliation[]> {
-  const normalizedChanges = params.changes.map((change) => ({
-    ...change,
-    container: normalizeContainer(change.rawContainer)
-  }));
-  const loaded = await Promise.all(
-    normalizedChanges.map(async (change) => {
-      if (!change.container) return null;
-      const stateRef = adminDb
-        .collection("containerStates")
-        .doc(containerDocumentKey(change.container));
-      const eventsQuery = adminDb
-        .collection("events")
-        .where("container", "==", change.container)
-        .where("deleted", "==", false);
-      const [stateSnap, eventsSnap] = await Promise.all([
-        params.transaction.get(stateRef),
-        params.transaction.get(eventsQuery)
-      ]);
-      return { change, stateRef, stateSnap, eventsSnap };
-    })
-  );
-
-  const prepared = loaded.map((entry) => {
-    if (!entry) {
-      return null;
-    }
-
-    const { change, stateRef, stateSnap, eventsSnap } = entry;
-    const observedVersion = Number(stateSnap.data()?.version || 0);
-    if (change.expectedVersion !== undefined) {
-      assertExpectedContainerStateVersion(
-        change.expectedVersion,
-        observedVersion
-      );
-    }
-
-    const eventsById = new Map(
-      eventsSnap.docs.map((doc) => [doc.id, doc.data() as EventDoc])
-    );
-    if (change.override) {
-      if (
-        change.override.data &&
-        !change.override.data.deleted &&
-        normalizeContainer(change.override.data.container) === change.container
-      ) {
-        eventsById.set(change.override.id, change.override.data);
-      } else {
-        eventsById.delete(change.override.id);
-      }
-    }
-
-    const plan = planContainerTimeline({
-      events: Array.from(eventsById, ([id, data]) =>
-        toTimelineEvent(id, data)
-      ).filter((event): event is ContainerTimelineEvent => Boolean(event)),
-      createCycleId: randomUUID
-    });
-    const nextVersion = observedVersion + 1;
-    const linksById = new Map(plan.events.map((event) => [event.id, event]));
-    const linkUpdates = Array.from(eventsById, ([id, data]) => {
-      if (change.override?.id === id) return null;
-      const link = linksById.get(id);
-      if (
-        !link ||
-        (
-          data.containerCycleId === link.containerCycleId &&
-          data.previousContainerEventId === link.previousContainerEventId
-        )
-      ) {
-        return null;
-      }
-      return link;
-    }).filter((link): link is NonNullable<typeof link> => Boolean(link));
-    const overrideLink = change.override
-      ? linksById.get(change.override.id)
-      : null;
-
-    return {
-      change,
-      stateRef,
-      eventsById,
-      plan,
-      nextVersion,
-      linksById,
-      linkUpdates,
-      result: {
-        cycleId: overrideLink?.containerCycleId || null,
-        previousEventId: overrideLink?.previousContainerEventId || null,
-        stateVersion: nextVersion
-      } satisfies ContainerTimelineReconciliation
-    };
-  });
-
-  assertTimelineTransactionWriteBudget({
-    lifecycleWrites: prepared.reduce(
-      (total, entry) => total + (entry ? entry.linkUpdates.length + 1 : 0),
-      0
-    ),
-    reservedWrites: params.reservedWrites || 0
-  });
-
-  for (const entry of prepared) {
-    if (!entry) continue;
-    for (const link of entry.linkUpdates) {
-      params.transaction.update(adminDb.collection("events").doc(link.id), {
-        containerCycleId: link.containerCycleId,
-        previousContainerEventId: link.previousContainerEventId
-      });
-    }
-
-    if (!entry.plan.current) {
-      params.transaction.delete(entry.stateRef);
-      continue;
-    }
-    const currentData = entry.eventsById.get(entry.plan.current.id);
-    const currentLink = entry.linksById.get(entry.plan.current.id);
-    if (!currentData || !currentLink) {
-      throw new HttpError(500, "Não foi possível reconstruir o estado do container.");
-    }
-    const nextState = stateFromEvent(
-      entry.plan.current.id,
-      {
-        ...currentData,
-        containerCycleId: currentLink.containerCycleId,
-        previousContainerEventId: currentLink.previousContainerEventId
-      },
-      entry.nextVersion
-    );
-    if (!nextState) {
-      throw new HttpError(500, "Não foi possível reconstruir o estado do container.");
-    }
-    params.transaction.set(entry.stateRef, nextState);
-  }
-
-  return prepared.map(
-    (entry): ContainerTimelineReconciliation =>
-      entry?.result || {
-        cycleId: null,
-        previousEventId: null,
-        stateVersion: null
-      }
-  );
-}
-
-export async function reconcileContainerTimelineInTransaction(
-  params: {
-    transaction: Transaction;
-    reservedWrites?: number;
-  } & ContainerTimelineChange
-): Promise<ContainerTimelineReconciliation> {
-  const [result] = await reconcileContainerTimelinesInTransaction({
-    transaction: params.transaction,
-    changes: [params],
-    reservedWrites: params.reservedWrites
-  });
-  return result;
-}
-
 export async function rebuildContainerState(rawContainer: string | null): Promise<void> {
   const container = normalizeContainer(rawContainer);
   if (!container) return;
 
   await adminDb.runTransaction((transaction: Transaction) =>
-    reconcileContainerTimelineInTransaction({
+    reconcileEventContainerEffectsInTransaction({
       transaction,
-      rawContainer: container
+      eventId: "__container-state-rebuild__",
+      before: null,
+      after: null,
+      affectedContainers: [container]
     })
   );
 }
@@ -581,7 +338,9 @@ export async function listContainerStates(params: {
 
 export async function getContainerHistory(rawContainer: string): Promise<Array<{
   id: string;
-  status: ContainerStatus;
+  status: ContainerStateDoc["status"];
+  containerRole: "DESTINATION" | "SOURCE";
+  relatedContainer: string | null;
   [key: string]: unknown;
 }>> {
   const container = normalizeContainer(rawContainer);
@@ -589,22 +348,50 @@ export async function getContainerHistory(rawContainer: string): Promise<Array<{
     throw new HttpError(400, "Container inválido.");
   }
 
-  const snap = await adminDb
-    .collection("events")
-    .where("container", "==", container)
-    .where("deleted", "==", false)
-    .orderBy("endAt", "desc")
-    .orderBy("createdAt", "desc")
-    .limit(200)
-    .get();
+  const [destinationSnap, sourceSnap] = await Promise.all([
+    adminDb
+      .collection("events")
+      .where("container", "==", container)
+      .where("deleted", "==", false)
+      .orderBy("endAt", "desc")
+      .orderBy("createdAt", "desc")
+      .limit(200)
+      .get(),
+    adminDb
+      .collection("events")
+      .where("sourceContainer", "==", container)
+      .where("deleted", "==", false)
+      .orderBy("endAt", "desc")
+      .orderBy("createdAt", "desc")
+      .limit(200)
+      .get()
+  ]);
+  const byId = new Map(
+    [...destinationSnap.docs, ...sourceSnap.docs].map((doc) => [doc.id, doc])
+  );
 
-  return snap.docs.flatMap((doc) => {
-    const status = eventContainerStatus(doc.data());
-    if (!status) return [];
-    return [{
-      id: doc.id,
-      ...doc.data(),
-      status
-    }];
-  });
+  return Array.from(byId.values())
+    .sort((left, right) => {
+      const endDelta = toMillis(right.data().endAt) - toMillis(left.data().endAt);
+      return endDelta || toMillis(right.data().createdAt) - toMillis(left.data().createdAt);
+    })
+    .flatMap((doc) => {
+      const data = doc.data() as EventDoc;
+      const isSource = normalizeContainer(data.sourceContainer ?? null) === container;
+      const status: ContainerStateDoc["status"] | null = isSource
+        ? data.sourceContainerEmptied
+          ? "TRANSFER_EMPTIED"
+          : "BUFFER"
+        : eventContainerStatus(data);
+      if (!status) return [];
+      return [{
+        id: doc.id,
+        ...data,
+        status,
+        containerRole: isSource ? "SOURCE" as const : "DESTINATION" as const,
+        relatedContainer: isSource
+          ? normalizeContainer(data.container)
+          : normalizeContainer(data.sourceContainer ?? null)
+      }];
+    });
 }

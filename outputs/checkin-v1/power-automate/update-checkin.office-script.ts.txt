@@ -1,0 +1,298 @@
+type UpdateResult = {
+  identifier: string;
+  confirmedAtIso: string;
+  result: "UPDATED" | "UNCHANGED";
+};
+
+type UpdateRequest = {
+  idempotencyKey: string;
+  identifier: string;
+  payloadHash: string;
+  patch: { [key: string]: string };
+};
+
+const TABLE_NAME = "CheckinsV1";
+const LEDGER_SHEET_NAME = "_CheckinSyncV1";
+const LEDGER_TABLE_NAME = "CheckinUpdateCommandsV1";
+const IDENTIFIER_COLUMN_INDEX = 18;
+const FORMULA_PREFIX = /^[\s]*[=+\-@]/;
+const UNSAFE_CONTROLS = /[\u0000-\u0009\u000B-\u001F\u007F]/g;
+const EXPECTED_HEADERS = [
+  "Id",
+  "Start time",
+  "Completion time",
+  "Email",
+  "Name",
+  "Language",
+  "Nome completo do motorista",
+  "CNH do motorista",
+  "Telefone do motorista (com DDD)",
+  "Placa",
+  "Nome da Transportadora",
+  "Tipo de veículo",
+  "Produto",
+  "Usina de origem",
+  "Nº da(s) Nota(s) Fiscal(is) de USINA ",
+  "Nº da Nota Fiscal de Remessa",
+  "Estou ciente de que, após concluir o check-in, devo enviar a foto da NF de Usina para o WhatsApp da Line Transportes: (13) 99652-4561.",
+  "Estou ciente de que o check-in confirma somente minha chegada à Baixada Santista, não garante posição ou ordem de descarga, e devo aguardar o contato da Line por telefone ou WhatsApp.",
+  "Identificador de check-in"
+];
+const LEDGER_HEADERS = [
+  "Idempotency key",
+  "Identifier",
+  "Payload SHA-256",
+  "Confirmed at",
+  "Result"
+];
+const REQUEST_KEYS = [
+  "schemaVersion",
+  "operation",
+  "idempotencyKey",
+  "identifier",
+  "requestedAtIso",
+  "payloadHash",
+  "patch"
+];
+const PATCH_COLUMN_INDEX: { [key: string]: number } = {
+  driverName: 6,
+  driverLicense: 7,
+  driverPhone: 8,
+  plate: 9,
+  carrierName: 10,
+  vehicleType: 11,
+  product: 12,
+  originPlant: 13,
+  originInvoiceNumbers: 14,
+  remittanceInvoiceNumber: 15,
+  whatsappNoticeAccepted: 16,
+  queueLocationAccepted: 17
+};
+
+function safeText(value: string): string {
+  const sanitized = value.replace(UNSAFE_CONTROLS, "");
+  return FORMULA_PREFIX.test(sanitized) ? `'${sanitized}` : sanitized;
+}
+
+function requireText(value: unknown, maximumLength: number): string {
+  if (
+    typeof value !== "string" ||
+    !value.trim() ||
+    value.length > maximumLength
+  ) {
+    throw new Error("ATUALIZACAO_CHECKIN_V1_INVALIDA");
+  }
+  return safeText(value);
+}
+
+function validatePatchValue(key: string, value: unknown): string {
+  const maximumLengths: { [key: string]: number } = {
+    driverName: 121,
+    driverLicense: 11,
+    driverPhone: 11,
+    plate: 7,
+    carrierName: 121,
+    vehicleType: 20,
+    product: 121,
+    originPlant: 121,
+    originInvoiceNumbers: 251,
+    remittanceInvoiceNumber: 251,
+    whatsappNoticeAccepted: 6,
+    queueLocationAccepted: 6
+  };
+  const normalized = requireText(value, maximumLengths[key]);
+  if (
+    (key === "driverLicense" && !/^\d{11}$/.test(normalized)) ||
+    (key === "driverPhone" && !/^\d{11}$/.test(normalized)) ||
+    (key === "plate" && !/^[A-Z]{3}(?:\d{4}|\d[A-Z]\d{2})$/.test(normalized)) ||
+    (key === "vehicleType" &&
+      !["Bitrem", "Rodotrem", "Vanderleia"].includes(normalized)) ||
+    ((key === "whatsappNoticeAccepted" ||
+      key === "queueLocationAccepted") &&
+      normalized !== "Ciente")
+  ) {
+    throw new Error("ATUALIZACAO_CHECKIN_V1_INVALIDA");
+  }
+  return normalized;
+}
+
+function parsePatch(value: unknown): { [key: string]: string } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("ATUALIZACAO_CHECKIN_V1_INVALIDA");
+  }
+  const raw = value as { [key: string]: unknown };
+  const keys = Object.keys(raw);
+  if (
+    keys.length === 0 ||
+    !keys.every((key) => PATCH_COLUMN_INDEX[key] !== undefined)
+  ) {
+    throw new Error("ATUALIZACAO_CHECKIN_V1_INVALIDA");
+  }
+  const patch: { [key: string]: string } = {};
+  for (const key of keys) patch[key] = validatePatchValue(key, raw[key]);
+  return patch;
+}
+
+function parseRequest(requestJson: string): UpdateRequest {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(requestJson);
+  } catch {
+    throw new Error("REQUISICAO_CHECKIN_V1_INVALIDA");
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("REQUISICAO_CHECKIN_V1_INVALIDA");
+  }
+  const raw = parsed as { [key: string]: unknown };
+  const receivedKeys = Object.keys(raw);
+  if (
+    receivedKeys.length !== REQUEST_KEYS.length ||
+    !REQUEST_KEYS.every((key) => receivedKeys.includes(key)) ||
+    raw.schemaVersion !== "checkin-excel.v1" ||
+    raw.operation !== "UPDATE"
+  ) {
+    throw new Error("REQUISICAO_CHECKIN_V1_INVALIDA");
+  }
+
+  const identifier = requireText(raw.identifier, 11);
+  const idempotencyKey = requireText(raw.idempotencyKey, 32);
+  const requestedAtIso = requireText(raw.requestedAtIso, 40);
+  const payloadHash = requireText(raw.payloadHash, 64).toLowerCase();
+  if (
+    !/^LT-[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{8}$/.test(identifier) ||
+    !new RegExp(`^${identifier}:v[1-9]\\d*$`).test(idempotencyKey) ||
+    !Number.isFinite(Date.parse(requestedAtIso)) ||
+    !/^[a-f0-9]{64}$/.test(payloadHash)
+  ) {
+    throw new Error("REQUISICAO_CHECKIN_V1_INVALIDA");
+  }
+  return {
+    identifier,
+    idempotencyKey,
+    payloadHash,
+    patch: parsePatch(raw.patch)
+  };
+}
+
+function assertHeaders(
+  table: ExcelScript.Table,
+  expectedHeaders: string[]
+): void {
+  const headers = table.getHeaderRowRange().getTexts()[0] ?? [];
+  if (
+    headers.length !== expectedHeaders.length ||
+    !expectedHeaders.every((header, index) => headers[index] === header)
+  ) {
+    throw new Error("CABECALHOS_CHECKIN_V1_INVALIDOS");
+  }
+}
+
+function currentRows(
+  table: ExcelScript.Table
+): (string | number | boolean)[][] {
+  return table.getRowCount() === 0
+    ? []
+    : table.getRangeBetweenHeaderAndTotal().getValues();
+}
+
+function requireCheckinTable(workbook: ExcelScript.Workbook): ExcelScript.Table {
+  const table = workbook.getTable(TABLE_NAME);
+  if (!table || table.getName() !== TABLE_NAME) {
+    throw new Error("TABELA_CHECKIN_V1_NAO_ENCONTRADA");
+  }
+  assertHeaders(table, EXPECTED_HEADERS);
+  return table;
+}
+
+function getOrCreateLedger(workbook: ExcelScript.Workbook): ExcelScript.Table {
+  const existing = workbook.getTable(LEDGER_TABLE_NAME);
+  if (existing) {
+    assertHeaders(existing, LEDGER_HEADERS);
+    return existing;
+  }
+  const worksheet =
+    workbook.getWorksheet(LEDGER_SHEET_NAME) ??
+    workbook.addWorksheet(LEDGER_SHEET_NAME);
+  const ledger = worksheet.addTable("A1:E1", true);
+  ledger.setName(LEDGER_TABLE_NAME);
+  ledger.getHeaderRowRange().setValues([LEDGER_HEADERS]);
+  worksheet.setVisibility(ExcelScript.SheetVisibility.hidden);
+  return ledger;
+}
+
+function replayResult(
+  rows: (string | number | boolean)[][],
+  request: UpdateRequest
+): UpdateResult | undefined {
+  const matches = rows.filter((row) => String(row[0]) === request.idempotencyKey);
+  if (matches.length > 1) throw new Error("COMANDO_CHECKIN_V1_DUPLICADO");
+  if (matches.length === 0) return undefined;
+  const row = matches[0];
+  if (
+    String(row[1]) !== request.identifier ||
+    String(row[2]) !== request.payloadHash
+  ) {
+    throw new Error("CHAVE_IDEMPOTENTE_REUTILIZADA");
+  }
+  const confirmedAtIso = String(row[3]);
+  const result = String(row[4]);
+  if (
+    !Number.isFinite(Date.parse(confirmedAtIso)) ||
+    (result !== "UPDATED" && result !== "UNCHANGED")
+  ) {
+    throw new Error("COMANDO_CHECKIN_V1_INVALIDO");
+  }
+  return {
+    identifier: request.identifier,
+    confirmedAtIso,
+    result
+  } as UpdateResult;
+}
+
+function updateMatchingRow(
+  table: ExcelScript.Table,
+  rows: (string | number | boolean)[][],
+  request: UpdateRequest
+): "UPDATED" | "UNCHANGED" {
+  const matchingIndexes: number[] = rows.flatMap((row, index) =>
+    String(row[IDENTIFIER_COLUMN_INDEX]) === request.identifier ? [index] : []
+  );
+  if (matchingIndexes.length === 0) throw new Error("CHECKIN_NAO_ENCONTRADO");
+  if (matchingIndexes.length > 1) {
+    throw new Error("CHECKIN_DUPLICADO_NA_PLANILHA");
+  }
+  const rowIndex: number = matchingIndexes[0];
+  const row = rows[rowIndex];
+  const range = table.getRangeBetweenHeaderAndTotal();
+  let changed = false;
+  for (const key of Object.keys(request.patch)) {
+    const columnIndex = PATCH_COLUMN_INDEX[key];
+    const value = request.patch[key];
+    if (String(row[columnIndex]) === value) continue;
+    range.getCell(rowIndex, columnIndex).setValue(value);
+    changed = true;
+  }
+  return changed ? "UPDATED" : "UNCHANGED";
+}
+
+function main(
+  workbook: ExcelScript.Workbook,
+  requestJson: string
+): UpdateResult {
+  const checkins = requireCheckinTable(workbook);
+  const request = parseRequest(requestJson);
+  const ledger = getOrCreateLedger(workbook);
+  const previousResult = replayResult(currentRows(ledger), request);
+  if (previousResult) return previousResult;
+
+  const result = updateMatchingRow(checkins, currentRows(checkins), request);
+  const confirmedAtIso = new Date().toISOString();
+  ledger.addRow(-1, [
+    request.idempotencyKey,
+    request.identifier,
+    request.payloadHash,
+    confirmedAtIso,
+    result
+  ]);
+  return { identifier: request.identifier, confirmedAtIso, result };
+}

@@ -106,6 +106,13 @@ Payload base:
 - `startsNewContainerCycle`
 - `blendConfirmed`
 - `expectedContainerStateVersion`
+- `loadSourceType` (`TRUCK` ou `BUFFER_CONTAINER`; ausente em eventos legados
+  equivale a `TRUCK`)
+- `sourceContainer` (obrigatório somente para `BUFFER_CONTAINER`)
+- `sourceContainerEmptied` (booleano obrigatório somente para
+  `BUFFER_CONTAINER`)
+- `expectedSourceContainerStateVersion` (inteiro `>= 0` obrigatório em
+  `BUFFER_CONTAINER`; `null` fora desse fluxo)
 - `notes` (ou `null`)
 
 Validacoes relevantes:
@@ -114,9 +121,17 @@ Validacoes relevantes:
 - regras condicionais por categoria
 - sobreposicao por bomba
 - transicoes de ciclo e Blend somente para o mesmo cliente
-- concorrencia otimista pelo estado atual do container
+- transferência somente a partir de um container aberto como Pulmão
+- origem e destino diferentes e pertencentes ao mesmo cliente
+- concorrencia otimista pelos estados atuais da origem e do destino
 - schema JSON estrito, incluindo justificativas de gaps; campos desconhecidos e
   tipos incorretos retornam `400 VALIDATION_ERROR`
+
+Em uma transferência entre containers, a placa não é exigida. O destino segue
+as transições usuais e a origem permanece `BUFFER` ou passa ao estado interno
+terminal `TRANSFER_EMPTIED`, conforme `sourceContainerEmptied`. O lançamento e
+as projeções dos dois containers são gravados atomicamente e o evento continua
+sendo contado apenas uma vez como produtivo.
 
 ## PATCH /api/events/:id
 
@@ -134,7 +149,8 @@ O mesmo schema JSON estrito do `POST` é aplicado.
 
 Efeito colateral:
 - grava item em `events/{id}/revisions` quando houver diff.
-- recalcula o estado atual dos containers de origem e destino.
+- recalcula, na mesma transação, as linhas do tempo e os estados atuais dos
+  containers de origem e destino.
 
 ## GET /api/containers
 
@@ -150,7 +166,15 @@ Consulta o estado atual e as transicoes permitidas para `container=<codigo>`.
 
 ## GET /api/containers/history
 
-Retorna o historico operacional valido para `container=<codigo>`, ordenado pelo horario operacional.
+Retorna o historico operacional valido para `container=<codigo>`, ordenado pelo
+horario operacional. Em transferências, o mesmo evento pode ser retornado pela
+perspectiva de ambos os containers com:
+
+- `containerRole`: `DESTINATION` ou `SOURCE`;
+- `relatedContainer`: origem quando consultado pelo destino, ou destino quando
+  consultado pela origem;
+- `status`: estado resultante naquela linha do tempo, inclusive o estado
+  interno `TRANSFER_EMPTIED` para uma origem esvaziada.
 
 ## DELETE /api/events/:id
 
@@ -259,3 +283,44 @@ Permissão:
 
 O `PATCH` aceita exclusivamente:
 - `{ "idleToleranceMinutes": <inteiro entre 0 e 60> }`
+
+## Check-ins internos
+
+Todas as rotas exigem usuário aprovado. `DISPLAY` não possui acesso;
+`OPERATOR` recebe apenas os campos operacionais mínimos. Supervisor/Admin
+recebem dados completos e auditoria.
+
+- `GET /api/checkins?status=...`: até 200 visitas recentes, filtradas por papel.
+- `GET /api/checkins/:id`: detalhe permitido ao papel.
+- `PATCH /api/checkins/:id`: `ASSIGN_CLIENT` ou `CORRECT`, com
+  `expectedVersion` e motivo.
+- `POST /api/checkins/:id/transitions`: transição manual permitida.
+- `POST /api/checkins/:id/cancel`: cancelamento com motivo.
+- `POST /api/checkins/:id/location-override`: exceção de GPS por
+  Supervisor/Admin, com justificativa.
+
+Correções posteriores ao check-in e exceções de GPS reservam uma versão antes
+de chamar o Power Automate. O Excel só recebe o comando da reserva vencedora; a
+resposta perdida é repetida com a mesma chave idempotente.
+
+## Integração Check-in V1
+
+As rotas `/api/integrations/checkins/v1/*` são servidor-a-servidor. Elas não
+aceitam Firebase Auth e exigem `X-Checkin-Key-Id`, `X-Checkin-Timestamp`,
+`X-Checkin-Request-Id` e `X-Checkin-Signature` HMAC-SHA256.
+
+- `POST /pre-registrations`
+- `POST /confirmations`
+- `POST /walk-ins`
+- `POST /recoveries`
+- `POST /status`
+- `POST /maintenance/expire` — somente o cron do app público, em lotes.
+
+O corpo é estrito, a assinatura cobre o corpo bruto e a proteção durável contra
+replay diferencia repetição idêntica de reutilização conflitante do request ID.
+A consulta pública retorna somente `processing`, `confirmed` ou `cancelled`.
+
+O `POST /api/events` aceita os campos aditivos `checkInId` e, para o fallback
+manual de Admin em `enforce`, `manualPlateReason`. Evento e visita são vinculados
+na mesma transação. Uma visita vinculada não permite edição silenciosa da placa
+ou categoria; exclusão/restauração reconciliam o vínculo com auditoria.

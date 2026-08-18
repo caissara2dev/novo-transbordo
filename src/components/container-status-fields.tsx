@@ -10,7 +10,12 @@ import {
   ContainerLookupResponse,
   ContainerStateApiItem
 } from "@/types/api";
-import { Category, ContainerStatus } from "@/types/domain";
+import {
+  Category,
+  ContainerLifecycleStatus,
+  ContainerStatus,
+  LoadSourceType
+} from "@/types/domain";
 
 type ContainerFields = {
   category: Category;
@@ -21,6 +26,7 @@ type ContainerFields = {
   startsNewContainerCycle: boolean;
   blendConfirmed: boolean;
   expectedContainerStateVersion: number | null;
+  loadSourceType?: LoadSourceType;
 };
 
 type ContainerLookupState = {
@@ -35,11 +41,11 @@ function isCompleteContainer(value: string): boolean {
   return value.replace(/[^A-Z0-9]/gi, "").length === 11;
 }
 
-function isBlend(status: ContainerStatus | null): boolean {
+function isBlend(status: ContainerLifecycleStatus | null): boolean {
   return status === "BLEND_FULL" || status === "BLEND_PARTIAL";
 }
 
-function isPartial(status: ContainerStatus | null): boolean {
+function isPartial(status: ContainerLifecycleStatus | null): boolean {
   return status === "PARTIAL" || status === "BLEND_PARTIAL";
 }
 
@@ -66,7 +72,7 @@ function CurrentStateCard({ current }: { current: ContainerStateApiItem }) {
         <div className="container-detail-grid">
           <span>
             <strong>Placa</strong>
-            {current.plate}
+            {current.plate || "Sem placa"}
           </span>
           <span>
             <strong>Motivo</strong>
@@ -393,7 +399,9 @@ export function ContainerStatusFields({
           <span>
             <strong>Confirmo que este carregamento formará um Blend</strong>
             <small>
-              A placa atual ficará vinculada às placas anteriores deste ciclo.
+              {fields.loadSourceType === "BUFFER_CONTAINER"
+                ? "O container de origem ficará vinculado às passagens anteriores deste ciclo."
+                : "A placa atual ficará vinculada às placas anteriores deste ciclo."}
             </small>
           </span>
         </label>

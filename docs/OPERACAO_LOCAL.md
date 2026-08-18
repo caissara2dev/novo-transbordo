@@ -509,3 +509,76 @@ staging e aguarde o status Ready antes de publicar a aplicação.
 - Usar dry-run antes de promoções, cópias e deploys.
 - Manter staging e produção com chaves HMAC diferentes.
 - Conceder acesso mínimo necessário às credenciais operacionais.
+
+## Check-in V1 — preparação de staging
+
+O recurso nasce desligado. Para desenvolvimento local mantenha:
+
+```dotenv
+CHECKIN_INTEGRATION_MODE=off
+```
+
+O comando `npm run build` carrega `.vercel/.env.preview.local` quando esse
+arquivo local existir. Variáveis já fornecidas pelo ambiente de CI ou hosting
+continuam tendo precedência; o arquivo permanece ignorado pelo Git e nenhum
+segredo é incorporado ao repositório.
+
+Antes de testar em staging:
+
+1. enviar ao SharePoint de staging o arquivo sanitizado e já comparado com a
+   fonte oficial em
+   `outputs/checkin-v1/Agendamento Line Transportes - Staging.xlsx`;
+2. criar os dois fluxos descritos em `docs/POWER_AUTOMATE_CHECKIN_V1.md` e
+   guardar URLs/tokens somente nos secrets do backend;
+3. fornecer latitude e longitude centrais, raio, segredo de índices e credencial
+   HMAC exclusivos de staging;
+4. publicar o app público em preview e o TransbordoLine somente no Firebase
+   staging;
+5. ativar `observe`, executar o piloto com o Forms antigo disponível e comparar
+   Excel, Firestore e fila por `LT-XXXXXXXX`;
+6. testar retry após timeout, correção concorrente, expiração e rollback;
+7. promover para `enforce` somente após aprovação explícita.
+
+Variáveis privadas do TransbordoLine:
+
+O centro aprovado para staging e produção é `-23.927722, -46.375806`
+(`23°55'39.8"S 46°22'32.9"W`). Os valores continuam fora do código executável e
+devem ser configurados nos ambientes correspondentes. O domínio público
+aprovado para produção é `fila.linebot.com.br`.
+
+```dotenv
+CHECKIN_INTEGRATION_KEY_ID=checkin-v1
+CHECKIN_INTEGRATION_HMAC_SECRET=
+CHECKIN_INDEX_HMAC_SECRET=
+CHECKIN_GEOFENCE_CENTER_LAT=-23.927722
+CHECKIN_GEOFENCE_CENTER_LNG=-46.375806
+CHECKIN_GEOFENCE_RADIUS_METERS=20000
+CHECKIN_POWER_AUTOMATE_ADD_URL=
+CHECKIN_POWER_AUTOMATE_UPDATE_URL=
+CHECKIN_POWER_AUTOMATE_AUTH_MODE=entra-client-credentials
+CHECKIN_POWER_AUTOMATE_TENANT_ID=
+CHECKIN_POWER_AUTOMATE_CLIENT_ID=
+CHECKIN_POWER_AUTOMATE_CLIENT_SECRET=
+CHECKIN_ENFORCE_ROLLOUT_APPROVED=false
+```
+
+`enforce` falha de forma fechada se os dois endpoints HTTPS do Power Automate,
+o modo `entra-client-credentials`, o tenant, o client ID e o client secret não
+estiverem configurados, ou se `CHECKIN_ENFORCE_ROLLOUT_APPROVED` não for
+explicitamente `true`. O segredo é informado diretamente no gerenciador de
+secrets do hosting e nunca no Git, em capturas de tela ou no chat. Essa
+aprovação só deve ser registrada depois do piloto em `observe` e do ensaio de
+rollback.
+
+O token é solicitado no servidor para o audience público do Power Automate. O
+gatilho deve permanecer em `Specific users in my tenant`, com o Object ID do
+service principal da Enterprise Application em `Allowed users`. O campo não
+pode ficar vazio, pois vazio permite qualquer identidade do tenant.
+
+O adaptador falha antes de qualquer chamada se o modo Entra estiver ausente ou
+for `none`. Não há fallback para bearer estático. O rollback continua sendo
+restaurar o Forms e reduzir as flags de integração.
+
+Rollback: restaurar o link do Forms, alterar `enforce -> observe -> off`, pausar
+os fluxos, restaurar deployments anteriores e fazer `git revert` por PR. Nunca
+apagar linhas do Excel, coleções, índices ou auditoria durante o incidente.

@@ -147,8 +147,10 @@ export function buildContainerStateBackfillPatch({
     previousEventId: data.previousContainerEventId || null,
     clientId: data.clientId,
     clientNameSnapshot: data.clientNameSnapshot || null,
-    plate: data.plate,
+    plate: data.plate || null,
     pump: data.pump,
+    latestEventRole: data.latestEventRole || "DESTINATION",
+    relatedContainer: data.relatedContainer || null,
     operationalAt: data.endAt,
     eventCreatedAt: data.createdAt,
     updatedAt: data.updatedAt || data.createdAt
@@ -165,6 +167,86 @@ export function buildContainerStateBackfillPatch({
   };
 }
 
+function compareBackfillEvents(left, right) {
+  const endDelta = toMillis(left.data.endAt) - toMillis(right.data.endAt);
+  if (endDelta !== 0) return endDelta;
+  const createdDelta = toMillis(left.data.createdAt) - toMillis(right.data.createdAt);
+  if (createdDelta !== 0) return createdDelta;
+  return left.id.localeCompare(right.id);
+}
+
+function updateLatestCandidate(latest, candidate) {
+  const current = latest.get(candidate.key);
+  if (!current || isNewer(candidate.data, current.data)) {
+    latest.set(candidate.key, candidate);
+  }
+}
+
+export function buildContainerStateBackfillCandidates(events) {
+  const latest = new Map();
+  const ordered = [...events]
+    .filter(({ data }) => !data.deleted)
+    .sort(compareBackfillEvents);
+
+  for (const event of ordered) {
+    const { id, data } = event;
+    const destinationStatus = statusFromEvent(data);
+    if (destinationStatus && data.container && data.clientId) {
+      const key = containerKey(data.container);
+      updateLatestCandidate(latest, {
+        id,
+        key,
+        status: destinationStatus,
+        data: {
+          ...data,
+          plate: data.plate || null,
+          latestEventRole: "DESTINATION",
+          relatedContainer:
+            data.loadSourceType === "BUFFER_CONTAINER"
+              ? data.sourceContainer || null
+              : null
+        }
+      });
+    }
+
+    if (
+      destinationStatus &&
+      data.loadSourceType === "BUFFER_CONTAINER" &&
+      data.sourceContainer &&
+      data.clientId &&
+      typeof data.sourceContainerEmptied === "boolean"
+    ) {
+      const key = containerKey(data.sourceContainer);
+      const previous = latest.get(key)?.data;
+      const status = data.sourceContainerEmptied
+        ? "TRANSFER_EMPTIED"
+        : "BUFFER";
+      updateLatestCandidate(latest, {
+        id,
+        key,
+        status,
+        data: {
+          ...data,
+          container: data.sourceContainer,
+          containerStatus: status,
+          containerReason: previous?.containerReason || null,
+          containerCycleId:
+            data.sourceContainerCycleId ||
+            previous?.containerCycleId ||
+            `legacy-${key}`,
+          previousContainerEventId:
+            data.previousSourceContainerEventId || null,
+          plate: previous?.plate || null,
+          latestEventRole: "SOURCE",
+          relatedContainer: data.container
+        }
+      });
+    }
+  }
+
+  return latest;
+}
+
 async function* readEvents(db) {
   let cursor = null;
   while (true) {
@@ -179,31 +261,22 @@ async function* readEvents(db) {
 }
 
 async function buildLatestStates(db) {
-  const latest = new Map();
+  const events = [];
   let inspected = 0;
   let eligible = 0;
 
   for await (const doc of readEvents(db)) {
     inspected += 1;
     const data = doc.data();
-    const status = statusFromEvent(data);
-    if (
-      data.deleted ||
-      !status ||
-      !data.container ||
-      !data.clientId ||
-      !data.plate
-    ) {
+    if (data.deleted || !statusFromEvent(data) || !data.container || !data.clientId) {
       continue;
     }
 
     eligible += 1;
-    const key = containerKey(data.container);
-    const candidate = { id: doc.id, data, status, key };
-    const current = latest.get(key);
-    if (!current || isNewer(data, current.data)) latest.set(key, candidate);
+    events.push({ id: doc.id, data });
   }
 
+  const latest = buildContainerStateBackfillCandidates(events);
   return { inspected, eligible, latest };
 }
 

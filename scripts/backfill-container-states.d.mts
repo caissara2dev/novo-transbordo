@@ -13,6 +13,16 @@ export type BackfillOptions = {
 export function parseArgs(argv: string[]): BackfillOptions;
 export function validateBackfillRequest(options: BackfillOptions): void;
 
+export function buildContainerStateBackfillCandidates(events: Array<{
+  id: string;
+  data: Record<string, unknown>;
+}>): Map<string, {
+  id: string;
+  key: string;
+  status: string;
+  data: Record<string, unknown>;
+}>;
+
 export function buildContainerStateBackfillPatch(params: {
   existing: Record<string, unknown> | undefined;
   eventId: string;

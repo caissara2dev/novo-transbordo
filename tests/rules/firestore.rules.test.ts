@@ -59,6 +59,25 @@ async function seedProfiles() {
     await setDoc(doc(db, "containerStates", "ABCU1234560"), {
       status: "PARTIAL"
     });
+    await setDoc(doc(db, "checkins", "checkin-1"), {
+      publicCode: "LT-ABCDEFGH",
+      status: "AGUARDANDO_LIBERACAO"
+    });
+    await setDoc(doc(db, "checkins", "checkin-1", "revisions", "revision-1"), {
+      actorUid: "admin-1"
+    });
+    await setDoc(doc(db, "_checkinUniqueLocks", "plate:example"), {
+      checkinId: "checkin-1"
+    });
+    await setDoc(doc(db, "_checkinPublicCodes", "LT-ABCDEFGH"), {
+      checkinId: "checkin-1"
+    });
+    await setDoc(doc(db, "_checkinSyncCommands", "command-1"), {
+      checkinId: "checkin-1"
+    });
+    await setDoc(doc(db, "_checkinIntegrationRequests", "request-1"), {
+      state: "COMPLETED"
+    });
   });
 }
 
@@ -170,5 +189,27 @@ describe("Firestore domain collection rules", () => {
   it("keeps materialized container state behind the authenticated API", async () => {
     const db = testEnv.authenticatedContext("operator-1").firestore();
     await assertFails(getDoc(doc(db, "containerStates", "ABCU1234560")));
+  });
+
+  it("keeps every check-in collection behind server-side APIs", async () => {
+    const db = testEnv.authenticatedContext("admin-1").firestore();
+
+    await assertFails(getDoc(doc(db, "checkins", "checkin-1")));
+    await assertFails(
+      getDoc(doc(db, "checkins", "checkin-1", "revisions", "revision-1"))
+    );
+    await assertFails(getDoc(doc(db, "_checkinUniqueLocks", "plate:example")));
+    await assertFails(getDoc(doc(db, "_checkinPublicCodes", "LT-ABCDEFGH")));
+    await assertFails(getDoc(doc(db, "_checkinSyncCommands", "command-1")));
+    await assertFails(
+      getDoc(doc(db, "_checkinIntegrationRequests", "request-1"))
+    );
+
+    await assertFails(setDoc(doc(db, "checkins", "checkin-2"), { status: "PRE_CADASTRO" }));
+    await assertFails(
+      setDoc(doc(db, "_checkinIntegrationRequests", "request-2"), {
+        state: "PROCESSING"
+      })
+    );
   });
 });

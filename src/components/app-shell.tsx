@@ -17,10 +17,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const previousPathname = useRef(pathname);
 
   const nav: Array<{
-    href: "/dashboard" | "/events" | "/containers" | "/reports" | "/display" | "/clients" | "/users" | "/settings";
+    href: "/dashboard" | "/checkins" | "/events" | "/containers" | "/reports" | "/display" | "/clients" | "/users" | "/settings";
     label: string;
   }> = [
     { href: "/dashboard" as const, label: "Dashboard" },
+    ...(profile?.role === "OPERATOR" ||
+    profile?.role === "SUPERVISOR" ||
+    profile?.role === "ADMIN"
+      ? [{ href: "/checkins" as const, label: "Check-ins" }]
+      : []),
     { href: "/events" as const, label: "Lançamentos" },
     { href: "/containers" as const, label: "Containers" },
     ...(profile?.role === "SUPERVISOR" || profile?.role === "ADMIN"

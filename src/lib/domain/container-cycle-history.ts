@@ -9,6 +9,8 @@ export type ContainerCycleHistoryEntry = {
   pump: Pump;
   plate: string | null;
   status: ContainerStatus;
+  role?: "DESTINATION" | "SOURCE";
+  relatedContainer?: string | null;
   deleted: boolean;
 };
 
@@ -38,7 +40,9 @@ export function collectPreviousContainerPassages(
         endTime: previous.endTime,
         pump: previous.pump,
         plate: previous.plate,
-        status: previous.status
+        status: previous.status,
+        role: previous.role,
+        relatedContainer: previous.relatedContainer
       });
     }
 
