@@ -5,6 +5,13 @@ Todas as alterações relevantes deste projeto serão registradas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o projeto usa
 [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [2.4.0] - 2026-09-04
+
+### Adicionado
+
+- Controle de privacidade no display da TV para ocultar temporariamente os nomes
+  dos clientes e substituí-los por aliases numerados.
+
 ## [2.2.1] - 2026-08-11
 
 ### Corrigido
@@ -102,3 +109,4 @@ Não existe release nem tag `v2.1.0` separada.
 [2.0.0]: https://github.com/caissara2dev/novo-transbordo/releases/tag/v2.0.0
 [2.2.0]: https://github.com/caissara2dev/novo-transbordo/releases/tag/v2.2.0
 [2.2.1]: https://github.com/caissara2dev/novo-transbordo/releases/tag/v2.2.1
+[2.4.0]: https://github.com/caissara2dev/novo-transbordo/releases/tag/v2.4.0
