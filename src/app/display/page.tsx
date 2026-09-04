@@ -39,12 +39,41 @@ function formatAverage(value: number | null): string {
   })} min`;
 }
 
+function ClientNamesVisibilityIcon({ action }: { action: "hide" | "show" }) {
+  return (
+    <svg
+      aria-hidden="true"
+      fill="none"
+      focusable="false"
+      viewBox="0 0 24 24"
+    >
+      <path
+        d="M2.75 12s3.4-6 9.25-6 9.25 6 9.25 6-3.4 6-9.25 6S2.75 12 2.75 12Z"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.8"
+      />
+      <circle cx="12" cy="12" r="2.75" stroke="currentColor" strokeWidth="1.8" />
+      {action === "hide" ? (
+        <path
+          d="m4.25 4.25 15.5 15.5"
+          stroke="currentColor"
+          strokeLinecap="round"
+          strokeWidth="2"
+        />
+      ) : null}
+    </svg>
+  );
+}
+
 function DisplayContent() {
   const [overview, setOverview] = useState<DisplayOverviewResponse | null>(null);
   const [stale, setStale] = useState(false);
   const [initialError, setInitialError] = useState(false);
   const [clock, setClock] = useState(() => new Date());
   const [page, setPage] = useState(0);
+  const [clientNamesVisible, setClientNamesVisible] = useState(true);
   const hasOverview = useRef(false);
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
@@ -114,6 +143,9 @@ function DisplayContent() {
       ),
     [overview, page]
   );
+  const privacyActionTitle = clientNamesVisible
+    ? "Ocultar nomes dos clientes"
+    : "Exibir nomes dos clientes";
 
   if (!overview && initialError) {
     return (
@@ -157,12 +189,26 @@ function DisplayContent() {
           <strong>{formatOperationalDate(overview.operationalDate)}</strong>
         </div>
 
-        <div className="display-clock">
-          <strong>{timeFormatter.format(clock)}</strong>
-          <span>{dateFormatter.format(clock)}</span>
-          <small>
-            Atualizado às {timeFormatter.format(new Date(overview.generatedAt))}
-          </small>
+        <div className="display-header-actions">
+          <div className="display-clock">
+            <strong>{timeFormatter.format(clock)}</strong>
+            <span>{dateFormatter.format(clock)}</span>
+            <small>
+              Atualizado às {timeFormatter.format(new Date(overview.generatedAt))}
+            </small>
+          </div>
+          <button
+            aria-label="Privacidade dos nomes dos clientes"
+            aria-pressed={!clientNamesVisible}
+            className={`display-privacy-toggle ${
+              clientNamesVisible ? "" : "privacy-active"
+            }`}
+            onClick={() => setClientNamesVisible((visible) => !visible)}
+            title={privacyActionTitle}
+            type="button"
+          >
+            <ClientNamesVisibilityIcon action={clientNamesVisible ? "hide" : "show"} />
+          </button>
         </div>
       </header>
 
@@ -236,18 +282,24 @@ function DisplayContent() {
               <span role="columnheader">Abertos agora</span>
             </div>
 
-            {visibleClients.map((client, index) => (
-              <div
-                className="display-table-row"
-                role="row"
-                key={client.clientId}
-                style={{ "--row-index": index } as React.CSSProperties}
-              >
-                <strong role="cell">{client.clientName}</strong>
-                <span role="cell">{client.finalizedToday}</span>
-                <span role="cell">{client.openNow}</span>
-              </div>
-            ))}
+            {visibleClients.map((client, index) => {
+              const clientNumber = page * CLIENTS_PER_PAGE + index + 1;
+
+              return (
+                <div
+                  className="display-table-row"
+                  role="row"
+                  key={client.clientId}
+                  style={{ "--row-index": index } as React.CSSProperties}
+                >
+                  <strong role="cell">
+                    {clientNamesVisible ? client.clientName : `Cliente ${clientNumber}`}
+                  </strong>
+                  <span role="cell">{client.finalizedToday}</span>
+                  <span role="cell">{client.openNow}</span>
+                </div>
+              );
+            })}
 
             {!visibleClients.length ? (
               <div className="display-empty">
