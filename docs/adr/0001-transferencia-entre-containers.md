@@ -2,7 +2,7 @@
 
 - Status: aceito
 - Data: 2026-08-13
-- Versão: 2.3.0
+- Versão: 2.5.0
 
 ## Contexto
 
@@ -40,7 +40,7 @@ display continuam processando somente o evento produtivo único.
 - `TRANSFER_EMPTIED` encerra o ciclo, mas não aparece como opção manual nem como
   container aberto.
 - Eventos legados sem origem explícita continuam equivalentes a `TRUCK`.
-- A versão 2.3.0 não infere nem armazena peso ou volume; registra somente se a
+- A versão 2.5.0 não infere nem armazena peso ou volume; registra somente se a
   origem foi completamente esvaziada.
 
 ## Alternativas rejeitadas
