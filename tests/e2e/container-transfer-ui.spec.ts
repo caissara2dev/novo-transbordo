@@ -231,6 +231,70 @@ test("preserves pasted text and cursor while correcting between truck, unknown a
   await expect(form.getByRole("listbox")).toHaveCount(0);
 });
 
+test("waits for the destination version and permits retry after a failed lookup", async ({
+  page
+}) => {
+  await page.route("**/api/containers?*", (route) =>
+    route.fulfill(sourcePage())
+  );
+  await page.route("**/api/events/gap-preview", (route) =>
+    route.fulfill(
+      json({
+        ok: true,
+        data: {
+          toleranceMinutes: 10,
+          gapVersion: "gap-current",
+          uncoveredSegments: [],
+          uncoveredMinutes: 0,
+          requiresJustification: false,
+          reconciliations: []
+        }
+      })
+    )
+  );
+  const form = await emptyForm(page);
+  let releaseLookup!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    releaseLookup = resolve;
+  });
+  let fail = true;
+  await page.route("**/api/containers/lookup?*", async (route) => {
+    if (fail) {
+      await waiting;
+      fail = false;
+      return route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: JSON.stringify({ ok: false, error: { code: "INTERNAL_ERROR", message: "Destino indisponível" } })
+      });
+    }
+    return route.fulfill(
+      json({
+        ok: true,
+        data: {
+          current: null,
+          availableStatuses: ["FULL", "PARTIAL", "BUFFER"],
+          requiresNewCycleConfirmation: false
+        }
+      })
+    );
+  });
+  await form.getByLabel("Placa ou container de origem *").fill("TSTU");
+  await form.getByRole("option", { name: /TSTU 250003-0/ }).click();
+  await form.getByLabel("Não, restará carga").check();
+  await form.getByLabel("Horário início").fill("06:00");
+  await form.getByLabel("Horário fim").fill("06:20");
+  await form.getByLabel("Container de destino *").fill("TSTU2500024");
+  const save = form.getByRole("button", { name: "Salvar lançamento" });
+  await expect(form.getByText("Consultando…", { exact: true })).toBeVisible();
+  await expect(save).toBeDisabled();
+  releaseLookup();
+  await expect(form.getByText("Destino indisponível")).toBeVisible();
+  await expect(save).toBeDisabled();
+  await form.getByRole("button", { name: "Tentar novamente" }).click();
+  await expect(save).toBeEnabled();
+});
+
 test("supports pagination, retry, empty results and ignores a stale response", async ({
   page
 }) => {

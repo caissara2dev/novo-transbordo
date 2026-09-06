@@ -16,6 +16,7 @@ import {
 } from "@/lib/server/container-states";
 import { containerTransfersEnabled } from "@/lib/server/container-transfer-capability";
 import { buildContainerStateBackfillCandidates } from "../../scripts/backfill-container-states.mjs";
+import * as policies from "@/lib/server/events/policies";
 
 const actor = {
   uid: "admin",
@@ -66,6 +67,57 @@ describe("transfer replay and rollback through event commands", () => {
     });
   });
   afterEach(() => vi.unstubAllEnvs());
+  it("rejects an edit whose event changed before the pump locks were read", async () => {
+    await create(input());
+    await create(input({ pump: "BOMBA_2", container: "TSTU2500019" }));
+    const transfer = await create(transferInput());
+    const changedOrigin = {
+      ...transferInput(),
+      sourceContainer: "TSTU2500019",
+      expectedContainerStateVersion: 1,
+      revisionReason: "Correção da origem"
+    };
+    const preview = await previewEventGap({
+      ...changedOrigin,
+      eventId: transfer.id
+    });
+    const clientCheck = vi.spyOn(policies, "assertClientIfRequired");
+    clientCheck.mockImplementationOnce(async () => {
+      await updateEvent(
+        transfer.id,
+        { ...changedOrigin, gapVersion: preview.gapVersion },
+        actor
+      );
+      return null;
+    });
+    try {
+      await expect(
+        updateEvent(
+          transfer.id,
+          {
+            ...transferInput(),
+            category: "OUTROS",
+            clientId: null,
+            container: null,
+            loadSourceType: null,
+            sourceContainer: null,
+            notes: "Correção para ociosidade",
+            revisionReason: "Sem operação produtiva"
+          },
+          actor
+        )
+      ).rejects.toThrow("O lançamento mudou durante a edição");
+      expect(inMemoryAdminDb.read("events", transfer.id)?.sourceContainer).toBe(
+        "TSTU 250001-9"
+      );
+      expect(await getCurrentContainerState("TSTU2500019")).toMatchObject({
+        latestEventId: transfer.id,
+        latestEventRole: "SOURCE"
+      });
+    } finally {
+      clientCheck.mockRestore();
+    }
+  });
   it("defaults to disabled without configuration", () => {
     vi.stubEnv("CONTAINER_TRANSFERS_ENABLED", undefined);
     expect(containerTransfersEnabled()).toBe(false);
@@ -112,7 +164,9 @@ describe("transfer replay and rollback through event commands", () => {
         gapVersion: deletion.preview.gapVersion
       })
     ).rejects.toThrow("temporariamente indisponíveis");
-    await expect(getContainerHistory("MSCU6639870")).resolves.toHaveLength(2);
+    await expect(
+      getContainerHistory("MSCU6639870").then((page) => page.items)
+    ).resolves.toHaveLength(2);
     vi.stubEnv("CONTAINER_TRANSFERS_ENABLED", "true");
     await softDeleteEvent(transfer.id, "Correção", actor, {
       gapVersion: deletion.preview.gapVersion
@@ -157,7 +211,7 @@ describe("transfer replay and rollback through event commands", () => {
       { ...edited, gapVersion: preview.gapVersion },
       actor
     );
-    expect((await getContainerHistory("MSCU6639870"))[0]).toMatchObject({
+    expect((await getContainerHistory("MSCU6639870")).items[0]).toMatchObject({
       id: transfer.id,
       status: "BUFFER"
     });

@@ -1,3 +1,5 @@
+import { planContainerTimeline } from "@/lib/domain/container-timeline";
+import type { ContainerLifecycleStatus, ContainerStatus } from "@/types/domain";
 import { describe, expect, it } from "vitest";
 import { DateTime } from "luxon";
 import { canEdit, validateEventInput } from "@/lib/domain/validation";
@@ -11,9 +13,7 @@ import {
   resolveTimelineDate
 } from "@/lib/domain/time";
 import {
-  assertExpectedContainerStateVersion,
-  compareOperationalOrder,
-  resolveContainerTransition
+  assertExpectedContainerStateVersion
 } from "@/lib/server/container-states";
 
 describe("domain time rules", () => {
@@ -221,7 +221,31 @@ describe("domain time rules", () => {
   });
 });
 
-describe("container lifecycle transitions", () => {
+describe("container lifecycle transitions through the shared planner", () => {
+  function resolveContainerTransition(input: {
+    current: { status: ContainerLifecycleStatus; clientId: string };
+    status: ContainerStatus;
+    clientId: string;
+    startsNewCycle: boolean;
+  }) {
+    const base = {
+      container: "ABCU 123456-0", plate: "ABC-1234", pump: "BOMBA_1" as const,
+      startsNewCycle: false, role: "DESTINATION" as const
+    };
+    const plan = planContainerTimeline({
+      events: [
+        { ...base, id: "event-0", status: "PARTIAL", clientId: input.current.clientId,
+          existingCycleId: "cycle-1", operationalAtMs: 0, createdAtMs: 1 },
+        { ...base, id: "event-1", status: input.current.status, clientId: input.current.clientId,
+          existingCycleId: "cycle-1", operationalAtMs: 1000, createdAtMs: 1001 },
+        { ...base, id: "event-2", status: input.status, clientId: input.clientId,
+          startsNewCycle: input.startsNewCycle, existingCycleId: null,
+          operationalAtMs: 2000, createdAtMs: 2001 }
+      ],
+      createCycleId: () => "new-cycle"
+    });
+    return { cycleId: plan.current!.containerCycleId, previousEventId: plan.current!.previousContainerEventId };
+  }
   const current = {
     container: "ABCU 123456-0",
     status: "PARTIAL",
@@ -316,21 +340,4 @@ describe("container lifecycle transitions", () => {
     expect(() => assertExpectedContainerStateVersion(4, 4)).not.toThrow();
   });
 
-  it("orders current state by operational time and creation time only as a tiebreaker", () => {
-    expect(
-      compareOperationalOrder(
-        new Date("2026-02-06T09:00:00Z"),
-        new Date("2026-02-07T12:00:00Z"),
-        current
-      )
-    ).toBeLessThan(0);
-
-    expect(
-      compareOperationalOrder(
-        current.operationalAt,
-        new Date("2026-02-06T10:02:00Z"),
-        current
-      )
-    ).toBeGreaterThan(0);
-  });
 });

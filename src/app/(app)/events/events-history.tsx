@@ -300,7 +300,7 @@ export function EventsHistory({
                 Container de origem{" "}
                 {item.sourceContainerEmptied
                   ? "esvaziado pela transferência"
-                  : "mantido como pulmão"}
+                  : "com carga remanescente"}
                 .
               </p>
             ) : null}

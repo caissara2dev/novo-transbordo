@@ -264,7 +264,8 @@ export async function updateEvent(
     }
     if (
       !transactionalEventSnap.exists ||
-      transactionalEventSnap.data()?.deleted
+      transactionalEventSnap.data()?.deleted ||
+      !transactionalEventSnap.updateTime?.isEqual(snap.updateTime!)
     ) {
       throw new HttpError(
         409,

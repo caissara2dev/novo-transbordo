@@ -1,8 +1,9 @@
 import { HttpError } from "./errors.ts";
-import { isTransferSourceStatus } from "./container-transfer.ts";
+import { isTransferSourceStatus, resolveTransferSourceStatus } from "./container-transfer.ts";
 import type {
   ContainerEventRole,
   ContainerLifecycleStatus,
+  ContainerStatus,
   Pump
 } from "../../types/domain.ts";
 
@@ -72,7 +73,7 @@ export function planContainerTimeline(params: {
     (left, right) =>
       left.operationalAtMs - right.operationalAtMs ||
       left.createdAtMs - right.createdAtMs ||
-      left.id.localeCompare(right.id)
+      (left.id < right.id ? -1 : left.id > right.id ? 1 : 0)
   );
 
   const planned: Array<ContainerTimelineEvent & ContainerTimelineLink> = [];
@@ -124,18 +125,6 @@ export function planContainerTimeline(params: {
     }
 
     if (event.role === "SOURCE") {
-      if (!isTransferSourceStatus(previous.status)) {
-        throw new HttpError(
-          409,
-          "O container de origem não está mais aberto como Pulmão ou Parcial."
-        );
-      }
-      if (previous.clientId !== event.clientId) {
-        throw new HttpError(
-          400,
-          "A origem e o destino devem pertencer ao mesmo cliente."
-        );
-      }
       if (
         !isTransferSourceStatus(event.status) &&
         event.status !== "TRANSFER_EMPTIED"
@@ -145,7 +134,12 @@ export function planContainerTimeline(params: {
           "Estado inválido para a origem da transferência."
         );
       }
-      if (event.status !== "TRANSFER_EMPTIED") event.status = previous.status;
+      event.status = resolveTransferSourceStatus({
+        previousStatus: previous.status,
+        previousClientId: previous.clientId,
+        clientId: event.clientId,
+        emptied: event.status === "TRANSFER_EMPTIED"
+      });
     } else if (isClosed(previous.status)) {
       throw new HttpError(
         409,
@@ -183,4 +177,23 @@ export function planContainerTimeline(params: {
     events: planned,
     current: planned.at(-1) || null
   };
+}
+
+export function availableStatusesFor(
+  current: { status: ContainerLifecycleStatus } | null,
+  startsNewCycle = false
+): ContainerStatus[] {
+  if (!current || startsNewCycle) {
+    return ["FULL", "PARTIAL", "BUFFER"];
+  }
+
+  if (current.status === "BLEND_FULL" || current.status === "BLEND_PARTIAL") {
+    return ["BLEND_FULL", "BLEND_PARTIAL"];
+  }
+
+  if (current.status === "PARTIAL" || current.status === "BUFFER") {
+    return ["FULL", "PARTIAL", "BUFFER", "BLEND_FULL", "BLEND_PARTIAL"];
+  }
+
+  return ["FULL", "PARTIAL", "BUFFER"];
 }

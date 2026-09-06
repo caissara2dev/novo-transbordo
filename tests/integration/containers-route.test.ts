@@ -22,9 +22,9 @@ vi.mock("@/lib/server/container-states", () => ({
     nextCursor: "next-containers",
     incomplete: false
   })),
-  getContainerHistory: vi.fn(async () => [
+  getContainerHistory: vi.fn(async () => ({ items: [
     { id: "e1", container: "ABCU 123456-0", status: "PARTIAL" }
-  ])
+  ], nextCursor: "history-next", incomplete: false }))
 }));
 
 describe("containers API routes", () => {

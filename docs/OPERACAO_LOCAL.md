@@ -300,9 +300,10 @@ npm run backfill:container-states -- --project=line-transbordo \
 
 O backfill é idempotente, preserva projeções mais novas e nunca altera a coleção
 `events`. Registre as contagens do dry-run e da execução na issue da release.
-Como `containerStates` é uma projeção derivada, o rollback imediato é restaurar
-a versão anterior da aplicação, que não depende dessa coleção, e preservar os
-documentos para análise. Não apague estados durante um incidente. Corrija a
+Após a primeira transferência, siga a [recuperação compatível](#recuperação-compatível-após-a-primeira-transferência):
+republique v2.5.0 com a flag desligada e preserve os documentos para análise.
+Uma versão anterior que desconheça transferências não é uma recuperação válida.
+Não apague estados durante um incidente. Corrija a
 lógica, valide novamente em staging e repare a projeção executando o backfill
 idempotente revisado; lotes parciais também podem ser retomados com segurança.
 
@@ -374,8 +375,10 @@ Se usuários legítimos forem bloqueados:
 4. investigue site key, allowlist, segredo, proxy, TTL e limites;
 5. não use `off` em produção.
 
-Se a versão da aplicação estiver defeituosa, use o rollback de release do
-Firebase App Hosting ou reverta o commit em um novo PR. Preserve a configuração
+Se a versão da aplicação estiver defeituosa, restaure uma versão compatível no
+Firebase App Hosting ou corrija o commit em um novo PR. Após a primeira transferência,
+siga a [recuperação compatível](#recuperação-compatível-após-a-primeira-transferência).
+Preserve a configuração
 `observe` e os segredos.
 
 ### Firestore Rules
@@ -535,6 +538,11 @@ O backfill agora executa o planejador de domínio via suporte nativo a TypeScrip
 do Node 22 (`--experimental-strip-types`, incluído no comando npm). Ele faz dry-run
 por padrão, rejeita históricos inconsistentes e não modifica `events`. Preserve
 as confirmações de projeto/produção e revise contagens antes de `--execute`.
+Na execução, a varredura apenas escolhe os containers: cada projeção é recalculada
+com os eventos atuais dentro de uma transação, que também lê o estado existente.
+Edições concorrentes provocam nova leitura transacional; resultados idênticos não
+alteram versão nem data. O resumo distingue `writes`, `skipped` e `finalCount`;
+um evento removido após a varredura não recria sua projeção.
 
 ### Recuperação compatível após a primeira transferência
 

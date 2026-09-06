@@ -109,6 +109,8 @@ export function ContainerStatusFields({
     loading: false
   });
   const onChangeRef = useRef(onChange);
+  const [lookupAttempt, setLookupAttempt] = useState(0);
+  const startsNewCycleRef = useRef(fields.startsNewContainerCycle);
   const lookupEnabled =
     fields.category === "PRODUTIVO" &&
     isCompleteContainer(fields.container);
@@ -116,14 +118,15 @@ export function ContainerStatusFields({
   const requestKey = lookupEnabled
     ? JSON.stringify([
         fields.container,
-        fields.startsNewContainerCycle,
-        preserveStatus
+        preserveStatus,
+        lookupAttempt
       ])
     : null;
 
   useEffect(() => {
     onChangeRef.current = onChange;
-  }, [onChange]);
+    startsNewCycleRef.current = fields.startsNewContainerCycle;
+  }, [onChange, fields.startsNewContainerCycle]);
 
   useEffect(() => {
     if (lookupEnabled || fields.expectedContainerStateVersion === null) {
@@ -145,6 +148,9 @@ export function ContainerStatusFields({
     }
 
     const controller = new AbortController();
+    const resetTimer = window.setTimeout(() => {
+      onChangeRef.current({ expectedContainerStateVersion: null });
+    }, 0);
     const timer = window.setTimeout(async () => {
       setLookupState((current) => ({
         lookupKey,
@@ -174,7 +180,7 @@ export function ContainerStatusFields({
         if (
           result.current &&
           isBlend(result.current.status) &&
-          !fields.startsNewContainerCycle &&
+          !startsNewCycleRef.current &&
           !preserveStatus
         ) {
           patch.containerStatus =
@@ -184,6 +190,7 @@ export function ContainerStatusFields({
         onChangeRef.current(patch);
       } catch (error) {
         if (!controller.signal.aborted) {
+          onChangeRef.current({ expectedContainerStateVersion: null });
           setLookupState({
             lookupKey,
             requestKey,
@@ -200,11 +207,11 @@ export function ContainerStatusFields({
 
     return () => {
       window.clearTimeout(timer);
+      window.clearTimeout(resetTimer);
       controller.abort();
     };
   }, [
     fields.container,
-    fields.startsNewContainerCycle,
     lookupKey,
     preserveStatus,
     requestKey
@@ -214,8 +221,8 @@ export function ContainerStatusFields({
     lookupState.lookupKey === lookupKey ? lookupState.data : null;
   const lookupError =
     lookupState.requestKey === requestKey ? lookupState.error : null;
-  const loading =
-    lookupState.requestKey === requestKey && lookupState.loading;
+  const loading = Boolean(requestKey) &&
+    (lookupState.requestKey !== requestKey || lookupState.loading);
   const current = lookup?.current ?? null;
   const partial = isPartial(fields.containerStatus);
   const buffer = fields.containerStatus === "BUFFER";
@@ -283,6 +290,8 @@ export function ContainerStatusFields({
         <span className="container-live-dot">
           {loading
             ? "Consultando…"
+            : lookupError
+              ? "Consulta indisponível"
             : current
               ? "Histórico encontrado"
               : isCompleteContainer(fields.container)
@@ -291,7 +300,14 @@ export function ContainerStatusFields({
         </span>
       </div>
 
-      {lookupError ? <div className="notice error">{lookupError}</div> : null}
+      {lookupError ? (
+        <div className="notice error">
+          {lookupError}{" "}
+          <button type="button" className="underline" onClick={() => setLookupAttempt((attempt) => attempt + 1)}>
+            Tentar novamente
+          </button>
+        </div>
+      ) : null}
       {current ? <CurrentStateCard current={current} /> : null}
 
       {current ? (

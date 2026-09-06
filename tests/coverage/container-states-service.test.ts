@@ -1,3 +1,4 @@
+import { availableStatusesFor } from "@/lib/domain/container-timeline";
 import { Timestamp } from "firebase-admin/firestore";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { inMemoryAdminDb } from "./in-memory-firestore";
@@ -7,7 +8,6 @@ vi.mock("@/lib/firebase/admin", () => ({
 }));
 
 import {
-  availableStatusesFor,
   containerDocumentKey,
   eventContainerStatus,
   getContainerHistory,
@@ -67,6 +67,58 @@ function event(overrides: Partial<EventDoc> = {}): EventDoc {
 describe("public container state service", () => {
   beforeEach(() => {
     inMemoryAdminDb.reset();
+  });
+
+  it("pages a long source history using a bounded preceding destination anchor", async () => {
+    const seed = (id: string, data: EventDoc) => inMemoryAdminDb.seed("events", id, data);
+    seed("initial", event());
+    let previous = "initial";
+    for (let i = 1; i <= 70; i++) {
+      const id = `passage-${String(i).padStart(3, "0")}`;
+      seed(id, event({
+        endAt: Timestamp.fromMillis(2000 + i * 1000),
+        container: "MSCU 663987-0", containerCycleId: `destination-${i}`,
+        containerStatus: "FULL", loadSourceType: "BUFFER_CONTAINER",
+        sourceContainer: CONTAINER, sourceContainerCycleId: "cycle-1",
+        sourceContainerEmptied: false, previousSourceContainerEventId: previous
+      }));
+      previous = id;
+    }
+    const prototype = Object.getPrototypeOf(inMemoryAdminDb.collection("events").where("deleted", "==", false));
+    const originalGet = prototype.get;
+    let readDocuments = 0;
+    const reads = vi.spyOn(prototype, "get").mockImplementation(async function (this: unknown) {
+      const snapshot = await originalGet.call(this);
+      readDocuments += snapshot.docs.length;
+      return snapshot;
+    });
+    try {
+      const first = await getContainerHistory(CONTAINER, { limit: 3 });
+      expect(first.items.map((item) => item.status)).toEqual(["PARTIAL", "PARTIAL", "PARTIAL"]);
+      expect(first.items[0].id).toBe("passage-070");
+      expect(readDocuments).toBeLessThanOrEqual(11);
+      const second = await getContainerHistory(CONTAINER, { limit: 3, cursor: first.nextCursor! });
+      expect(second.items.map((item) => item.id)).toEqual(["passage-067", "passage-066", "passage-065"]);
+      await expect(getContainerHistory("MSCU6639870", { limit: 3, cursor: first.nextCursor! })).rejects.toThrow("Cursor");
+    } finally { reads.mockRestore(); }
+  });
+
+  it("uses the latest destination in the same cycle and never falls back to Pulmão", async () => {
+    inMemoryAdminDb.seed("events", "initial", event());
+    inMemoryAdminDb.seed("events", "changed", event({
+      containerStatus: "BUFFER", endAt: Timestamp.fromMillis(3000),
+      previousContainerEventId: "initial", createdByUid: "another-operator"
+    }));
+    const transfer = event({
+      container: "MSCU 663987-0", containerStatus: "FULL", containerCycleId: "destination",
+      loadSourceType: "BUFFER_CONTAINER", sourceContainer: CONTAINER,
+      sourceContainerCycleId: "cycle-1", previousSourceContainerEventId: "changed",
+      sourceContainerEmptied: false, endAt: Timestamp.fromMillis(4000)
+    });
+    inMemoryAdminDb.seed("events", "transfer", transfer);
+    expect((await getContainerHistory(CONTAINER, { limit: 1 })).items[0]).toMatchObject({ status: "BUFFER", containerRole: "SOURCE" });
+    inMemoryAdminDb.seed("events", "transfer", { ...transfer, sourceContainerCycleId: "wrong-cycle" });
+    await expect(getContainerHistory(CONTAINER, { limit: 1 })).rejects.toThrow("resolver o ciclo");
   });
 
   it("derives legacy and explicit statuses and normalizes document keys", () => {
@@ -374,7 +426,7 @@ describe("public container state service", () => {
       })
     ).toMatchObject({ items: [expect.objectContaining({ status: "FULL" })] });
 
-    const history = await getContainerHistory(CONTAINER);
+    const { items: history } = await getContainerHistory(CONTAINER);
     expect(history).toHaveLength(1);
     expect(history[0]).toMatchObject({
       id: "container-event",
@@ -408,7 +460,7 @@ describe("public container state service", () => {
       }) as unknown as Record<string, unknown>
     );
 
-    await expect(getContainerHistory(CONTAINER)).resolves.toEqual([
+    await expect(getContainerHistory(CONTAINER).then((page) => page.items)).resolves.toEqual([
       expect.objectContaining({
         id: "transfer",
         status: "FULL",
@@ -416,7 +468,7 @@ describe("public container state service", () => {
         relatedContainer: "MSCU 663987-0"
       })
     ]);
-    await expect(getContainerHistory("MSCU6639870")).resolves.toMatchObject([
+    await expect(getContainerHistory("MSCU6639870").then((page) => page.items)).resolves.toMatchObject([
       expect.objectContaining({
         id: "transfer",
         status: "TRANSFER_EMPTIED",

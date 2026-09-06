@@ -1,6 +1,9 @@
 import { Timestamp } from "firebase-admin/firestore";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { EventDoc } from "@/types/domain";
+import {
+  buildContainerStateBackfillCandidates, buildContainerStateBackfillPatch, writeStates
+} from "../../scripts/backfill-container-states.mjs";
 
 process.env.CONTAINER_TRANSFERS_ENABLED = "true";
 process.env.FIREBASE_PROJECT_ID = "demo-transbordo";
@@ -76,6 +79,44 @@ describe("timeline transactions against the Firestore Emulator", () => {
         clearCollection
       )
     );
+  });
+
+  it("revalidates a backfill scan after a retroactive edit and preserves its newer projection", async () => {
+    const db = adminModule.adminDb;
+    const source = event({ containerStatus: "PARTIAL" });
+    const transfer = event({
+      container: "MSCU 663987-0", containerStatus: "FULL",
+      loadSourceType: "BUFFER_CONTAINER", sourceContainer: source.container,
+      sourceContainerEmptied: false, sourceContainerCycleId: "cycle-1",
+      previousSourceContainerEventId: "source", containerCycleId: "destination",
+      endAt: Timestamp.fromMillis(3_000)
+    });
+    await db.collection("events").doc("source").set(source);
+    await db.collection("events").doc("transfer").set(transfer);
+    const scanned = buildContainerStateBackfillCandidates([
+      { id: "source", data: source }, { id: "transfer", data: transfer }
+    ]);
+    const edited = { ...source, containerStatus: "BUFFER", updatedAt: Timestamp.now() };
+    await db.collection("events").doc("source").set(edited);
+    const fresh = buildContainerStateBackfillCandidates([
+      { id: "source", data: edited }, { id: "transfer", data: transfer }
+    ]).get("ABCU1234560")!;
+    const current = { ...buildContainerStateBackfillPatch({ ...fresh, eventId: fresh.id, existing: undefined }), version: 9, updatedAt: Timestamp.now() };
+    await db.collection("containerStates").doc("ABCU1234560").set(current);
+    const before = await db.collection("events").get();
+    await writeStates(db, scanned);
+    expect((await db.collection("containerStates").doc("ABCU1234560").get()).data()).toEqual(current);
+    expect((await db.collection("events").get()).docs.map((doc) => doc.data())).toEqual(before.docs.map((doc) => doc.data()));
+    expect(await writeStates(db, scanned)).toEqual({ writes: 0, skipped: 2 });
+  });
+
+  it("does not resurrect a state when its event was deleted after the backfill scan", async () => {
+    const db = adminModule.adminDb;
+    const data = event();
+    const scanned = buildContainerStateBackfillCandidates([{ id: "source", data }]);
+    await db.collection("events").doc("source").set({ ...data, deleted: true });
+    expect(await writeStates(db, scanned)).toEqual({ writes: 0, skipped: 1 });
+    expect((await db.collection("containerStates").get()).empty).toBe(true);
   });
 
   it("allows only one concurrent command to claim the same empty interval", async () => {
@@ -179,7 +220,7 @@ describe("timeline transactions against the Firestore Emulator", () => {
         containerReason: null,
         startsNewContainerCycle: false,
         blendConfirmed: false,
-        expectedContainerStateVersion: null,
+        expectedContainerStateVersion: 0,
         loadSourceType: "BUFFER_CONTAINER" as const,
         sourceContainer,
         sourceContainerEmptied: false,

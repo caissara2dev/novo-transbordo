@@ -30,6 +30,7 @@ function toDateTime(value: string): string {
 export default function ContainersPage() {
   const [items, setItems] = useState<ContainerStateApiItem[]>([]);
   const [history, setHistory] = useState<ContainerHistoryItem[]>([]);
+  const [historyCursor, setHistoryCursor] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [appliedList, setAppliedList] = useState<ContainerListSelection>({
@@ -139,16 +140,19 @@ export default function ContainersPage() {
     });
   };
 
-  const openHistory = async (container: string) => {
+  const openHistory = async (container: string, cursor?: string) => {
     const request = historyRequests.current.begin();
     setSelected(container);
-    setHistory([]);
+    if (!cursor) {
+      setHistory([]);
+      setHistoryCursor(null);
+    }
     setLoadingHistory(true);
     setError(null);
 
     try {
-      const data = await apiFetch<{ items: ContainerHistoryItem[] }>(
-        `/api/containers/history?container=${encodeURIComponent(container)}`,
+      const data = await apiFetch<PaginatedResponse<ContainerHistoryItem>>(
+        `/api/containers/history?container=${encodeURIComponent(container)}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
         { signal: request.signal }
       );
 
@@ -156,7 +160,10 @@ export default function ContainersPage() {
         return;
       }
 
-      setHistory(data.items || []);
+      setHistory((current) => cursor
+        ? Array.from(new Map([...current, ...(data.items || [])].map((item) => [item.id, item])).values())
+        : data.items || []);
+      setHistoryCursor(data.nextCursor || null);
     } catch (err) {
       if (!request.isCurrent() || isAbortError(err)) {
         return;
@@ -291,13 +298,19 @@ export default function ContainersPage() {
                   <p>
                     {event.sourceContainerEmptied
                       ? "Container de origem esvaziado pela transferência."
-                      : "Container de origem mantido como pulmão."}
+                      : `Container de origem mantido como ${containerStatusLabelMap[event.status]}.`}
                   </p>
                 ) : null}
                 {event.containerReason ? <blockquote>{event.containerReason}</blockquote> : null}
               </div>
             </article>
           ))}
+          {historyCursor && selected ? (
+            <button className="btn-soft" disabled={loadingHistory} type="button"
+              onClick={() => void openHistory(selected, historyCursor)}>
+              Carregar mais passagens
+            </button>
+          ) : null}
           {loadingHistory ? (
             <p className="containers-empty">Carregando histórico...</p>
           ) : null}

@@ -9,7 +9,7 @@ import {
   deleteApp,
   initializeApp
 } from "firebase-admin/app";
-import { FieldPath, getFirestore } from "firebase-admin/firestore";
+import { FieldPath, FieldValue, getFirestore } from "firebase-admin/firestore";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -20,7 +20,6 @@ const ALLOWED_PROJECTS = new Set([
 export const PRODUCTION_BACKFILL_CONFIRMATION =
   "BACKFILL_CONTAINER_STATES_IN_PRODUCTION";
 const PAGE_SIZE = 300;
-const WRITE_BATCH_SIZE = 400;
 
 function argumentValue(argv, name) {
   return (
@@ -153,8 +152,7 @@ export function buildContainerStateBackfillPatch({
     latestEventRole: data.latestEventRole || "DESTINATION",
     relatedContainer: data.relatedContainer || null,
     operationalAt: data.endAt,
-    eventCreatedAt: data.createdAt,
-    updatedAt: data.updatedAt || data.createdAt
+    eventCreatedAt: data.createdAt
   };
   const currentVersion = Math.max(1, Number(existing?.version) || 1);
   const changed =
@@ -166,6 +164,7 @@ export function buildContainerStateBackfillPatch({
 
   return {
     ...projection,
+    updatedAt: changed ? data.updatedAt || data.createdAt : existing.updatedAt,
     version: existing && changed ? currentVersion + 1 : currentVersion
   };
 }
@@ -182,41 +181,45 @@ export function buildContainerStateBackfillCandidates(events) {
   }
   const latest = new Map();
   for (const [container, records] of grouped) {
-    const key = containerKey(container);
-    let cycle = 0;
-    const { effects, plan } = planEffectsForContainer(
-      container,
-      records,
-      () => `legacy-${key}-${++cycle}`
-    );
-    const current = effects.find((effect) => effect.id === plan.current?.id);
-    if (!current) continue;
-    const projection = projectionFromPlan({
-      effects,
-      links: plan.events,
-      current,
-      version: 0
-    });
-    latest.set(key, {
-      id: current.id,
-      key,
-      status: projection.status,
-      data: {
-        ...current.data,
-        container: projection.container,
-        containerStatus: projection.status,
-        containerReason: projection.reason,
-        containerCycleId: projection.cycleId,
-        previousContainerEventId: projection.previousEventId,
-        plate: projection.plate,
-        latestEventRole: projection.latestEventRole,
-        relatedContainer: projection.relatedContainer
-      }
-    });
+    const candidate = buildCandidate(container, records);
+    if (candidate) latest.set(candidate.key, candidate);
   }
   return latest;
 }
 
+function buildCandidate(container, records) {
+  const key = containerKey(container);
+  let cycle = 0;
+  const { effects, plan } = planEffectsForContainer(
+    container,
+    records,
+    () => `legacy-${key}-${++cycle}`
+  );
+  const current = effects.find((effect) => effect.id === plan.current?.id);
+  if (!current) return null;
+  const projection = projectionFromPlan({
+    effects,
+    links: plan.events,
+    current,
+    version: 0
+  });
+  return {
+    id: current.id,
+    key,
+    status: projection.status,
+    data: {
+      ...current.data,
+      container: projection.container,
+      containerStatus: projection.status,
+      containerReason: projection.reason,
+      containerCycleId: projection.cycleId,
+      previousContainerEventId: projection.previousEventId,
+      plate: projection.plate,
+      latestEventRole: projection.latestEventRole,
+      relatedContainer: projection.relatedContainer
+    }
+  };
+}
 async function* readEvents(db) {
   let cursor = null;
   while (true) {
@@ -258,40 +261,61 @@ async function buildLatestStates(db) {
   return { inspected, eligible, latest };
 }
 
-async function writeStates(db, latest) {
-  let batch = db.batch();
+export async function writeStates(db, latest) {
   let writes = 0;
-  let pending = 0;
-
-  const flush = async () => {
-    if (!pending) return;
-    await batch.commit();
-    batch = db.batch();
-    pending = 0;
-  };
-
+  let skipped = 0;
   for (const item of latest.values()) {
-    const ref = db.collection("containerStates").doc(item.key);
-    const existing = await ref.get();
-    const data = item.data;
-    const patch = buildContainerStateBackfillPatch({
-      existing: existing.data(),
-      eventId: item.id,
-      key: item.key,
-      status: item.status,
-      data
+    // The scan selects work only. Read both event roles and the projection
+    // again in one transaction, so a concurrent edit cannot be overwritten.
+    const written = await db.runTransaction(async (transaction) => {
+      const ref = db.collection("containerStates").doc(item.key);
+      const [existing, destination, source] = await Promise.all([
+        transaction.get(ref),
+        transaction.get(
+          db.collection("events").where("container", "==", item.data.container)
+        ),
+        transaction.get(
+          db
+            .collection("events")
+            .where("sourceContainer", "==", item.data.container)
+        )
+      ]);
+      const records = Array.from(
+        new Map(
+          [...destination.docs, ...source.docs].map((doc) => [
+            doc.id,
+            { id: doc.id, data: doc.data() }
+          ])
+        ).values()
+      );
+      const current = buildCandidate(
+        item.data.container,
+        records.filter((record) => !record.data.deleted)
+      );
+      if (!current) return false;
+      const patch = buildContainerStateBackfillPatch({
+        existing: existing.data(),
+        eventId: current.id,
+        key: current.key,
+        status: current.status,
+        data: current.data
+      });
+      if (
+        !patch ||
+        (existing.exists && patch.version === existing.data().version)
+      ) {
+        return false;
+      }
+      transaction.set(ref, {
+        ...patch,
+        updatedAt: FieldValue.serverTimestamp()
+      });
+      return true;
     });
-    if (!patch) {
-      continue;
-    }
-    batch.set(ref, patch);
-    writes += 1;
-    pending += 1;
-    if (pending >= WRITE_BATCH_SIZE) await flush();
+    if (written) writes += 1;
+    else skipped += 1;
   }
-
-  await flush();
-  return writes;
+  return { writes, skipped };
 }
 
 function printHelp() {
@@ -339,16 +363,11 @@ export async function main(argv = process.argv.slice(2)) {
       return;
     }
 
-    const writes = await writeStates(db, result.latest);
+    const outcome = await writeStates(db, result.latest);
     const finalCount = (
       await db.collection("containerStates").count().get()
     ).data().count;
-    if (finalCount < result.latest.size) {
-      throw new Error(
-        "Verificação final encontrou menos estados que o esperado."
-      );
-    }
-    console.log(JSON.stringify({ writes, finalCount }, null, 2));
+    console.log(JSON.stringify({ ...outcome, finalCount }, null, 2));
   } finally {
     await deleteApp(app);
   }

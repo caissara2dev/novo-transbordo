@@ -116,6 +116,13 @@ Listagens usam filtros Firestore e paginação por cursor antes de impor limites
 Não é permitido buscar um lote arbitrário e aplicar visibilidade ou filtros
 somente em memória.
 
+O histórico de um container pagina os dois papéis pela mesma ordem operacional.
+Uma passagem de origem usa o último destino anterior do mesmo ciclo como contexto
+para resolver Parcial/Pulmão, compartilhando a regra do planejador. Esse contexto
+não concede visibilidade adicional no histórico por operador. Os resumos dos
+lançamentos seguem no máximo 20 predecessores por ID; a reconstrução integral
+fica nas mutações, reparações e no fallback de projeção ainda não materializada.
+
 ## Identidade e autorização
 
 ### Cadastro

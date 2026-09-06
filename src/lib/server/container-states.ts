@@ -1,7 +1,7 @@
-import { planEffectsForContainer } from "@/lib/domain/container-effects";
+export { getContainerHistory } from "./container-history";
 import { TRANSFER_SOURCE_STATUSES } from "@/lib/domain/container-transfer";
 import { FieldPath, Timestamp, Transaction } from "firebase-admin/firestore";
-import { randomUUID } from "node:crypto";
+import { availableStatusesFor } from "@/lib/domain/container-timeline";
 import { normalizeContainer } from "@/lib/domain/identifiers";
 import { HttpError } from "@/lib/domain/errors";
 import {
@@ -41,35 +41,11 @@ export type ContainerLookupResult = {
   requiresNewCycleConfirmation: boolean;
 };
 
-function toMillis(value: unknown): number {
-  if (value instanceof Timestamp) return value.toMillis();
-  if (value instanceof Date) return value.getTime();
-  if (value && typeof value === "object" && "toMillis" in value) {
-    return Number((value as { toMillis: () => number }).toMillis());
-  }
-  if (typeof value === "string") {
-    const parsed = Date.parse(value);
-    return Number.isFinite(parsed) ? parsed : 0;
-  }
-  return 0;
-}
-
 export {
   assertExpectedContainerStateVersion,
   containerDocumentKey,
   eventContainerStatus
 } from "@/lib/server/container-state-core";
-
-export function compareOperationalOrder(
-  candidateOperationalAt: unknown,
-  candidateCreatedAt: unknown,
-  current: ContainerStateView
-): number {
-  const operationalDelta =
-    toMillis(candidateOperationalAt) - toMillis(current.operationalAt);
-  if (operationalDelta !== 0) return operationalDelta;
-  return toMillis(candidateCreatedAt) - toMillis(current.eventCreatedAt);
-}
 
 export async function latestEventState(
   container: string
@@ -121,25 +97,6 @@ export async function getCurrentContainerState(
   return latestEventState(container);
 }
 
-export function availableStatusesFor(
-  current: ContainerStateView | null,
-  startsNewCycle = false
-): ContainerStatus[] {
-  if (!current || startsNewCycle) {
-    return ["FULL", "PARTIAL", "BUFFER"];
-  }
-
-  if (current.status === "BLEND_FULL" || current.status === "BLEND_PARTIAL") {
-    return ["BLEND_FULL", "BLEND_PARTIAL"];
-  }
-
-  if (current.status === "PARTIAL" || current.status === "BUFFER") {
-    return ["FULL", "PARTIAL", "BUFFER", "BLEND_FULL", "BLEND_PARTIAL"];
-  }
-
-  return ["FULL", "PARTIAL", "BUFFER"];
-}
-
 export async function lookupContainer(
   rawContainer: string
 ): Promise<ContainerLookupResult> {
@@ -155,63 +112,6 @@ export async function lookupContainer(
     availableStatuses: availableStatusesFor(current),
     requiresNewCycleConfirmation:
       current?.status === "FULL" || current?.status === "BLEND_FULL"
-  };
-}
-
-export function resolveContainerTransition(params: {
-  current: ContainerStateView | null;
-  status: ContainerStatus;
-  clientId: string;
-  startsNewCycle: boolean;
-}): { cycleId: string; previousEventId: string | null } {
-  const { current, status, clientId, startsNewCycle } = params;
-  const isBlend = status === "BLEND_FULL" || status === "BLEND_PARTIAL";
-
-  if (!current) {
-    if (isBlend) {
-      throw new HttpError(
-        400,
-        "Blend exige um container Parcial ou Pulmão anterior."
-      );
-    }
-    return { cycleId: randomUUID(), previousEventId: null };
-  }
-
-  if (startsNewCycle) {
-    if (isBlend) {
-      throw new HttpError(
-        400,
-        "Um novo ciclo não pode começar diretamente como Blend."
-      );
-    }
-    return { cycleId: randomUUID(), previousEventId: null };
-  }
-
-  if (current.status === "FULL" || current.status === "BLEND_FULL") {
-    throw new HttpError(
-      409,
-      "Este container estava cheio. Confirme que foi esvaziado para iniciar um novo ciclo."
-    );
-  }
-
-  const currentIsBlend = current.status === "BLEND_PARTIAL";
-  if (currentIsBlend && !isBlend) {
-    throw new HttpError(
-      400,
-      "Um Blend não pode voltar a ser carga simples no mesmo ciclo."
-    );
-  }
-
-  if (isBlend && current.clientId !== clientId) {
-    throw new HttpError(
-      400,
-      "Blend só pode ser formado com cargas do mesmo cliente."
-    );
-  }
-
-  return {
-    cycleId: current.cycleId,
-    previousEventId: current.latestEventId
   };
 }
 
@@ -354,65 +254,4 @@ export async function listContainerStates(params: {
       : null,
     incomplete: scan.incomplete
   };
-}
-
-export async function getContainerHistory(rawContainer: string): Promise<
-  Array<{
-    id: string;
-    status: ContainerStateDoc["status"];
-    containerRole: "DESTINATION" | "SOURCE";
-    relatedContainer: string | null;
-    [key: string]: unknown;
-  }>
-> {
-  const container = normalizeContainer(rawContainer);
-  if (!container) {
-    throw new HttpError(400, "Container inválido.");
-  }
-
-  const [destinationSnap, sourceSnap] = await Promise.all([
-    adminDb
-      .collection("events")
-      .where("container", "==", container)
-      .where("deleted", "==", false)
-      .orderBy("endAt", "desc")
-      .orderBy("createdAt", "desc")
-      .get(),
-    adminDb
-      .collection("events")
-      .where("sourceContainer", "==", container)
-      .where("deleted", "==", false)
-      .orderBy("endAt", "desc")
-      .orderBy("createdAt", "desc")
-      .get()
-  ]);
-  const byId = new Map(
-    [...destinationSnap.docs, ...sourceSnap.docs].map((doc) => [doc.id, doc])
-  );
-
-  const { effects } = planEffectsForContainer(
-    container,
-    Array.from(byId.values()).map((doc) => ({
-      id: doc.id,
-      data: doc.data() as EventDoc
-    })),
-    randomUUID
-  );
-  return effects
-    .slice()
-    .sort(
-      (a, b) =>
-        b.operationalAtMs - a.operationalAtMs ||
-        b.createdAtMs - a.createdAtMs ||
-        b.id.localeCompare(a.id)
-    )
-    .map((effect) => ({
-      id: effect.id,
-      ...effect.data,
-      status: effect.status,
-      containerCycleId: effect.containerCycleId,
-      previousContainerEventId: effect.previousContainerEventId,
-      containerRole: effect.role,
-      relatedContainer: effect.relatedContainer
-    }));
 }

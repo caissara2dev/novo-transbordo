@@ -32,3 +32,8 @@ export function buildContainerStateBackfillPatch(params: {
 }): (Record<string, unknown> & { version: number }) | null;
 
 export function main(argv?: string[]): Promise<void>;
+
+export function writeStates(
+  db: import("firebase-admin/firestore").Firestore,
+  latest: ReturnType<typeof buildContainerStateBackfillCandidates>
+): Promise<{ writes: number; skipped: number }>;

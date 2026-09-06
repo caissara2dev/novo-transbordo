@@ -168,8 +168,12 @@ Antes de produção, registre a tag/commit estável atual e confirme que o rollb
 está disponível. Em caso de falha:
 
 1. interrompa a promoção e preserve evidências;
-2. reverta a aplicação para o último rollout estável do Firebase App Hosting;
-3. abra um PR de `git revert` do commit problemático;
+2. após a primeira transferência entre containers, republique uma versão
+   compatível v2.5.0 com `CONTAINER_TRANSFERS_ENABLED=false`, conforme a
+   [recuperação compatível](docs/OPERACAO_LOCAL.md#recuperação-compatível-após-a-primeira-transferência);
+   nos demais casos, restaure o último rollout estável compatível;
+3. abra um PR de correção ou `git revert`, preservando a leitura dos contratos
+   já persistidos e os bloqueios da flag;
 4. execute novamente todos os gates e faça smoke test;
 5. restaure regras anteriores somente por deploy revisado;
 6. mantenha índices compatíveis durante o rollback — não exclua índices como

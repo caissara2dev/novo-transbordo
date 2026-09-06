@@ -143,7 +143,7 @@ export function projectionFromPlan(params: {
       (left, right) =>
         left.operationalAtMs - right.operationalAtMs ||
         left.createdAtMs - right.createdAtMs ||
-        left.id.localeCompare(right.id)
+        (left.id < right.id ? -1 : left.id > right.id ? 1 : 0)
     );
   const previousWithPlate = [...currentCycleEffects]
     .reverse()

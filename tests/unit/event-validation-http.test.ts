@@ -53,6 +53,7 @@ describe("event semantic validation HTTP contract", () => {
       sourceContainer: "MSCU6639870",
       sourceContainerEmptied: true,
       expectedSourceContainerStateVersion: 4,
+      expectedContainerStateVersion: 0,
       notes: null
     } as const;
 
@@ -64,5 +65,8 @@ describe("event semantic validation HTTP contract", () => {
     expect(() =>
       eventMutationBodySchema.parse({ ...payload, sourceWeightKg: 12000 })
     ).toThrow();
+    expect(() => validateEventInput({ ...payload, expectedContainerStateVersion: null })).toThrow("container de destino");
+    expect(() => validateEventInput({ ...payload, expectedContainerStateVersion: undefined })).toThrow("container de destino");
+    expect(validateEventInput(payload).event.expectedContainerStateVersion).toBe(0);
   });
 });

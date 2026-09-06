@@ -401,6 +401,7 @@ export function EventFormFields({
           (form.category === "PRODUTIVO" &&
             form.loadSourceType === "BUFFER_CONTAINER" &&
             (!containerTransfersEnabled ||
+              form.expectedContainerStateVersion === null ||
               form.sourceContainerEmptied === null ||
               !form.sourceContainer ||
               formatContainerForInput(form.sourceContainer) ===

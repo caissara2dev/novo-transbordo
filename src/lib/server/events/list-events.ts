@@ -5,10 +5,7 @@ import {
 } from "@/lib/domain/container-cycle-history";
 import { matchesOperationalHistory } from "@/lib/domain/event-order";
 import { adminDb } from "@/lib/firebase/admin";
-import {
-  eventContainerStatus,
-  getContainerHistory
-} from "@/lib/server/container-states";
+import { eventContainerStatus } from "@/lib/server/container-states";
 import { EventFilters } from "@/lib/server/filters";
 import {
   decodePaginationCursor,
@@ -18,6 +15,8 @@ import {
   scanFilteredPage
 } from "@/lib/server/pagination";
 import { EventDoc, UserDoc } from "@/types/domain";
+
+import { readContainerPassage } from "@/lib/server/container-history";
 
 const MAX_PREVIOUS_CONTAINER_PASSAGES = 20;
 
@@ -115,56 +114,52 @@ async function previousContainerPassagesForEvents(params: {
   role: UserDoc["role"];
   uid: string;
 }) {
-  const histories = new Map<string, Map<string, ContainerCycleHistoryEntry>>();
+  const documents = new Map<string, Promise<EventDoc | null>>();
+  const passages = new Map<string, ReturnType<typeof readContainerPassage>>();
   const result = new Map<
     string,
     ReturnType<typeof collectPreviousContainerPassages>
   >();
   for (const event of params.events) {
     const current = containerHistoryEntry(event.id, event);
-    if (!current?.previousContainerEventId || !event.container) {
-      result.set(event.id, []);
-      continue;
-    }
-    let history = histories.get(event.container);
-    if (!history) {
-      const entries = await getContainerHistory(event.container);
-      history = new Map(
-        entries
-          .filter((entry) =>
-            canReadContainerPassage(
-              entry as unknown as EventDoc,
-              params.role,
-              params.uid
-            )
-          )
-          .map((entry) => {
-            const data = entry as unknown as EventDoc;
-            return [
-              entry.id,
-              {
-                id: entry.id,
-                containerCycleId: data.containerCycleId || null,
-                previousContainerEventId: data.previousContainerEventId || null,
-                startTime: data.startTime,
-                endTime: data.endTime,
-                pump: data.pump,
-                plate: data.plate,
-                status: entry.status,
-                role: entry.containerRole,
-                relatedContainer: entry.relatedContainer,
-                deleted: false
-              }
-            ];
-          })
-      );
-      histories.set(event.container, history);
+    const history = new Map<string, ContainerCycleHistoryEntry>();
+    let previousId = current?.previousContainerEventId;
+    while (
+      current &&
+      event.container &&
+      previousId &&
+      history.size < MAX_PREVIOUS_CONTAINER_PASSAGES &&
+      !history.has(previousId)
+    ) {
+      let pending = documents.get(previousId);
+      if (!pending) {
+        pending = adminDb
+          .collection("events")
+          .doc(previousId)
+          .get()
+          .then((doc) => (doc.exists ? (doc.data() as EventDoc) : null));
+        documents.set(previousId, pending);
+      }
+      const data = await pending;
+      if (!data || !canReadContainerPassage(data, params.role, params.uid))
+        break;
+      const key = `${event.container}:${previousId}`;
+      let passage = passages.get(key);
+      if (!passage) {
+        passage = readContainerPassage(previousId, data, event.container);
+        passages.set(key, passage);
+      }
+      const entry = await passage;
+      if (!entry || entry.containerCycleId !== current.containerCycleId) break;
+      history.set(entry.id, {
+        ...entry,
+        role: entry.containerRole
+      });
+      previousId = entry.previousContainerEventId;
     }
     result.set(
       event.id,
-      collectPreviousContainerPassages(current, history).slice(
-        -MAX_PREVIOUS_CONTAINER_PASSAGES
-      )
+      current ? collectPreviousContainerPassages(current, history) : []
     );
   }
   return result;

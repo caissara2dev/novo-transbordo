@@ -160,6 +160,12 @@ export function validateEventInput(raw: unknown): EventValidationResult {
         "Atualize o estado do container de origem antes de salvar."
       );
     }
+    if (normalized.expectedContainerStateVersion === null) {
+      throw new HttpError(
+        400,
+        "Atualize o estado do container de destino antes de salvar."
+      );
+    }
   }
 
   if (rules.requiresNotes && !normalized.notes) {
