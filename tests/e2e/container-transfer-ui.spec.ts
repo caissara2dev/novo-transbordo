@@ -393,7 +393,8 @@ test("shows the source instead of a plate in global and container histories", as
     loadSourceType: "BUFFER_CONTAINER",
     sourceContainer: "ABCU1234560",
     sourceContainerEmptied: true,
-    sourceContainerStateVersion: 5,
+    sourceContainerStateVersion: null,
+    containerStateVersion: 9,
     sourceContainerCycleId: "historical-source-cycle",
     notes: null,
     createdAt: "2026-08-13T11:20:00.000Z",
@@ -485,6 +486,13 @@ test("shows the source instead of a plate in global and container histories", as
   await expect(
     editPanel.getByLabel("Placa ou container de origem *")
   ).toHaveValue("ABCU1234560");
+  await expect(
+    editPanel.getByText("Linha do tempo contínua. Nenhuma ociosidade será criada.")
+  ).toBeVisible();
+  await expect(editPanel.getByText("Consultando…", { exact: true })).toHaveCount(0);
+  await expect(
+    editPanel.getByRole("button", { name: "Salvar edição" })
+  ).toBeDisabled();
   await editPanel
     .getByRole("button", { name: "Atualizar estado da origem" })
     .click();

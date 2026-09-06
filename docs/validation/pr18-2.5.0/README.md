@@ -1,11 +1,14 @@
 # Homologação da origem automática — PR #18 / 2.5.0
 
-Data: 2026-09-06. Código homologado: `2b6178d6392c6b1b6bee87f433963952c4599493`.
+Registro inicial: 2026-09-06. Código homologado: `2b6178d6392c6b1b6bee87f433963952c4599493`.
 
-**Escopo desta entrega: staging e revisão.** O responsável solicitou avaliar a
+**Escopo do registro inicial: staging e revisão.** O responsável solicitou avaliar a
 preview antes de autorizar produção. Não houve merge, backfill de produção,
 deploy no Firebase App Hosting, tag ou GitHub Release. A base de produção
 permanece `20497bae07fd861a355000ed613a380d32dc149e` / 2.4.0.
+
+A [retomada autorizada para produção](#retomada-autorizada-para-produção) está
+registrada ao final deste documento.
 
 ## Aplicação publicada
 
@@ -160,7 +163,7 @@ O Codex do GitHub identificou o vínculo de ciclo e confirmou ausência de novos
 problemas maiores após `880a1f5`. As revisões locais de **Standards** e **Spec**
 conferiram as correções seguintes, sem achados pendentes no escopo revisado.
 
-**Pendência externa:** o pedido de revisão incremental do CodeRabbit no código
+**Pendência no registro inicial:** o pedido de revisão incremental do CodeRabbit no código
 corrigido recebeu `Review rate limited` às 07:38:47 UTC. O status verde desse
 check não equivale à revisão do commit final. Repetir a conferência quando o
 limite permitir, antes de qualquer merge. A PR permanece aberta e sem merge
@@ -184,3 +187,42 @@ revisar dry-run e contagens do backfill de produção, executar o backfill
 idempotente, incorporar a PR, acompanhar Firebase App Hosting, realizar smoke
 test sem fixtures e publicar `v2.5.0`. Nenhuma dessas ações de produção foi
 executada nesta homologação.
+
+## Retomada autorizada para produção
+
+Após aprovar a preview, o responsável autorizou explicitamente o merge e o
+deploy em 2026-09-06. A restrição inicial de staging deixou de se aplicar.
+
+O CodeRabbit concluiu a revisão incremental de `51014bb` até `cd14167` às
+17:28 UTC. O único novo apontamento foi a ausência da guarda de versão nula
+da origem no botão de salvar. O servidor já rejeitava o caso antes de qualquer
+mutação. A interface agora também bloqueia o envio até atualizar a origem e
+reconfirmar o esvaziamento.
+
+O teste de navegador reproduziu a falha antes da correção e passou depois:
+a edição histórica começa sem versão da origem, aguarda as demais consultas,
+mantém o botão desabilitado e, após atualizar/reconfirmar, envia a versão 9
+preservando o ciclo histórico. As revisões locais independentes de Standards
+e Spec não encontraram pendências nessa correção. `npm run verify` completo
+passou novamente: 373 testes unitários/integração, 17 Firestore e 15 E2E,
+build, lint, tipos, índices e auditorias. Nenhuma alteração de API ou domínio
+foi necessária nesta rodada.
+
+Preparação de produção concluída até este registro:
+
+- Versão estável registrada: `20497bae`, build `build-2026-09-04-001`, com 100%
+  do tráfego no Firebase App Hosting.
+- Regras remotas idênticas ao arquivo aprovado. Um índice de origem adicionado;
+  os 18 índices necessários foram confirmados `READY`, sem remover índices
+  ou overrides existentes.
+- Dry-run: 1.499 eventos inspecionados, 1.038 elegíveis, 746 projeções válidas;
+  11 identificadores legados inválidos preservados.
+- Primeira execução: 746 atualizações, total de 757 projeções. Comparação por
+  hashes confirmou os 1.499 eventos originais intactos e nenhum evento novo.
+  Os 11 estados legados também permaneceram idênticos.
+- Estados atuais preservados: 29 Parciais, 7 Pulmões e 721 Cheios.
+
+A evidência final de idempotência, commit incorporado, rollout, smoke test e
+recuperação será anexada à [release v2.5.0](https://github.com/caissara2dev/novo-transbordo/releases/tag/v2.5.0)
+após concluir os gates de publicação. A versão compatível com a flag desligada
+continua sendo o procedimento de recuperação após existirem transferências.

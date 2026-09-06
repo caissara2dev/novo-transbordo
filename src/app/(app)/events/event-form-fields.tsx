@@ -405,6 +405,7 @@ export function EventFormFields({
             form.loadSourceType === "BUFFER_CONTAINER" &&
             (!containerTransfersEnabled ||
               form.expectedContainerStateVersion === null ||
+              form.expectedSourceContainerStateVersion === null ||
               form.sourceContainerEmptied === null ||
               !form.sourceContainer ||
               formatContainerForInput(form.sourceContainer) ===
