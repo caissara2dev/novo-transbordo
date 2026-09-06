@@ -1,6 +1,6 @@
 import { FieldPath, Timestamp } from "firebase-admin/firestore";
 import { effectForContainer } from "@/lib/domain/container-effects";
-import { resolveTransferSourceStatus } from "@/lib/domain/container-transfer";
+import { isTransferSourceStatus, resolveTransferSourceStatus } from "@/lib/domain/container-transfer";
 import { normalizeContainer } from "@/lib/domain/identifiers";
 import { HttpError } from "@/lib/domain/errors";
 import { adminDb } from "@/lib/firebase/admin";
@@ -25,6 +25,15 @@ function historyQuery(
     .orderBy(FieldPath.documentId(), "desc");
 }
 
+function historyEffect(id: string, data: EventDoc, container: string) {
+  try {
+    return effectForContainer(id, data, container);
+  } catch (error) {
+    if (error instanceof HttpError && error.status === 400) return null;
+    throw error;
+  }
+}
+
 // Read persisted cycle links, resolving SOURCE from its preceding destination.
 // Consecutive non-emptying SOURCE passages preserve that destination's state.
 // This context is internal; callers still apply their passage visibility rules.
@@ -33,7 +42,7 @@ export async function readContainerPassage(
   data: EventDoc,
   container: string
 ) {
-  const effect = effectForContainer(id, data, container);
+  const effect = historyEffect(id, data, container);
   if (!effect || data.deleted) return null;
   let status = effect.status;
   const source = effect.role === "SOURCE";
@@ -44,7 +53,7 @@ export async function readContainerPassage(
       .get();
     const anchorDoc = anchorSnap.docs[0];
     const anchor = anchorDoc
-      ? effectForContainer(
+      ? historyEffect(
           anchorDoc.id,
           anchorDoc.data() as EventDoc,
           container
@@ -53,12 +62,12 @@ export async function readContainerPassage(
     if (
       !anchor ||
       !effect.existingCycleId ||
-      anchor.existingCycleId !== effect.existingCycleId
+      anchor.existingCycleId !== effect.existingCycleId ||
+      !isTransferSourceStatus(anchor.status) ||
+      anchor.clientId !== effect.clientId ||
+      typeof data.sourceContainerEmptied !== "boolean"
     ) {
-      throw new HttpError(
-        409,
-        "Não foi possível resolver o ciclo da origem. Atualize o histórico ou solicite a revisão da linha do tempo."
-      );
+      return null;
     }
     status = resolveTransferSourceStatus({
       previousStatus: anchor.status,
@@ -149,6 +158,6 @@ export async function getContainerHistory(
             documentId: last.id
           })
         : null,
-    incomplete: false
+    incomplete: items.length !== page.length
   };
 }

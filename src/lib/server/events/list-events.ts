@@ -64,7 +64,7 @@ function eventListItem(doc: FirebaseFirestore.QueryDocumentSnapshot) {
     sourceContainer: data.sourceContainer || null,
     sourceContainerEmptied:
       data.loadSourceType === "BUFFER_CONTAINER"
-        ? Boolean(data.sourceContainerEmptied)
+        ? data.sourceContainerEmptied ?? null
         : null,
     sourceContainerCycleId: data.sourceContainerCycleId || null,
     previousSourceContainerEventId: data.previousSourceContainerEventId || null,
@@ -118,12 +118,13 @@ async function previousContainerPassagesForEvents(params: {
   const passages = new Map<string, ReturnType<typeof readContainerPassage>>();
   const result = new Map<
     string,
-    ReturnType<typeof collectPreviousContainerPassages>
+    { passages: ReturnType<typeof collectPreviousContainerPassages>; incomplete: boolean }
   >();
-  for (const event of params.events) {
+  await Promise.all(params.events.map(async (event) => {
     const current = containerHistoryEntry(event.id, event);
     const history = new Map<string, ContainerCycleHistoryEntry>();
     let previousId = current?.previousContainerEventId;
+    let incomplete = false;
     while (
       current &&
       event.container &&
@@ -150,7 +151,11 @@ async function previousContainerPassagesForEvents(params: {
         passages.set(key, passage);
       }
       const entry = await passage;
-      if (!entry || entry.containerCycleId !== current.containerCycleId) break;
+      if (!entry) {
+        incomplete = true;
+        break;
+      }
+      if (entry.containerCycleId !== current.containerCycleId) break;
       history.set(entry.id, {
         ...entry,
         role: entry.containerRole
@@ -159,9 +164,12 @@ async function previousContainerPassagesForEvents(params: {
     }
     result.set(
       event.id,
-      current ? collectPreviousContainerPassages(current, history) : []
+      {
+        passages: current ? collectPreviousContainerPassages(current, history) : [],
+        incomplete
+      }
     );
-  }
+  }));
   return result;
 }
 
@@ -290,7 +298,10 @@ export async function listEvents(params: {
   return {
     items: visibleEvents.map((event) => ({
       ...event,
-      previousContainerPassages: previousPassagesByEventId.get(event.id) || []
+      previousContainerPassages: previousPassagesByEventId.get(event.id)?.passages || [],
+      ...(previousPassagesByEventId.get(event.id)?.incomplete
+        ? { warnings: ["Algumas passagens anteriores não puderam ser resolvidas. Solicite a revisão da linha do tempo."] }
+        : {})
     })),
     nextCursor,
     incomplete: scan.incomplete

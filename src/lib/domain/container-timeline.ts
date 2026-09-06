@@ -37,6 +37,17 @@ export type ContainerTimelinePlan = {
 // Firestore allows 500 writes per transaction. Keeping 50 writes in reserve
 // leaves room for locks, revisions and automatic gap reconciliation.
 export const TIMELINE_TRANSACTION_WRITE_LIMIT = 450;
+// Online reconciliation must read the complete history or fail before planning.
+export const TIMELINE_TRANSACTION_EVENT_READ_LIMIT = 1_000;
+
+export function assertTimelineReconciliationEventBudget(eventCount: number): void {
+  if (eventCount > TIMELINE_TRANSACTION_EVENT_READ_LIMIT) {
+    throw new HttpError(
+      409,
+      `O histórico do container excede o limite de ${TIMELINE_TRANSACTION_EVENT_READ_LIMIT} eventos para reconciliação online. Solicite uma revisão administrativa antes de alterar esta linha do tempo.`
+    );
+  }
+}
 
 export function assertTimelineTransactionWriteBudget(params: {
   lifecycleWrites: number;

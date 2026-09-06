@@ -298,15 +298,20 @@ export function EventsHistory({
             {item.loadSourceType === "BUFFER_CONTAINER" ? (
               <p className="history-meta">
                 Container de origem{" "}
-                {item.sourceContainerEmptied
+                {item.sourceContainerEmptied === true
                   ? "esvaziado pela transferência"
-                  : "com carga remanescente"}
+                  : item.sourceContainerEmptied === false
+                    ? "com carga remanescente"
+                    : "com esvaziamento não informado"}
                 .
               </p>
             ) : null}
             <p className="history-meta">
               Criado por: {item.createdByEmail}
             </p>
+            {item.warnings?.map((warning) => (
+              <p className="notice warn" role="alert" key={warning}>{warning}</p>
+            ))}
             {item.previousContainerPassages?.length ? (
               <details className="container-history-details">
                 <summary>

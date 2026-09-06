@@ -118,7 +118,7 @@ describe("public container state service", () => {
     inMemoryAdminDb.seed("events", "transfer", transfer);
     expect((await getContainerHistory(CONTAINER, { limit: 1 })).items[0]).toMatchObject({ status: "BUFFER", containerRole: "SOURCE" });
     inMemoryAdminDb.seed("events", "transfer", { ...transfer, sourceContainerCycleId: "wrong-cycle" });
-    await expect(getContainerHistory(CONTAINER, { limit: 1 })).rejects.toThrow("resolver o ciclo");
+    await expect(getContainerHistory(CONTAINER, { limit: 1 })).resolves.toMatchObject({ items: [], incomplete: true });
   });
 
   it("derives legacy and explicit statuses and normalizes document keys", () => {

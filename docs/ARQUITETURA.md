@@ -140,8 +140,11 @@ checagem do frontend é apenas experiência de usuário, não controle de acesso
 
 ### Papéis
 
-- `OPERATOR`: operação básica e somente eventos próprios; recebe apenas o
-  resumo mínimo necessário de estado de contêiner.
+- `OPERATOR`: operação básica; `/api/events` lista somente eventos próprios.
+  A consulta de containers e `/api/containers/history` são compartilhadas entre
+  perfis aprovados, para acompanhar o ciclo operacional entre bombas/operadores.
+  Esse histórico inclui as passagens e seus metadados de auditoria, conforme o
+  contrato anterior à transferência.
 - `SUPERVISOR`: visão global e mutações permitidas pelas janelas operacionais.
 - `DISPLAY`: somente perfil e resumo do display.
 - `ADMIN`: gestão, restauração e configuração.

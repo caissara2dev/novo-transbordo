@@ -1,6 +1,6 @@
 import { FieldValue, Transaction } from "firebase-admin/firestore";
 import { normalizeContainer } from "@/lib/domain/identifiers";
-import { assertTimelineTransactionWriteBudget } from "@/lib/domain/container-timeline";
+import { assertTimelineReconciliationEventBudget, assertTimelineTransactionWriteBudget, TIMELINE_TRANSACTION_EVENT_READ_LIMIT } from "@/lib/domain/container-timeline";
 import {
   containersAffectedBy,
   planEffectsForContainer,
@@ -115,16 +115,22 @@ export async function reconcileEventContainerEffectsInTransaction(params: {
       const destinationQuery = adminDb
         .collection("events")
         .where("container", "==", container)
-        .where("deleted", "==", false);
+        .where("deleted", "==", false)
+        .limit(TIMELINE_TRANSACTION_EVENT_READ_LIMIT + 1);
       const sourceQuery = adminDb
         .collection("events")
         .where("sourceContainer", "==", container)
-        .where("deleted", "==", false);
+        .where("deleted", "==", false)
+        .limit(TIMELINE_TRANSACTION_EVENT_READ_LIMIT + 1);
       const [stateSnap, destinationSnap, sourceSnap] = await Promise.all([
         params.transaction.get(stateRef),
         params.transaction.get(destinationQuery),
         params.transaction.get(sourceQuery)
       ]);
+      const distinctEvents = new Set(
+        [...destinationSnap.docs, ...sourceSnap.docs].map((doc) => doc.id)
+      );
+      assertTimelineReconciliationEventBudget(distinctEvents.size);
       return { container, stateRef, stateSnap, destinationSnap, sourceSnap };
     })
   );
@@ -212,6 +218,7 @@ export async function reconcileEventContainerEffectsInTransaction(params: {
       containersAffectedBy(params.after).includes(entry.container)
         ? [...persistedRecords, { id: params.eventId, data: params.after }]
         : persistedRecords;
+    assertTimelineReconciliationEventBudget(records.length);
     const eventsById = new Map(
       records.map(({ id, data }) => [id, data] as const)
     );

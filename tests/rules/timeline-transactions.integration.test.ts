@@ -170,6 +170,12 @@ describe("timeline transactions against the Firestore Emulator", () => {
     async (sourceStatus) => {
       const sourceContainer = "MSCU 663987-0";
       const sourceEvent = event({
+        shiftDate: "2026-07-26",
+        shiftType: "NOITE",
+        startTime: "05:49",
+        endTime: "05:59",
+        startAt: Timestamp.fromDate(new Date("2026-07-27T08:49:00.000Z")),
+        durationMinutes: 10,
         container: sourceContainer,
         containerStatus: sourceStatus,
         containerReason: "Reserva operacional",

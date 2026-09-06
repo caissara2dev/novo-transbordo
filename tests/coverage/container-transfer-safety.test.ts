@@ -16,6 +16,7 @@ import {
 } from "@/lib/server/container-states";
 import { containerTransfersEnabled } from "@/lib/server/container-transfer-capability";
 import { buildContainerStateBackfillCandidates } from "../../scripts/backfill-container-states.mjs";
+import { TIMELINE_TRANSACTION_EVENT_READ_LIMIT } from "@/lib/domain/container-timeline";
 import * as policies from "@/lib/server/events/policies";
 
 const actor = {
@@ -224,6 +225,61 @@ describe("transfer replay and rollback through event commands", () => {
     await restoreEvent(transfer.id, actor, await previewEventRestore(transfer.id));
     expect(inMemoryAdminDb.read("events", transfer.id)?.sourceContainerCycleId).toBe(originalCycle);
     expect((await getCurrentContainerState("MSCU6639870"))!.cycleId).toBe(current!.cycleId);
+  });
+  it.each(["destination", "source", "combined"])("rejects overflowing %s history without planning a truncated timeline", async (roles) => {
+    const source = await create(input());
+    const record = inMemoryAdminDb.read("events", source.id)!;
+    for (let index = 0; index < TIMELINE_TRANSACTION_EVENT_READ_LIMIT; index++) {
+      const isSource = roles === "source" || (roles === "combined" && index % 2 === 0);
+      inMemoryAdminDb.seed("events", `history-${index}`, {
+        ...record,
+        ...(isSource ? {
+          container: "ABCU 123456-0", loadSourceType: "BUFFER_CONTAINER",
+          sourceContainer: "MSCU 663987-0", sourceContainerEmptied: false,
+          sourceContainerCycleId: record.containerCycleId
+        } : {})
+      });
+    }
+    const before = await getCurrentContainerState("MSCU6639870");
+    await expect(create({ ...transferInput(), pump: "BOMBA_2" }))
+      .rejects.toThrow("excede o limite de 1000 eventos");
+    expect(await getCurrentContainerState("MSCU6639870")).toEqual(before);
+    expect(inMemoryAdminDb.entries("events")).toHaveLength(TIMELINE_TRANSACTION_EVENT_READ_LIMIT + 1);
+  });
+  it("preserves unknown emptying and warns about unresolved passages without losing valid events", async () => {
+    await create(input());
+    const transfer = await create(transferInput());
+    const follow = await create(input({ startTime: "06:20", endTime: "06:30", expectedContainerStateVersion: 2 }));
+    await inMemoryAdminDb.collection("events").doc(transfer.id).update({ sourceContainerEmptied: null });
+    const history = await getContainerHistory("MSCU6639870");
+    expect(history.incomplete).toBe(true);
+    expect(history.items).toHaveLength(2);
+    const page = await listEvents({ role: "ADMIN", uid: actor.uid, filters: {}, pagination: { limit: 20 } });
+    expect(page.items).toHaveLength(3);
+    expect(page.items.find(item => item.id === transfer.id)?.sourceContainerEmptied).toBeNull();
+    expect(page.items.find(item => item.id === follow.id)?.warnings).toEqual([
+      expect.stringContaining("passagens anteriores não puderam ser resolvidas")
+    ]);
+  });
+  it("keeps the pagination cursor when an inconsistent source passage is omitted", async () => {
+    await create(input());
+    const transfer = await create(transferInput());
+    await inMemoryAdminDb.collection("events").doc(transfer.id).update({ sourceContainerCycleId: "missing-cycle" });
+    const first = await getContainerHistory("MSCU6639870", { limit: 1 });
+    expect(first).toMatchObject({ items: [], incomplete: true });
+    expect(first.nextCursor).toBeTruthy();
+    const second = await getContainerHistory("MSCU6639870", { limit: 1, cursor: first.nextCursor! });
+    expect(second.items).toHaveLength(1);
+    expect(second.incomplete).toBe(false);
+  });
+  it("keeps valid passages visible when a transfer has an invalid counterpart identifier", async () => {
+    await create(input());
+    const transfer = await create(transferInput());
+    await inMemoryAdminDb.collection("events").doc(transfer.id).update({ container: "TEST 123456-7" });
+    const history = await getContainerHistory("MSCU6639870");
+    expect(history.incomplete).toBe(true);
+    expect(history.items).toHaveLength(1);
+    expect(history.items[0].containerRole).toBe("DESTINATION");
   });
   it("defaults to disabled without configuration", () => {
     vi.stubEnv("CONTAINER_TRANSFERS_ENABLED", undefined);

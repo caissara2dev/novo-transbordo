@@ -566,3 +566,20 @@ A homologação inclui Pulmão e Parcial, com e sem esvaziamento, conflito de ve
 edição retroativa, exclusão/restauração, históricos dos dois containers e contagem
 única em relatórios/CSV. Use fixtures identificadas somente em staging. Produção
 recebe smoke test de navegação, consultas e logs, sem inserir dados fictícios.
+
+
+### Limite de reconciliação online
+
+A criação, edição, exclusão e restauração leem no máximo 1.001 documentos por
+papel e container para detectar excesso. Cada linha do tempo aceita até 1.000
+eventos distintos na reconciliação online. Ao exceder o limite, a operação
+retorna 409 antes de planejar ou gravar qualquer efeito; nenhum histórico é
+truncado para efetuar uma gravação. O container exige revisão administrativa
+para ampliar ou tratar essa linha do tempo. O limite de 450 escritas continua
+independente. O backfill administrativo mantém sua leitura completa e seu
+controle transacional próprios.
+
+Uma passagem SOURCE inconsistente não impede a leitura das demais. O histórico
+retorna `incomplete: true` e a interface solicita revisão da linha do tempo.
+A listagem global preserva o evento produtivo e sinaliza quando não consegue
+resolver suas passagens anteriores; esvaziamento ausente permanece desconhecido.

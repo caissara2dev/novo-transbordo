@@ -1,6 +1,8 @@
 import {
   ContainerCyclePassage,
   ContainerStateDoc,
+  ContainerEventRole,
+  LoadSourceType,
   ContainerStatus,
   EventDoc,
   GapPreview,
@@ -41,7 +43,7 @@ export type ContainerLookupResponse = {
 
 export type ContainerHistoryItem = EventApiItem & {
   status: ContainerStateDoc["status"];
-  containerRole: "DESTINATION" | "SOURCE";
+  containerRole: ContainerEventRole;
   relatedContainer: string | null;
 };
 
@@ -179,7 +181,7 @@ export type ReportDrilldownRow = {
   container: string | null;
   containerStatus: ContainerStatus | null;
   containerReason: string | null;
-  loadSourceType: "TRUCK" | "BUFFER_CONTAINER" | null;
+  loadSourceType: LoadSourceType | null;
   sourceContainer: string | null;
   sourceContainerEmptied: boolean | null;
   createdByEmail: string;

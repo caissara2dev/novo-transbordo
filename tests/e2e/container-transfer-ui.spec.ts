@@ -506,7 +506,9 @@ test("shows the source instead of a plate in global and container histories", as
               containerRole: "SOURCE",
               relatedContainer: "MATU7654321"
             }
-          ]
+          ],
+          incomplete: true,
+          nextCursor: null
         }
       })
     )
@@ -546,6 +548,7 @@ test("shows the source instead of a plate in global and container histories", as
   await page.getByRole("button", { name: /ABCU1234560/ }).click();
   const timeline = page.locator(".container-timeline-event");
   await expect(timeline).toContainText("Destino MATU7654321");
+  await expect(page.getByText(/Algumas passagens não puderam ser resolvidas/)).toBeVisible();
   await expect(timeline).toContainText(
     "Container de origem esvaziado pela transferência."
   );

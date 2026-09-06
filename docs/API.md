@@ -195,7 +195,8 @@ perspectiva de ambos os containers com:
   interno `TRANSFER_EMPTIED` para uma origem esvaziada.
 
 Aceita `limit=1..200` (padrão 50) e `cursor=<cursor opaco>`. `data` contém `items`,
-`nextCursor` e `incomplete` (falso nesta consulta). O cursor é vinculado ao
+`nextCursor` e `incomplete` (verdadeiro quando uma passagem inconsistente não
+pôde ser resolvida; a interface mostra um aviso sem descartar as demais). O cursor é vinculado ao
 container, e a ordem decrescente é `endAt`, `createdAt`, ID. Os dois papéis usam
 o mesmo cursor, sem duplicar a passagem. A visibilidade compartilhada para
 perfis aprovados permanece igual à consulta de containers.

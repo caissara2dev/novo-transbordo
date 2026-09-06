@@ -322,10 +322,13 @@ export class InMemoryFirestore {
     callback: (transaction: FakeTransaction) => Promise<T>
   ): Promise<T> {
     const before = this.cloneCollections();
+    const versionsBefore = new Map(this.versions);
     try {
       return await callback(new FakeTransaction(this));
     } catch (error) {
       this.restoreCollections(before);
+      this.versions.clear();
+      versionsBefore.forEach((version, path) => this.versions.set(path, version));
       throw error;
     }
   }

@@ -31,6 +31,7 @@ export default function ContainersPage() {
   const [items, setItems] = useState<ContainerStateApiItem[]>([]);
   const [history, setHistory] = useState<ContainerHistoryItem[]>([]);
   const [historyCursor, setHistoryCursor] = useState<string | null>(null);
+  const [historyIncomplete, setHistoryIncomplete] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [appliedList, setAppliedList] = useState<ContainerListSelection>({
@@ -146,6 +147,7 @@ export default function ContainersPage() {
     if (!cursor) {
       setHistory([]);
       setHistoryCursor(null);
+      setHistoryIncomplete(false);
     }
     setLoadingHistory(true);
     setError(null);
@@ -164,6 +166,7 @@ export default function ContainersPage() {
         ? Array.from(new Map([...current, ...(data.items || [])].map((item) => [item.id, item])).values())
         : data.items || []);
       setHistoryCursor(data.nextCursor || null);
+      setHistoryIncomplete((previous) => Boolean(data.incomplete) || Boolean(cursor && previous));
     } catch (err) {
       if (!request.isCurrent() || isAbortError(err)) {
         return;
@@ -277,6 +280,12 @@ export default function ContainersPage() {
             <span>Histórico do ciclo</span>
             <strong>{selected || "Selecione um container"}</strong>
           </div>
+          {historyIncomplete ? (
+            <p className="notice warn" role="alert">
+              Algumas passagens não puderam ser resolvidas. Os demais registros
+              continuam disponíveis; solicite a revisão da linha do tempo.
+            </p>
+          ) : null}
           {history.map((event, index) => (
             <article className="container-timeline-event" key={event.id}>
               <span className="timeline-index">{String(index + 1).padStart(2, "0")}</span>
