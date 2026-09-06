@@ -108,7 +108,7 @@ export function effectForContainer(
     legacyClosedCycleBoundary:
       role === "DESTINATION" &&
       !data.loadSourceType &&
-      !data.containerCycleId &&
+      (!data.containerCycleId || !data.containerStatus) &&
       !data.previousContainerEventId &&
       !data.startsNewContainerCycle &&
       (status === "FULL" || status === "BLEND_FULL")

@@ -543,6 +543,11 @@ com os eventos atuais dentro de uma transação, que também lê o estado existe
 Edições concorrentes provocam nova leitura transacional; resultados idênticos não
 alteram versão nem data. O resumo distingue `writes`, `skipped` e `finalCount`;
 um evento removido após a varredura não recria sua projeção.
+O relatório `skippedLegacy` identifica eventos anteriores ao contrato de origem
+cujos códigos não passam na validação ISO. Esses eventos são preservados e não
+geram uma nova projeção; não se corrige o dígito por suposição. Revise e registre
+essas exceções junto às contagens. Um código inválido em evento que já declara
+o contrato de origem continua interrompendo o backfill.
 
 ### Recuperação compatível após a primeira transferência
 

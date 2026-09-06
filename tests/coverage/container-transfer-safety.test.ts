@@ -67,6 +67,25 @@ describe("transfer replay and rollback through event commands", () => {
     });
   });
   afterEach(() => vi.unstubAllEnvs());
+  it.each(["delete", "restore"])("rejects %s after the selected event changes", async (operation) => {
+    await create(input());
+    const transfer = await create(transferInput());
+    const deletion = await prepareDeletionGap(transfer.id);
+    if (operation === "restore") await softDeleteEvent(transfer.id, "QA", actor, { gapVersion: deletion.preview.gapVersion });
+    const restore = operation === "restore" ? await previewEventRestore(transfer.id) : null;
+    const run = inMemoryAdminDb.runTransaction.bind(inMemoryAdminDb);
+    const transaction = vi.spyOn(inMemoryAdminDb, "runTransaction").mockImplementationOnce(async (callback) => {
+      await inMemoryAdminDb.collection("events").doc(transfer.id).update({ notes: "Alteração concorrente" });
+      return run(callback);
+    });
+    try {
+      await expect(operation === "restore"
+        ? restoreEvent(transfer.id, actor, restore!)
+        : softDeleteEvent(transfer.id, "QA", actor, { gapVersion: deletion.preview.gapVersion })
+      ).rejects.toThrow(operation === "restore" ? "mudou durante a restauração" : "mudou durante a exclusão");
+      expect(inMemoryAdminDb.read("events", transfer.id)?.deleted).toBe(operation === "restore");
+    } finally { transaction.mockRestore(); }
+  });
   it("rejects an edit whose event changed before the pump locks were read", async () => {
     await create(input());
     await create(input({ pump: "BOMBA_2", container: "TSTU2500019" }));

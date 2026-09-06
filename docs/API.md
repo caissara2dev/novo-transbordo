@@ -36,6 +36,10 @@ bloquear localmente a requisição.
 
 Retorna perfil atual.
 
+Inclui `containerTransfersEnabled`, disponibilidade da flag de servidor. Ausente
+ou falsa, a interface bloqueia transferências; a API também bloqueia mutações
+que afetem suas linhas do tempo, preservando leitura e operações independentes.
+
 `data`:
 - `profile` (`email`, `role`, `approved`, `active`, etc.)
 - `approvalContactPhone`
@@ -105,7 +109,8 @@ Payload base:
 - `containerReason` (obrigatorio para Parcial, Pulmao e Blend parcial)
 - `startsNewContainerCycle`
 - `blendConfirmed`
-- `expectedContainerStateVersion`
+- `expectedContainerStateVersion` (inteiro `>= 0` obrigatório em transferências;
+  `0` confirma que a consulta não encontrou projeção do destino)
 - `loadSourceType` (`TRUCK` ou `BUFFER_CONTAINER`; ausente em eventos legados
   equivale a `TRUCK`)
 - `sourceContainer` (obrigatório somente para `BUFFER_CONTAINER`)
@@ -121,7 +126,7 @@ Validacoes relevantes:
 - regras condicionais por categoria
 - sobreposicao por bomba
 - transicoes de ciclo e Blend somente para o mesmo cliente
-- transferência somente a partir de um container aberto como Pulmão
+- transferência somente a partir de um container aberto como Pulmão ou Parcial
 - origem e destino diferentes e pertencentes ao mesmo cliente
 - concorrencia otimista pelos estados atuais da origem e do destino
 - schema JSON estrito, incluindo justificativas de gaps; campos desconhecidos e
@@ -160,6 +165,11 @@ Aceita `query=<codigo>`, `status=<estado>`, `limit=1..200` e
 
 `data` contém `items`, `nextCursor` e `incomplete`.
 
+`scope=transfer-source` retorna somente Pulmão (`BUFFER`) e Parcial (`PARTIAL`).
+`excludeContainer=<codigo>` exclui o destino da busca. O cursor fica vinculado
+ao escopo, à busca, ao estado e ao destino excluído. A seleção da origem deve ser
+explícita e incluir sua versão observada; a busca não confirma automaticamente.
+
 ## GET /api/containers/lookup
 
 Consulta o estado atual e as transicoes permitidas para `container=<codigo>`.
@@ -175,6 +185,12 @@ perspectiva de ambos os containers com:
   consultado pela origem;
 - `status`: estado resultante naquela linha do tempo, inclusive o estado
   interno `TRANSFER_EMPTIED` para uma origem esvaziada.
+
+Aceita `limit=1..200` (padrão 50) e `cursor=<cursor opaco>`. `data` contém `items`,
+`nextCursor` e `incomplete` (falso nesta consulta). O cursor é vinculado ao
+container, e a ordem decrescente é `endAt`, `createdAt`, ID. Os dois papéis usam
+o mesmo cursor, sem duplicar a passagem. A visibilidade compartilhada para
+perfis aprovados permanece igual à consulta de containers.
 
 ## DELETE /api/events/:id
 

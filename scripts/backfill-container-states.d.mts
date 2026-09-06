@@ -33,6 +33,11 @@ export function buildContainerStateBackfillPatch(params: {
 
 export function main(argv?: string[]): Promise<void>;
 
+export function selectBackfillRecords(events: Array<{ id: string; data: Record<string, unknown> }>): {
+  records: Array<{ id: string; data: Record<string, unknown> }>;
+  skippedLegacy: Array<{ id: string; container: string; reason: string }>;
+};
+
 export function writeStates(
   db: import("firebase-admin/firestore").Firestore,
   latest: ReturnType<typeof buildContainerStateBackfillCandidates>

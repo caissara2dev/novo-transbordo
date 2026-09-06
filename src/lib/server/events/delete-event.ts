@@ -68,7 +68,12 @@ export async function softDeleteEvent(
     : [];
 
   await adminDb.runTransaction(async (transaction) => {
-    const lockSnap = await transaction.get(lockRef);
+    const [lockSnap, eventSnap] = await Promise.all([
+      transaction.get(lockRef), transaction.get(ref)
+    ]);
+    if (!eventSnap.exists || !eventSnap.updateTime?.isEqual(snap.updateTime!)) {
+      throw new HttpError(409, "O lançamento mudou durante a exclusão. Atualize e tente novamente.");
+    }
     const observedLockVersion = Number(lockSnap.data()?.version || 0);
     if (observedLockVersion !== expectedLockVersion) {
       throw new HttpError(

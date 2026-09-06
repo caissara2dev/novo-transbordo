@@ -317,7 +317,11 @@ export function ContainerStatusFields({
             onChange={(event) =>
               onChange({
                 startsNewContainerCycle: event.target.checked,
-                containerStatus: event.target.checked ? "FULL" : fields.containerStatus,
+                containerStatus: event.target.checked
+                  ? "FULL"
+                  : isBlend(current.status)
+                    ? current.status as ContainerStatus
+                    : fields.containerStatus,
                 containerReason: event.target.checked ? "" : fields.containerReason,
                 blendConfirmed: false
               })

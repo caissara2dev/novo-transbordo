@@ -158,7 +158,12 @@ export async function restoreEvent(
     ignoreEventIds: ignoredEventIds
   });
   await adminDb.runTransaction(async (transaction) => {
-    const lockSnap = await transaction.get(lockRef);
+    const [lockSnap, eventSnap] = await Promise.all([
+      transaction.get(lockRef), transaction.get(ref)
+    ]);
+    if (!eventSnap.exists || !eventSnap.data()?.deleted || !eventSnap.updateTime?.isEqual(plan.eventUpdateTime)) {
+      throw new HttpError(409, "O lançamento mudou durante a restauração. Atualize e tente novamente.");
+    }
     const observedLockVersion = Number(lockSnap.data()?.version || 0);
     if (observedLockVersion !== plan.lockVersion) {
       throw new HttpError(

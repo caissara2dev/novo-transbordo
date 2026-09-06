@@ -236,14 +236,11 @@ async function* readEvents(db) {
   }
 }
 
-async function buildLatestStates(db) {
-  const events = [];
-  let inspected = 0;
-  let eligible = 0;
-
-  for await (const doc of readEvents(db)) {
-    inspected += 1;
-    const data = doc.data();
+export function selectBackfillRecords(events) {
+  const records = [];
+  const skippedLegacy = [];
+  for (const record of events) {
+    const data = record.data;
     if (
       data.deleted ||
       !statusFromEvent(data) ||
@@ -253,12 +250,35 @@ async function buildLatestStates(db) {
       continue;
     }
 
-    eligible += 1;
-    events.push({ id: doc.id, data });
+    try {
+      containersAffectedBy(data);
+    } catch (error) {
+      if (data.loadSourceType || data.sourceContainer) throw error;
+      skippedLegacy.push({
+        id: record.id,
+        container: data.container,
+        reason: error.message
+      });
+      continue;
+    }
+    records.push(record);
   }
+  return { records, skippedLegacy };
+}
 
-  const latest = buildContainerStateBackfillCandidates(events);
-  return { inspected, eligible, latest };
+async function buildLatestStates(db) {
+  const events = [];
+  for await (const doc of readEvents(db))
+    events.push({ id: doc.id, data: doc.data() });
+  const { records, skippedLegacy } = selectBackfillRecords(events);
+
+  const latest = buildContainerStateBackfillCandidates(records);
+  return {
+    inspected: events.length,
+    eligible: records.length,
+    skippedLegacy,
+    latest
+  };
 }
 
 export async function writeStates(db, latest) {
@@ -351,6 +371,7 @@ export async function main(argv = process.argv.slice(2)) {
           projectId: options.projectId,
           inspectedEvents: result.inspected,
           eligibleEvents: result.eligible,
+          skippedLegacy: result.skippedLegacy,
           containerStates: result.latest.size
         },
         null,

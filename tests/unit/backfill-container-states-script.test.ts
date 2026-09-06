@@ -6,10 +6,35 @@ import {
   buildContainerStateBackfillCandidates,
   buildContainerStateBackfillPatch,
   parseArgs,
+  selectBackfillRecords,
   validateBackfillRequest
 } from "../../scripts/backfill-container-states.mjs";
 
 describe("container state backfill CLI policy", () => {
+  it("preserves independent legacy cycles that predate explicit container status", () => {
+    const records = [1, 2].map((sequence) => ({
+      id: `legacy-${sequence}`,
+      data: {
+        category: "PRODUTIVO", container: "ABCU 123456-0", clientId: "client",
+        containerCycleId: `existing-${sequence}`, previousContainerEventId: null,
+        startsNewContainerCycle: false, pump: "BOMBA_1", plate: "ABC-1234",
+        endAt: `2026-07-2${sequence}T10:00:00.000Z`, createdAt: `2026-07-2${sequence}T10:01:00.000Z`
+      }
+    }));
+    expect(buildContainerStateBackfillCandidates(records).get("ABCU1234560")).toMatchObject({
+      id: "legacy-2", status: "FULL", data: { containerCycleId: "existing-2", previousContainerEventId: null }
+    });
+  });
+  it("reports invalid legacy identifiers without changing events or ignoring invalid modern transfers", () => {
+    const valid = { id: "valid", data: { category: "PRODUTIVO", container: "ABCU 123456-0", clientId: "client" } };
+    const invalid = { id: "old", data: { category: "PRODUTIVO", container: "TEST 123456-7", clientId: "client" } };
+    const original = structuredClone([valid, invalid]);
+    const selected = selectBackfillRecords([valid, invalid]);
+    expect(selected.records).toEqual([valid]);
+    expect(selected.skippedLegacy).toEqual([expect.objectContaining({ id: "old", container: "TEST 123456-7" })]);
+    expect([valid, invalid]).toEqual(original);
+    expect(() => selectBackfillRecords([{ ...invalid, data: { ...invalid.data, loadSourceType: "BUFFER_CONTAINER" } }])).toThrow("Container inválido");
+  });
   it("awaits the direct CLI execution before Node can exit", () => {
     const source = readFileSync(
       "scripts/backfill-container-states.mjs",

@@ -43,7 +43,9 @@ Parcial abertos, excluindo o destino.
 O valor persistido `BUFFER_CONTAINER` é mantido por compatibilidade com a PR e
 significa origem em container Pulmão ou Parcial. O estado restante não é gravado
 como outra fonte de verdade: o planejador o resolve ao reconstruir as passagens.
-API, históricos e backfill usam o mesmo planejador puro.
+Mutações e backfill usam o mesmo planejador puro. Históricos paginados usam os
+vínculos persistidos e compartilham com o planejador a regra que resolve o estado
+da origem a partir do destino anterior no mesmo ciclo.
 
 ## Consequências
 

@@ -16,6 +16,7 @@ type RestoreReconciliation = {
 
 export type RestorePlan = {
   event: EventDoc;
+  eventUpdateTime: Timestamp;
   lockVersion: number;
   gapVersion: string;
   changedSinceDeletion: boolean;
@@ -138,6 +139,7 @@ export async function prepareRestoreEvent(
 
   return {
     event: existing,
+    eventUpdateTime: snap.updateTime!,
     lockVersion,
     gapVersion,
     changedSinceDeletion:
