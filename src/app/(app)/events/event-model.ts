@@ -38,6 +38,7 @@ export type EventFormState = {
   sourceContainer: string;
   sourceContainerEmptied: boolean | null;
   expectedSourceContainerStateVersion: number | null;
+  expectedSourceContainerCycleId: string | null;
   notes: string;
   revisionReason?: string;
   gapPreview: GapPreview | null;
@@ -97,6 +98,7 @@ export function makeInitialForm(): EventFormState {
     sourceContainer: "",
     sourceContainerEmptied: null,
     expectedSourceContainerStateVersion: null,
+    expectedSourceContainerCycleId: null,
     notes: "",
     gapPreview: null,
     gapJustifications: [],
@@ -154,6 +156,11 @@ export function toPayload(form: EventFormState) {
       form.category === "PRODUTIVO" &&
       form.loadSourceType === "BUFFER_CONTAINER"
         ? form.expectedSourceContainerStateVersion
+        : null,
+    expectedSourceContainerCycleId:
+      form.category === "PRODUTIVO" &&
+      form.loadSourceType === "BUFFER_CONTAINER"
+        ? form.expectedSourceContainerCycleId
         : null,
     notes: form.notes || null,
     revisionReason: form.revisionReason || null,

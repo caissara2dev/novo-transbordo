@@ -37,7 +37,10 @@ display continuam processando somente o evento produtivo único.
 
 A seleção da origem é explícita. O campo reconhece quatro letras iniciais como
 container e três letras seguidas de número como carreta; reconhecer o prefixo não
-valida o código nem comprova sua existência. A consulta oferece somente Pulmão e
+valida o código nem comprova sua existência. A seleção envia também o ciclo
+observado; o ciclo resolvido pelo horário da transferência deve ser o mesmo.
+Edições históricas preservam o ciclo original, mesmo após o container abrir um
+ciclo posterior. Atualizar a versão não troca esse vínculo silenciosamente. A consulta oferece somente Pulmão e
 Parcial abertos, excluindo o destino.
 
 O valor persistido `BUFFER_CONTAINER` é mantido por compatibilidade com a PR e

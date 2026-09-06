@@ -137,6 +137,94 @@ describe("transfer replay and rollback through event commands", () => {
       clientCheck.mockRestore();
     }
   });
+  it.each([
+    [false, false], [false, true], [true, false], [true, true]
+  ])("binds retroactive creation to the selected current cycle (emptied=%s, explicit=%s)", async (emptied, explicit) => {
+    await create(input());
+    await create(input({
+      startTime: "06:20", endTime: "06:30", containerStatus: "FULL",
+      expectedContainerStateVersion: 1
+    }));
+    await create(input({
+      startTime: "06:30", endTime: "06:40", startsNewContainerCycle: true,
+      expectedContainerStateVersion: 2
+    }));
+    const current = await getCurrentContainerState("MSCU6639870");
+    const before = inMemoryAdminDb.entries("events");
+    await expect(create({
+      ...transferInput(), pump: "BOMBA_2", sourceContainerEmptied: emptied,
+      expectedSourceContainerStateVersion: current!.version,
+      ...(explicit ? { expectedSourceContainerCycleId: current!.cycleId } : {})
+    })).rejects.toThrow("ciclo de origem selecionado");
+    expect(inMemoryAdminDb.entries("events")).toEqual(before);
+    expect(await getCurrentContainerState("MSCU6639870")).toEqual(current);
+    expect(await getCurrentContainerState("ABCU1234560")).toBeNull();
+  });
+  it("rejects moving a current-cycle transfer into an older source cycle", async () => {
+    await create(input());
+    await create(input({
+      startTime: "06:20", endTime: "06:30", containerStatus: "FULL",
+      expectedContainerStateVersion: 1
+    }));
+    await create(input({
+      startTime: "06:30", endTime: "06:40", startsNewContainerCycle: true,
+      expectedContainerStateVersion: 2
+    }));
+    const current = await getCurrentContainerState("MSCU6639870");
+    const raw = {
+      ...transferInput(), pump: "BOMBA_2", startTime: "06:40", endTime: "06:50",
+      expectedSourceContainerStateVersion: current!.version,
+      expectedSourceContainerCycleId: current!.cycleId
+    };
+    const transfer = await create(raw);
+    expect(inMemoryAdminDb.read("events", transfer.id)?.sourceContainerCycleId).toBe(current!.cycleId);
+    expect(inMemoryAdminDb.read("events", transfer.id)).not.toHaveProperty("expectedSourceContainerCycleId");
+    const edited = {
+      ...raw, startTime: "06:10", endTime: "06:20",
+      expectedContainerStateVersion: 1, expectedSourceContainerStateVersion: 4,
+      revisionReason: "Correção retroativa"
+    };
+    const preview = await previewEventGap({ ...edited, eventId: transfer.id });
+    await expect(updateEvent(transfer.id, { ...edited, gapVersion: preview.gapVersion }, actor))
+      .rejects.toThrow("ciclo de origem selecionado");
+    expect(inMemoryAdminDb.read("events", transfer.id)?.startTime).toBe("06:40");
+  });
+  it("preserves historical edits and restoration when the same source has a new cycle", async () => {
+    await create(input());
+    const originalCycle = (await getCurrentContainerState("MSCU6639870"))!.cycleId;
+    const raw = { ...transferInput(), expectedSourceContainerCycleId: originalCycle };
+    const transfer = await create(raw);
+    await create(input({
+      startTime: "06:20", endTime: "06:30", containerStatus: "FULL",
+      expectedContainerStateVersion: 2
+    }));
+    await create(input({
+      startTime: "06:30", endTime: "06:40", startsNewContainerCycle: true,
+      expectedContainerStateVersion: 3
+    }));
+    const current = await getCurrentContainerState("MSCU6639870");
+    expect(current!.cycleId).not.toBe(originalCycle);
+    const edited = {
+      ...raw, expectedContainerStateVersion: 1,
+      expectedSourceContainerStateVersion: current!.version,
+      revisionReason: "Correção no ciclo histórico", notes: "Auditado"
+    };
+    const preview = await previewEventGap({ ...edited, eventId: transfer.id });
+    await updateEvent(transfer.id, { ...edited, gapVersion: preview.gapVersion }, actor);
+    expect(inMemoryAdminDb.read("events", transfer.id)?.sourceContainerCycleId).toBe(originalCycle);
+    const reselected = {
+      ...edited, expectedContainerStateVersion: 2, expectedSourceContainerStateVersion: 5,
+      expectedSourceContainerCycleId: current!.cycleId
+    };
+    const reselectPreview = await previewEventGap({ ...reselected, eventId: transfer.id });
+    await expect(updateEvent(transfer.id, { ...reselected, gapVersion: reselectPreview.gapVersion }, actor))
+      .rejects.toThrow("ciclo de origem selecionado");
+    const deletion = await prepareDeletionGap(transfer.id);
+    await softDeleteEvent(transfer.id, "Teste do ciclo histórico", actor, { gapVersion: deletion.preview.gapVersion });
+    await restoreEvent(transfer.id, actor, await previewEventRestore(transfer.id));
+    expect(inMemoryAdminDb.read("events", transfer.id)?.sourceContainerCycleId).toBe(originalCycle);
+    expect((await getCurrentContainerState("MSCU6639870"))!.cycleId).toBe(current!.cycleId);
+  });
   it("defaults to disabled without configuration", () => {
     vi.stubEnv("CONTAINER_TRANSFERS_ENABLED", undefined);
     expect(containerTransfersEnabled()).toBe(false);

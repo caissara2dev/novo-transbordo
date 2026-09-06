@@ -7,7 +7,7 @@ import {
   projectionFromPlan,
   type ContainerEventRecord
 } from "@/lib/domain/container-effects";
-import { isTransferSourceStatus } from "@/lib/domain/container-transfer";
+import { assertTransferSourceCycleMatches, isTransferSourceStatus } from "@/lib/domain/container-transfer";
 import { assertContainerTransfersEnabled } from "@/lib/server/container-transfer-capability";
 import { HttpError } from "@/lib/domain/errors";
 import { adminDb } from "@/lib/firebase/admin";
@@ -83,6 +83,7 @@ export async function reconcileEventContainerEffectsInTransaction(params: {
   after: EventDoc | null;
   expectedContainerStateVersion?: number | null;
   expectedSourceContainerStateVersion?: number | null;
+  expectedSourceContainerCycleId?: string | null;
   requireSourceCurrentlyOpen?: boolean;
   affectedContainers?: Array<string | null>;
   reservedWrites?: number;
@@ -163,20 +164,38 @@ export async function reconcileEventContainerEffectsInTransaction(params: {
         observedVersion
       );
     }
+    let expectedSourceCycleId: string | null = null;
     if (entry.container === expectedSourceContainer) {
       assertExpectedContainerStateVersion(
         params.expectedSourceContainerStateVersion ?? null,
         observedVersion
       );
-      if (
-        params.requireSourceCurrentlyOpen &&
-        entry.container !== previousSourceContainer &&
-        !isTransferSourceStatus(entry.stateSnap.data()?.status)
-      ) {
-        throw new HttpError(
-          409,
-          "O container de origem não está mais aberto como Pulmão ou Parcial."
+      const historicalCycleId =
+        entry.container === previousSourceContainer
+          ? params.before?.sourceContainerCycleId ?? null
+          : null;
+      const preservesHistoricalSource = Boolean(
+        historicalCycleId &&
+          (!params.expectedSourceContainerCycleId ||
+            params.expectedSourceContainerCycleId === historicalCycleId)
+      );
+      if (params.requireSourceCurrentlyOpen && !preservesHistoricalSource) {
+        if (!isTransferSourceStatus(entry.stateSnap.data()?.status)) {
+          throw new HttpError(
+            409,
+            "O container de origem não está mais aberto como Pulmão ou Parcial."
+          );
+        }
+        // The observed version binds even older clients to this exact current cycle.
+        expectedSourceCycleId = entry.stateSnap.data()?.cycleId ?? null;
+        assertTransferSourceCycleMatches(
+          params.expectedSourceContainerCycleId ?? null,
+          expectedSourceCycleId
         );
+      } else {
+        // Historical edits/restores retain their original cycle, even when closed.
+        expectedSourceCycleId =
+          historicalCycleId ?? params.after?.sourceContainerCycleId ?? null;
       }
     }
 
@@ -201,6 +220,12 @@ export async function reconcileEventContainerEffectsInTransaction(params: {
       records,
       randomUUID
     );
+    if (entry.container === expectedSourceContainer && isActive(params.after)) {
+      assertTransferSourceCycleMatches(
+        expectedSourceCycleId,
+        plan.events.find((event) => event.id === params.eventId)?.containerCycleId ?? null
+      );
+    }
     const nextVersion = observedVersion + 1;
     const effectsById = new Map(effects.map((effect) => [effect.id, effect]));
 

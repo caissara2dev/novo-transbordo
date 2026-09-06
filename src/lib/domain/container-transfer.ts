@@ -47,3 +47,15 @@ export function resolveTransferSourceStatus(params: {
   }
   return params.emptied ? "TRANSFER_EMPTIED" : params.previousStatus;
 }
+
+export function assertTransferSourceCycleMatches(
+  selectedCycleId: string | null,
+  resolvedCycleId: string | null
+): void {
+  if (selectedCycleId && selectedCycleId !== resolvedCycleId) {
+    throw new HttpError(
+      409,
+      "O horário da transferência não pertence ao ciclo de origem selecionado. Atualize a origem e confira o horário antes de confirmar novamente."
+    );
+  }
+}

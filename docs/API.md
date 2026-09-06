@@ -118,7 +118,15 @@ Payload base:
   `BUFFER_CONTAINER`)
 - `expectedSourceContainerStateVersion` (inteiro `>= 0` obrigatório em
   `BUFFER_CONTAINER`; `null` fora desse fluxo)
+- `expectedSourceContainerCycleId` (ciclo observado na seleção de origem; `null`
+  fora de transferência. Clientes anteriores podem omitir: o servidor deriva o
+  ciclo da projeção cuja versão foi confirmada, ou do vínculo histórico na edição.)
 - `notes` (ou `null`)
+
+O ciclo planejado para a transferência deve coincidir com o selecionado;
+horário retroativo em outro ciclo retorna `409`. Atualizar a versão durante a
+edição não substitui o ciclo histórico. O campo esperado é somente de controle
+da requisição e não é persistido no evento.
 
 Validacoes relevantes:
 - formato de horarios

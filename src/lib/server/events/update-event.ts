@@ -179,10 +179,12 @@ export async function updateEvent(
   const {
     expectedContainerStateVersion: _expectedContainerStateVersion,
     expectedSourceContainerStateVersion: _expectedSourceContainerStateVersion,
+    expectedSourceContainerCycleId: _expectedSourceContainerCycleId,
     ...validatedEventForStorage
   } = validated.event;
   void _expectedContainerStateVersion;
   void _expectedSourceContainerStateVersion;
+  void _expectedSourceContainerCycleId;
   const sameContainer = existing.container === validated.event.container;
   const sameSourceContainer =
     (existing.sourceContainer || null) === validated.event.sourceContainer;
@@ -295,6 +297,8 @@ export async function updateEvent(
         validated.event.expectedContainerStateVersion,
       expectedSourceContainerStateVersion:
         validated.event.expectedSourceContainerStateVersion,
+      expectedSourceContainerCycleId:
+        validated.event.expectedSourceContainerCycleId,
       requireSourceCurrentlyOpen: true,
       reservedWrites:
         1 +

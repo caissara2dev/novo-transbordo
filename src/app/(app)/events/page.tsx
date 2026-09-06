@@ -322,6 +322,7 @@ export default function EventsPage() {
       sourceContainerEmptied: item.sourceContainerEmptied ?? null,
       expectedSourceContainerStateVersion:
         item.sourceContainerStateVersion ?? null,
+      expectedSourceContainerCycleId: item.sourceContainerCycleId ?? null,
       notes: item.notes || "",
       revisionReason: "",
       gapPreview: null,

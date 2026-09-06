@@ -82,6 +82,7 @@ export type EventInput = {
   sourceContainer: string | null;
   sourceContainerEmptied: boolean | null;
   expectedSourceContainerStateVersion: number | null;
+  expectedSourceContainerCycleId?: string | null;
   notes: string | null;
 };
 
@@ -112,6 +113,7 @@ export type EventDoc = Omit<
   EventInput,
   | "expectedContainerStateVersion"
   | "expectedSourceContainerStateVersion"
+  | "expectedSourceContainerCycleId"
   | "loadSourceType"
   | "sourceContainer"
   | "sourceContainerEmptied"

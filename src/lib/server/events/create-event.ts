@@ -77,6 +77,7 @@ export async function createEvent(
   const {
     expectedContainerStateVersion,
     expectedSourceContainerStateVersion,
+    expectedSourceContainerCycleId,
     ...validatedEventForStorage
   } = validated.event;
   const payload: Omit<
@@ -138,6 +139,7 @@ export async function createEvent(
       after: provisionalEvent,
       expectedContainerStateVersion,
       expectedSourceContainerStateVersion,
+      expectedSourceContainerCycleId,
       requireSourceCurrentlyOpen: true,
       reservedWrites: autoEvents.length + 2
     });

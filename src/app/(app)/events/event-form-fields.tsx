@@ -186,6 +186,7 @@ export function EventFormFields({
                 sourceContainer: "",
                 sourceContainerEmptied: null,
                 expectedSourceContainerStateVersion: null,
+                expectedSourceContainerCycleId: null,
                 gapPreview: null,
                 gapJustifications: [],
                 gapJustificationsByEvent: {}
@@ -226,7 +227,8 @@ export function EventFormFields({
                     loadSourceType: "TRUCK",
                     sourceContainer: "",
                     sourceContainerEmptied: null,
-                    expectedSourceContainerStateVersion: null
+                    expectedSourceContainerStateVersion: null,
+                    expectedSourceContainerCycleId: null
                   })
                 }
                 type="button"
@@ -358,6 +360,7 @@ export function EventFormFields({
                     sourceContainer: "",
                     sourceContainerEmptied: null,
                     expectedSourceContainerStateVersion: null,
+                    expectedSourceContainerCycleId: null,
                     clientId: ""
                   }
                 : {}),

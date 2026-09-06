@@ -20,6 +20,7 @@ type TransferFields = {
   sourceContainer: string;
   sourceContainerEmptied: boolean | null;
   expectedSourceContainerStateVersion: number | null;
+  expectedSourceContainerCycleId: string | null;
   clientId: string;
   plate: string;
   container: string;
@@ -190,6 +191,7 @@ export function ContainerTransferFields({
       sourceContainer: item.container,
       sourceContainerEmptied: null,
       expectedSourceContainerStateVersion: item.version,
+      expectedSourceContainerCycleId: item.cycleId,
       clientId: item.clientId
     });
   }
@@ -234,7 +236,8 @@ export function ContainerTransferFields({
                   : fields.clientId,
               sourceContainer: "",
               sourceContainerEmptied: null,
-              expectedSourceContainerStateVersion: null
+              expectedSourceContainerStateVersion: null,
+              expectedSourceContainerCycleId: null
             });
           }}
           onFocus={() => {

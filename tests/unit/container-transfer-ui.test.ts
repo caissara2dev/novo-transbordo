@@ -23,7 +23,8 @@ describe("container transfer event form", () => {
       container: "MATU7654321",
       sourceContainer: "ABCU1234560",
       sourceContainerEmptied: false,
-      expectedSourceContainerStateVersion: 7
+      expectedSourceContainerStateVersion: 7,
+      expectedSourceContainerCycleId: "selected-cycle"
     };
 
     expect(toPayload(form)).toMatchObject({
@@ -31,6 +32,7 @@ describe("container transfer event form", () => {
       sourceContainer: "ABCU1234560",
       sourceContainerEmptied: false,
       expectedSourceContainerStateVersion: 7,
+      expectedSourceContainerCycleId: "selected-cycle",
       plate: null
     });
   });

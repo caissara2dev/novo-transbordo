@@ -39,6 +39,7 @@ const baseSchema = z.object({
   loadSourceType: z.enum(["TRUCK", "BUFFER_CONTAINER"]).nullable().optional(),
   sourceContainer: z.string().trim().max(32).nullable().optional(),
   sourceContainerEmptied: z.boolean().nullable().optional(),
+  expectedSourceContainerCycleId: z.string().trim().min(1).max(128).nullable().optional(),
   expectedSourceContainerStateVersion: z
     .number()
     .int()
@@ -116,6 +117,10 @@ export function validateEventInput(raw: unknown): EventValidationResult {
     expectedSourceContainerStateVersion:
       loadSourceType === "BUFFER_CONTAINER"
         ? parsed.expectedSourceContainerStateVersion ?? null
+        : null,
+    expectedSourceContainerCycleId:
+      loadSourceType === "BUFFER_CONTAINER"
+        ? parsed.expectedSourceContainerCycleId ?? null
         : null,
     notes: parsed.notes?.trim() || null
   };

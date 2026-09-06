@@ -85,14 +85,16 @@ const originFixtures = [
     status: "BUFFER",
     clientId: "client-1",
     clientNameSnapshot: "Cliente Alfa",
-    version: 7
+    version: 7,
+    cycleId: "buffer-current-cycle"
   },
   {
     container: "TSTU 250003-0",
     status: "PARTIAL",
     clientId: "client-1",
     clientNameSnapshot: "Cliente Alfa",
-    version: 4
+    version: 4,
+    cycleId: "partial-current-cycle"
   }
 ];
 
@@ -293,6 +295,18 @@ test("waits for the destination version and permits retry after a failed lookup"
   await expect(save).toBeDisabled();
   await form.getByRole("button", { name: "Tentar novamente" }).click();
   await expect(save).toBeEnabled();
+  let submittedCycle: string | null = null;
+  await page.route("**/api/events", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    submittedCycle = route.request().postDataJSON().expectedSourceContainerCycleId;
+    return route.fulfill({
+      status: 409, contentType: "application/json",
+      body: JSON.stringify({ ok: false, error: { code: "CONFLICT", message: "O horário não pertence ao ciclo de origem selecionado." } })
+    });
+  });
+  await save.click();
+  await expect.poll(() => submittedCycle).toBe("partial-current-cycle");
+  await expect(page.getByText("O horário não pertence ao ciclo de origem selecionado.")).toBeVisible();
 });
 
 test("supports pagination, retry, empty results and ignores a stale response", async ({
@@ -380,6 +394,7 @@ test("shows the source instead of a plate in global and container histories", as
     sourceContainer: "ABCU1234560",
     sourceContainerEmptied: true,
     sourceContainerStateVersion: 5,
+    sourceContainerCycleId: "historical-source-cycle",
     notes: null,
     createdAt: "2026-08-13T11:20:00.000Z",
     updatedAt: "2026-08-13T11:20:00.000Z",
@@ -411,7 +426,8 @@ test("shows the source instead of a plate in global and container histories", as
             container: "ABCU 123456-0",
             status: "TRANSFER_EMPTIED",
             clientId: "client-1",
-            version: 9
+            version: 9,
+            cycleId: "a-newer-source-cycle"
           },
           availableStatuses: ["FULL", "PARTIAL", "BUFFER"],
           requiresNewCycleConfirmation: false
@@ -435,10 +451,12 @@ test("shows the source instead of a plate in global and container histories", as
     )
   );
   let editedSourceVersion: number | null = null;
+  let editedSourceCycle: string | null = null;
   await page.route("**/api/events/event-transfer", async (route) => {
     if (route.request().method() !== "PATCH") return route.continue();
     const body = route.request().postDataJSON();
     editedSourceVersion = body.expectedSourceContainerStateVersion;
+    editedSourceCycle = body.expectedSourceContainerCycleId;
     return route.fulfill(json({ ok: true, data: transfer }));
   });
   await page.route("**/api/events?*", (route) =>
@@ -474,6 +492,7 @@ test("shows the source instead of a plate in global and container histories", as
   await editPanel.getByLabel("Sim, foi esvaziado").check();
   await page.getByRole("button", { name: "Salvar edição" }).click();
   await expect.poll(() => editedSourceVersion).toBe(9);
+  expect(editedSourceCycle).toBe("historical-source-cycle");
 
   await page.route("**/api/containers/history?*", (route) =>
     route.fulfill(
