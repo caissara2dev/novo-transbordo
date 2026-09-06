@@ -2,6 +2,7 @@ import { Timestamp } from "firebase-admin/firestore";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { EventDoc } from "@/types/domain";
 
+process.env.CONTAINER_TRANSFERS_ENABLED = "true";
 process.env.FIREBASE_PROJECT_ID = "demo-transbordo";
 
 type AdminModule = typeof import("@/lib/firebase/admin");
@@ -19,9 +20,7 @@ async function clearCollection(name: string): Promise<void> {
   await batch.commit();
 }
 
-function event(
-  overrides: Partial<EventDoc> = {}
-): EventDoc {
+function event(overrides: Partial<EventDoc> = {}): EventDoc {
   return {
     pump: "BOMBA_1",
     shiftDate: "2026-07-27",
@@ -73,13 +72,9 @@ describe("timeline transactions against the Firestore Emulator", () => {
 
   beforeEach(async () => {
     await Promise.all(
-      [
-        "events",
-        "timelineLocks",
-        "containerStates",
-        "clients",
-        "settings"
-      ].map(clearCollection)
+      ["events", "timelineLocks", "containerStates", "clients", "settings"].map(
+        clearCollection
+      )
     );
   });
 
@@ -129,89 +124,119 @@ describe("timeline transactions against the Firestore Emulator", () => {
     expect(lock.data()?.version).toBe(1);
   });
 
-  it("allows only one concurrent transfer to consume the same source version", async () => {
-    const sourceContainer = "MSCU 663987-0";
-    const sourceEvent = event({
-      container: sourceContainer,
-      containerStatus: "BUFFER",
-      containerReason: "Reserva operacional",
-      containerCycleId: "cycle-source",
-      endAt: Timestamp.fromDate(new Date("2026-07-27T08:59:00.000Z")),
-      createdAt: Timestamp.fromDate(new Date("2026-07-27T08:59:10.000Z"))
-    });
-    await Promise.all([
-      adminModule.adminDb.collection("clients").doc("client-1").set({
-        name: "Cliente",
-        nameUpper: "CLIENTE",
-        active: true
-      }),
-      adminModule.adminDb.collection("events").doc("source-buffer").set(sourceEvent),
-      adminModule.adminDb.collection("containerStates").doc("MSCU6639870").set({
+  it.each(["BUFFER", "PARTIAL"] as const)(
+    "allows only one concurrent transfer to consume the same %s source version",
+    async (sourceStatus) => {
+      const sourceContainer = "MSCU 663987-0";
+      const sourceEvent = event({
         container: sourceContainer,
-        status: "BUFFER",
-        reason: "Reserva operacional",
-        cycleId: "cycle-source",
-        latestEventId: "source-buffer",
-        previousEventId: null,
+        containerStatus: sourceStatus,
+        containerReason: "Reserva operacional",
+        containerCycleId: "cycle-source",
+        endAt: Timestamp.fromDate(new Date("2026-07-27T08:59:00.000Z")),
+        createdAt: Timestamp.fromDate(new Date("2026-07-27T08:59:10.000Z"))
+      });
+      await Promise.all([
+        adminModule.adminDb.collection("clients").doc("client-1").set({
+          name: "Cliente",
+          nameUpper: "CLIENTE",
+          active: true
+        }),
+        adminModule.adminDb
+          .collection("events")
+          .doc("source-buffer")
+          .set(sourceEvent),
+        adminModule.adminDb
+          .collection("containerStates")
+          .doc("MSCU6639870")
+          .set({
+            container: sourceContainer,
+            status: sourceStatus,
+            reason: "Reserva operacional",
+            cycleId: "cycle-source",
+            latestEventId: "source-buffer",
+            previousEventId: null,
+            clientId: "client-1",
+            clientNameSnapshot: "Cliente",
+            plate: "ABC-1234",
+            pump: "BOMBA_1",
+            operationalAt: sourceEvent.endAt,
+            eventCreatedAt: sourceEvent.createdAt,
+            version: 4,
+            updatedAt: sourceEvent.createdAt
+          })
+      ]);
+
+      const baseInput = {
+        shiftDate: "2026-07-27",
+        shiftType: "MANHA" as const,
+        startTime: "06:00",
+        endTime: "06:10",
+        category: "PRODUTIVO" as const,
         clientId: "client-1",
-        clientNameSnapshot: "Cliente",
-        plate: "ABC-1234",
-        pump: "BOMBA_1",
-        operationalAt: sourceEvent.endAt,
-        eventCreatedAt: sourceEvent.createdAt,
-        version: 4,
-        updatedAt: sourceEvent.createdAt
-      })
-    ]);
+        plate: null,
+        containerStatus: "FULL" as const,
+        containerReason: null,
+        startsNewContainerCycle: false,
+        blendConfirmed: false,
+        expectedContainerStateVersion: null,
+        loadSourceType: "BUFFER_CONTAINER" as const,
+        sourceContainer,
+        sourceContainerEmptied: false,
+        expectedSourceContainerStateVersion: 4,
+        notes: null
+      };
+      const first = {
+        ...baseInput,
+        pump: "BOMBA_1" as const,
+        container: "ABCU 123456-0"
+      };
+      const second = {
+        ...baseInput,
+        pump: "BOMBA_2" as const,
+        container: "MATU 765432-1"
+      };
+      const [firstGap, secondGap] = await Promise.all([
+        gapsService.previewEventGap(first),
+        gapsService.previewEventGap(second)
+      ]);
 
-    const baseInput = {
-      shiftDate: "2026-07-27",
-      shiftType: "MANHA" as const,
-      startTime: "06:00",
-      endTime: "06:10",
-      category: "PRODUTIVO" as const,
-      clientId: "client-1",
-      plate: null,
-      containerStatus: "FULL" as const,
-      containerReason: null,
-      startsNewContainerCycle: false,
-      blendConfirmed: false,
-      expectedContainerStateVersion: null,
-      loadSourceType: "BUFFER_CONTAINER" as const,
-      sourceContainer,
-      sourceContainerEmptied: false,
-      expectedSourceContainerStateVersion: 4,
-      notes: null
-    };
-    const first = { ...baseInput, pump: "BOMBA_1" as const, container: "ABCU 123456-0" };
-    const second = { ...baseInput, pump: "BOMBA_2" as const, container: "MATU 765432-1" };
-    const [firstGap, secondGap] = await Promise.all([
-      gapsService.previewEventGap(first),
-      gapsService.previewEventGap(second)
-    ]);
+      const results = await Promise.allSettled([
+        eventsService.createEvent(
+          { ...first, gapVersion: firstGap.gapVersion },
+          {
+            uid: "operator-1",
+            email: "one@example.com"
+          }
+        ),
+        eventsService.createEvent(
+          { ...second, gapVersion: secondGap.gapVersion },
+          {
+            uid: "operator-2",
+            email: "two@example.com"
+          }
+        )
+      ]);
 
-    const results = await Promise.allSettled([
-      eventsService.createEvent({ ...first, gapVersion: firstGap.gapVersion }, {
-        uid: "operator-1",
-        email: "one@example.com"
-      }),
-      eventsService.createEvent({ ...second, gapVersion: secondGap.gapVersion }, {
-        uid: "operator-2",
-        email: "two@example.com"
-      })
-    ]);
-
-    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
-    expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
-    const productive = await adminModule.adminDb
-      .collection("events")
-      .where("loadSourceType", "==", "BUFFER_CONTAINER")
-      .get();
-    expect(productive.docs).toHaveLength(1);
-    const sourceState = await adminModule.adminDb
-      .collection("containerStates")
-      .doc("MSCU6639870")
-      .get();
-    expect(sourceState.data()).toMatchObject({ status: "BUFFER", version: 5 });
-  });
+      expect(
+        results.filter((result) => result.status === "fulfilled")
+      ).toHaveLength(1);
+      expect(
+        results.filter((result) => result.status === "rejected")
+      ).toHaveLength(1);
+      const productive = await adminModule.adminDb
+        .collection("events")
+        .where("loadSourceType", "==", "BUFFER_CONTAINER")
+        .get();
+      expect(productive.docs).toHaveLength(1);
+      const sourceState = await adminModule.adminDb
+        .collection("containerStates")
+        .doc("MSCU6639870")
+        .get();
+      expect(sourceState.data()).toMatchObject({
+        status: sourceStatus,
+        version: 5
+      });
+    }
+  );
 });

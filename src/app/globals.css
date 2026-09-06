@@ -6,3 +6,19 @@
 @import "../styles/reports.css";
 @import "../styles/containers.css";
 @import "../styles/operational-display.css";
+
+.origin-label-row { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; min-height:40px; }
+.origin-detected { color:var(--brand-pradaria); background:#eaf0f0; padding:4px 8px; border-radius:6px; font-size:.75rem; font-weight:600; }
+.origin-hint { color:var(--muted); font-size:.75rem; margin-top:6px; }
+.origin-options { position:absolute; top:100%; width:100%; margin-top:5px; background:var(--surface); border:1px solid var(--line); box-shadow:var(--shadow); border-radius:10px; padding:4px; z-index:20; }
+.origin-options button { display:flex; align-items:center; justify-content:space-between; gap:8px; text-align:left; width:100%; padding:10px; border-radius:7px; font-size:.8rem; }
+.origin-options button:hover,.origin-options button.active { background:var(--primary-soft); }
+.origin-options strong,.origin-options small { display:block; }
+.origin-options small { color:var(--muted); margin-top:2px; }
+.origin-options p { padding:12px; font-size:.8rem; color:var(--muted); }
+.origin-empty { margin-top:14px; }
+.origin-empty-options { display:flex; gap:8px; flex-wrap:wrap; margin-top:6px; }
+.origin-empty-options .container-state-choice { padding:9px 12px; }
+.origin-options { max-height: 320px; overflow-y: auto; }
+
+.origin-refresh { color: var(--brand-paprika-dark); font-size: .75rem; text-decoration: underline; min-height: 32px; }

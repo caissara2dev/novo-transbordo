@@ -104,9 +104,7 @@ async function login(page: Page): Promise<void> {
   await page.getByLabel("Senha").fill(emulatorCredential);
   await page.getByRole("button", { name: "Entrar" }).click();
   await expect(page).toHaveURL(/\/dashboard$/);
-  await expect(
-    page.getByRole("button", { name: "Abrir menu" })
-  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Abrir menu" })).toBeVisible();
 }
 
 test.describe.configure({ mode: "serial" });
@@ -267,9 +265,7 @@ test("event history loads cursor pages without duplicate rows", async ({
     )
   );
   await page.route("**/api/events?*", (route) => {
-    const cursor = new URL(route.request().url()).searchParams.get(
-      "cursor"
-    );
+    const cursor = new URL(route.request().url()).searchParams.get("cursor");
     requestedCursors.push(cursor);
     const data = cursor
       ? {
@@ -463,8 +459,8 @@ test("copies the transit justification plate without overriding a manual product
   await gap.getByLabel("Causa").selectOption("EM_TRANSITO");
 
   const gapPlate = gap.getByLabel("Placa *");
-  const productivePlate = createForm.locator(
-    'input[placeholder="AAA1234 ou AAA1A23"]'
+  const productivePlate = createForm.getByLabel(
+    "Placa ou container de origem *"
   );
 
   await gapPlate.fill("ABC1D23");
@@ -479,7 +475,7 @@ test("copies the transit justification plate without overriding a manual product
 
   await productivePlate.fill("XYZ9Z99");
   await gap.getByLabel("Placa *").fill("GHI3F45");
-  await expect(productivePlate).toHaveValue("XYZ-9Z99");
+  await expect(productivePlate).toHaveValue("XYZ9Z99");
 });
 
 test("requires client, plate and waiting truck count for laboratory idle time", async ({
@@ -630,13 +626,9 @@ test("keeps the saved launch and existing history clear when history refresh fai
     .getByRole("button", { name: "Registrar ociosidade" })
     .click();
   await createForm.getByLabel("Observações").fill("created-event");
-  await createForm
-    .getByRole("button", { name: "Salvar lançamento" })
-    .click();
+  await createForm.getByRole("button", { name: "Salvar lançamento" }).click();
 
-  await expect(
-    page.getByText("Lançamento salvo com sucesso.")
-  ).toBeVisible();
+  await expect(page.getByText("Lançamento salvo com sucesso.")).toBeVisible();
   await expect(
     page.getByText(
       "O histórico está temporariamente indisponível. O lançamento foi salvo e não precisa ser enviado novamente. Atualize a página em alguns minutos."

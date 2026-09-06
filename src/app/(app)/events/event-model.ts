@@ -27,6 +27,7 @@ export type EventFormState = {
   category: Category;
   clientId: string;
   plate: string;
+  originInput: string;
   container: string;
   containerStatus: ContainerStatus | null;
   containerReason: string;
@@ -85,6 +86,7 @@ export function makeInitialForm(): EventFormState {
     category: "PRODUTIVO",
     clientId: "",
     plate: "",
+    originInput: "",
     container: "",
     containerStatus: "FULL",
     containerReason: "",

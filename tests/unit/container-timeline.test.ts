@@ -6,7 +6,8 @@ import {
 } from "@/lib/domain/container-timeline";
 
 const baseEvent = (
-  overrides: Partial<ContainerTimelineEvent> & Pick<ContainerTimelineEvent, "id">
+  overrides: Partial<ContainerTimelineEvent> &
+    Pick<ContainerTimelineEvent, "id">
 ): ContainerTimelineEvent => {
   const { id, ...rest } = overrides;
   return {
@@ -48,7 +49,7 @@ describe("container timeline planner", () => {
       createCycleId: () => "cycle-new"
     });
 
-    expect(plan.events).toEqual([
+    expect(plan.events).toMatchObject([
       {
         id: "first",
         containerCycleId: "cycle-existing",
@@ -85,7 +86,7 @@ describe("container timeline planner", () => {
       createCycleId: () => "cycle-should-not-change"
     });
 
-    expect(plan.events).toEqual([
+    expect(plan.events).toMatchObject([
       {
         id: "new-retroactive",
         containerCycleId: "cycle-existing",
@@ -152,7 +153,7 @@ describe("container timeline planner", () => {
       createCycleId: () => "cycle-new"
     });
 
-    expect(plan.events[2]).toEqual({
+    expect(plan.events[2]).toMatchObject({
       id: "blend-after",
       containerCycleId: "cycle-1",
       previousContainerEventId: "restored"
@@ -210,7 +211,7 @@ describe("container timeline planner", () => {
       createCycleId: () => "new-cycle"
     });
 
-    expect(plan.events).toEqual([
+    expect(plan.events).toMatchObject([
       {
         id: "buffer",
         containerCycleId: "source-cycle",
@@ -254,7 +255,7 @@ describe("container timeline planner", () => {
       createCycleId: () => `legacy-cycle-${++cycleSequence}`
     });
 
-    expect(plan.events).toEqual([
+    expect(plan.events).toMatchObject([
       {
         id: "legacy-full-1",
         containerCycleId: "legacy-cycle-1",

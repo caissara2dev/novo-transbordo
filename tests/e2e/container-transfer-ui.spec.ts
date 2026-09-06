@@ -38,7 +38,11 @@ async function mockSession(page: Page): Promise<void> {
     route.fulfill(
       json({
         ok: true,
-        data: { profile, approvalContactPhone: null },
+        data: {
+          profile,
+          approvalContactPhone: null,
+          containerTransfersEnabled: true
+        },
         profile,
         approvalContactPhone: null
       })
@@ -75,40 +79,31 @@ test.afterAll(async () => {
   await deleteApp(adminApp);
 });
 
-test("selects a buffer source, locks its client and clears it when returning to truck", async ({
-  page
-}) => {
-  const buffer = {
-    container: "ABCU 123456-0",
+const originFixtures = [
+  {
+    container: "TSTU 250001-9",
     status: "BUFFER",
-    reason: "Reserva operacional",
-    cycleId: "cycle-source",
-    latestEventId: "event-source",
-    previousEventId: null,
     clientId: "client-1",
     clientNameSnapshot: "Cliente Alfa",
-    plate: "ABC1D23",
-    pump: "BOMBA_1",
-    operationalAt: "2026-08-13T12:00:00.000Z",
-    eventCreatedAt: "2026-08-13T12:00:00.000Z",
     version: 7
-  };
-  const secondBuffer = {
-    ...buffer,
-    container: "MSCU 663987-0",
-    cycleId: "cycle-source-2",
-    latestEventId: "event-source-2",
+  },
+  {
+    container: "TSTU 250003-0",
+    status: "PARTIAL",
+    clientId: "client-1",
+    clientNameSnapshot: "Cliente Alfa",
     version: 4
-  };
+  }
+];
 
+async function emptyForm(page: Page) {
   await page.route("**/api/clients*", (route) =>
     route.fulfill(
       json({
         ok: true,
         data: {
           items: [{ id: "client-1", name: "Cliente Alfa", active: true }],
-          nextCursor: null,
-          incomplete: false
+          nextCursor: null
         }
       })
     )
@@ -122,85 +117,178 @@ test("selects a buffer source, locks its client and clears it when returning to 
     )
   );
   await page.route("**/api/containers/lookup?*", (route) =>
-    route.fulfill(json({ ok: true, data: { current: null, passages: [] } }))
-  );
-  await page.route("**/api/containers?*", (route) => {
-    const url = new URL(route.request().url());
-    expect(url.searchParams.get("scope")).toBe("open");
-    expect(url.searchParams.get("status")).toBe("BUFFER");
-    expect(url.searchParams.get("limit")).toBe("200");
-    const query = url.searchParams.get("query") || "";
-    const matchingItems = [buffer, secondBuffer].filter((item) =>
-      item.container.replace(/[^A-Z0-9]/g, "").includes(
-        query.replace(/[^A-Z0-9]/g, "")
-      )
-    );
-    const cursor = url.searchParams.get("cursor");
-    const items = !query
-      ? cursor === "second-page"
-        ? [secondBuffer]
-        : [buffer]
-      : matchingItems;
-    const nextCursor = !query && !cursor ? "second-page" : null;
-    return route.fulfill(
+    route.fulfill(
       json({
         ok: true,
-        data: { items, nextCursor, incomplete: false }
+        data: {
+          current: null,
+          availableStatuses: ["FULL", "PARTIAL", "BUFFER"],
+          requiresNewCycleConfirmation: false
+        }
       })
-    );
-  });
-
+    )
+  );
   await login(page);
   await page.goto("/events");
+  return page.getByRole("heading", { name: "Novo lançamento" }).locator("..");
+}
 
-  const createForm = page
-    .getByRole("heading", { name: "Novo lançamento" })
-    .locator("..");
-  await expect(createForm.getByLabel("Carreta")).toBeChecked();
-  await createForm.getByLabel("Container pulmão").check();
+function sourcePage(items = originFixtures, nextCursor: string | null = null) {
+  return json({ ok: true, data: { items, nextCursor, incomplete: false } });
+}
 
-  await expect(createForm.getByLabel("Placa *")).toHaveCount(0);
-  await expect(createForm.getByLabel("Buscar container pulmão")).toHaveCount(0);
-  await expect(createForm.getByLabel("Container de origem *")).toBeVisible();
-  await createForm.getByLabel("Container de origem *").click();
+test("automatically recognizes a source, requires selection and invalidates the inherited client", async ({
+  page
+}) => {
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
+  let searches = 0;
+  await page.route("**/api/containers?*", (route) => {
+    const params = new URL(route.request().url()).searchParams;
+    expect(params.get("scope")).toBe("transfer-source");
+    expect(params.get("limit")).toBe("20");
+    searches++;
+    return route.fulfill(
+      sourcePage(
+        originFixtures.filter(
+          (item) =>
+            item.container.replace(/[\s-]/g, "") !==
+            params.get("excludeContainer")
+        )
+      )
+    );
+  });
+  const form = await emptyForm(page);
+  const origin = form.getByLabel("Placa ou container de origem *");
+  await origin.fill("tst");
+  await expect(form.getByText("A identificar", { exact: true })).toBeVisible();
+  expect(searches).toBe(0);
+  await origin.fill("t s t-u");
+  await expect(origin).toHaveValue("t s t-u");
   await expect(
-    createForm.getByRole("option", { name: /ABCU 123456-0/ })
+    form.getByRole("option", { name: /TSTU 250003-0.*Parcial/ })
   ).toBeVisible();
-  await expect(
-    createForm.getByRole("option", { name: /MSCU 663987-0/ })
-  ).toBeVisible();
+  await expect(form.getByLabel("Cliente *")).toHaveValue("");
+  await origin.press("ArrowDown");
+  await origin.press("ArrowDown");
+  await origin.press("Enter");
+  await expect(origin).toHaveValue("TSTU 250003-0");
+  await expect(form.getByLabel("Cliente *")).toHaveValue("client-1");
+  await expect(form.getByLabel("Cliente *")).toBeDisabled();
+  await form.getByLabel("Não, restará carga").check();
+  await form.getByLabel("Container de destino *").fill("TSTU2500024");
+  await expect(page.locator("[data-nextjs-dialog]")).toHaveCount(0);
+  await form.screenshot({ path: "tmp/origin-auto-desktop.png" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await form.screenshot({ path: "tmp/origin-auto-mobile.png" });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth
+    )
+  ).toBe(true);
+  await page.setViewportSize({ width: 1280, height: 720 });
+  expect(pageErrors).toEqual([]);
+  await form.getByLabel("Container de destino *").fill("TSTU2500030");
+  await expect(form.getByRole("alert")).toContainText("Origem e destino");
+  await expect(form.getByLabel("Cliente *")).toHaveValue("");
+  await expect(form.getByLabel("Não, restará carga")).toHaveCount(0);
+  await origin.fill("abc1d23");
+  await expect(origin).toHaveValue("abc1d23");
+  await expect(form.getByText("Carreta identificada")).toBeVisible();
+  await expect(form.getByLabel("Cliente *")).toBeEnabled();
+});
 
-  await createForm.getByLabel("Container de origem *").fill("ABCU");
-  await expect(
-    createForm.getByRole("option", { name: /ABCU 123456-0/ })
-  ).toBeVisible();
-  await expect(
-    createForm.getByRole("option", { name: /MSCU 663987-0/ })
-  ).toHaveCount(0);
-  await createForm.getByRole("option", { name: /ABCU 123456-0/ }).click();
-  await expect(createForm.getByLabel("Container de origem *")).toHaveValue(
-    "ABCU 123456-0"
+test("preserves pasted text and cursor while correcting between truck, unknown and container", async ({
+  page
+}) => {
+  await page.route("**/api/containers?*", (route) =>
+    route.fulfill(sourcePage())
   );
+  const form = await emptyForm(page);
+  const origin = form.getByLabel("Placa ou container de origem *");
+  await origin.fill("tstu2500019");
+  await expect(origin).toHaveValue("tstu2500019");
+  await origin.evaluate((element: HTMLInputElement) =>
+    element.setSelectionRange(3, 4)
+  );
+  await origin.press("4");
+  await expect(origin).toHaveValue("tst42500019");
+  expect(
+    await origin.evaluate((element: HTMLInputElement) => element.selectionStart)
+  ).toBe(4);
+  await expect(form.getByText("Carreta identificada")).toBeVisible();
+  await origin.press("Backspace");
+  await origin.press("Backspace");
+  await expect(origin).toHaveValue("ts2500019");
+  await expect(form.getByText("A identificar", { exact: true })).toBeVisible();
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.evaluate(() => navigator.clipboard.writeText("tstu-2500019"));
+  await origin.fill("");
+  await origin.press(process.platform === "darwin" ? "Meta+V" : "Control+V");
+  await expect(origin).toHaveValue("tstu-2500019");
+  await expect(form.getByText("Container identificado")).toBeVisible();
+  await origin.press("Escape");
+  await expect(form.getByRole("listbox")).toHaveCount(0);
+});
 
-  await expect(createForm.getByLabel("Cliente *")).toHaveValue("client-1");
-  await expect(createForm.getByLabel("Cliente *")).toBeDisabled();
+test("supports pagination, retry, empty results and ignores a stale response", async ({
+  page
+}) => {
+  let fail = true;
+  await page.route("**/api/containers?*", async (route) => {
+    const params = new URL(route.request().url()).searchParams;
+    if (params.get("query") === "MSCU") {
+      await new Promise((resolve) => setTimeout(resolve, 650));
+      await route
+        .fulfill(
+          sourcePage([{ ...originFixtures[0], container: "MSCU 663987-0" }])
+        )
+        .catch(() => {});
+      return;
+    }
+    if (params.get("query") === "XXXX") {
+      await route.fulfill(sourcePage([]));
+      return;
+    }
+    if (fail) {
+      fail = false;
+      await route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "Consulta indisponível" })
+      });
+      return;
+    }
+    await route.fulfill(
+      params.has("cursor")
+        ? sourcePage([originFixtures[1]])
+        : sourcePage([originFixtures[0]], "next-page")
+    );
+  });
+  const form = await emptyForm(page);
+  const origin = form.getByLabel("Placa ou container de origem *");
+  await origin.fill("TSTU");
+  await expect(form.getByRole("alert")).toBeVisible();
+  await form.getByRole("button", { name: "Tentar novamente" }).click();
   await expect(
-    createForm.getByText("O container de origem foi completamente esvaziado?")
+    form.getByRole("option", { name: /TSTU 250001-9/ })
   ).toBeVisible();
-  await createForm.getByLabel("Não, continuará como pulmão").check();
-
-  await createForm.getByLabel("Container *").fill("ABCU1234560");
+  await form.getByRole("button", { name: "Carregar mais" }).click();
   await expect(
-    createForm.getByText("Origem e destino precisam ser containers diferentes.")
+    form.getByRole("option", { name: /TSTU 250003-0/ })
   ).toBeVisible();
+  await expect(form.getByLabel("Cliente *")).toHaveValue("");
+  const pending = page.waitForRequest((request) =>
+    request.url().includes("query=MSCU")
+  );
+  await origin.fill("MSCU");
+  await pending;
+  await origin.fill("XXXX");
   await expect(
-    createForm.getByRole("button", { name: "Salvar lançamento" })
-  ).toBeDisabled();
-
-  await createForm.getByLabel("Carreta").check();
-  await expect(createForm.getByLabel("Placa *")).toBeVisible();
-  await expect(createForm.getByLabel("Container de origem *")).toHaveCount(0);
-  await expect(createForm.getByLabel("Cliente *")).toBeEnabled();
+    form.getByText("Nenhum Pulmão ou Parcial aberto foi encontrado.")
+  ).toBeVisible();
+  await expect(form.getByRole("option", { name: /MSCU/ })).toHaveCount(0);
+  await expect(form.getByLabel("Cliente *")).toHaveValue("");
 });
 
 test("shows the source instead of a plate in global and container histories", async ({
@@ -227,6 +315,7 @@ test("shows the source instead of a plate in global and container histories", as
     loadSourceType: "BUFFER_CONTAINER",
     sourceContainer: "ABCU1234560",
     sourceContainerEmptied: true,
+    sourceContainerStateVersion: 5,
     notes: null,
     createdAt: "2026-08-13T11:20:00.000Z",
     updatedAt: "2026-08-13T11:20:00.000Z",
@@ -307,11 +396,18 @@ test("shows the source instead of a plate in global and container histories", as
   await expect(historyItem).not.toContainText("Placa:");
 
   await historyItem.getByRole("button", { name: "Editar" }).click();
-  await expect(page.getByRole("heading", { name: "Editar lançamento" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Editar lançamento" })
+  ).toBeVisible();
   const editPanel = page.getByTestId("event-edit-panel");
-  await expect(editPanel.getByLabel("Container de origem *")).toHaveValue(
-    "ABCU1234560"
-  );
+  await expect(
+    editPanel.getByLabel("Placa ou container de origem *")
+  ).toHaveValue("ABCU1234560");
+  await editPanel
+    .getByRole("button", { name: "Atualizar estado da origem" })
+    .click();
+  await expect(editPanel.getByLabel("Sim, foi esvaziado")).not.toBeChecked();
+  await editPanel.getByLabel("Sim, foi esvaziado").check();
   await page.getByRole("button", { name: "Salvar edição" }).click();
   await expect.poll(() => editedSourceVersion).toBe(9);
 

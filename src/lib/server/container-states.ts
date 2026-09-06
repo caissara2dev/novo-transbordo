@@ -1,8 +1,6 @@
-import {
-  FieldPath,
-  Timestamp,
-  Transaction
-} from "firebase-admin/firestore";
+import { planEffectsForContainer } from "@/lib/domain/container-effects";
+import { TRANSFER_SOURCE_STATUSES } from "@/lib/domain/container-transfer";
+import { FieldPath, Timestamp, Transaction } from "firebase-admin/firestore";
 import { randomUUID } from "node:crypto";
 import { normalizeContainer } from "@/lib/domain/identifiers";
 import { HttpError } from "@/lib/domain/errors";
@@ -11,15 +9,8 @@ import {
   reconcileEventContainerEffectsInTransaction
 } from "@/lib/server/container-event-effects";
 import { adminDb } from "@/lib/firebase/admin";
-import {
-  containerDocumentKey,
-  eventContainerStatus
-} from "@/lib/server/container-state-core";
-import {
-  ContainerStateDoc,
-  ContainerStatus,
-  EventDoc
-} from "@/types/domain";
+import { containerDocumentKey } from "@/lib/server/container-state-core";
+import { ContainerStateDoc, ContainerStatus, EventDoc } from "@/types/domain";
 import {
   decodePaginationCursor,
   encodePaginationCursor,
@@ -80,7 +71,9 @@ export function compareOperationalOrder(
   return toMillis(candidateCreatedAt) - toMillis(current.eventCreatedAt);
 }
 
-export async function latestEventState(container: string): Promise<ContainerStateView | null> {
+export async function latestEventState(
+  container: string
+): Promise<ContainerStateView | null> {
   const [destinationSnap, sourceSnap] = await Promise.all([
     adminDb
       .collection("events")
@@ -147,7 +140,9 @@ export function availableStatusesFor(
   return ["FULL", "PARTIAL", "BUFFER"];
 }
 
-export async function lookupContainer(rawContainer: string): Promise<ContainerLookupResult> {
+export async function lookupContainer(
+  rawContainer: string
+): Promise<ContainerLookupResult> {
   const container = normalizeContainer(rawContainer);
   if (!container) {
     throw new HttpError(400, "Container inválido.");
@@ -174,14 +169,20 @@ export function resolveContainerTransition(params: {
 
   if (!current) {
     if (isBlend) {
-      throw new HttpError(400, "Blend exige um container Parcial ou Pulmão anterior.");
+      throw new HttpError(
+        400,
+        "Blend exige um container Parcial ou Pulmão anterior."
+      );
     }
     return { cycleId: randomUUID(), previousEventId: null };
   }
 
   if (startsNewCycle) {
     if (isBlend) {
-      throw new HttpError(400, "Um novo ciclo não pode começar diretamente como Blend.");
+      throw new HttpError(
+        400,
+        "Um novo ciclo não pode começar diretamente como Blend."
+      );
     }
     return { cycleId: randomUUID(), previousEventId: null };
   }
@@ -195,11 +196,17 @@ export function resolveContainerTransition(params: {
 
   const currentIsBlend = current.status === "BLEND_PARTIAL";
   if (currentIsBlend && !isBlend) {
-    throw new HttpError(400, "Um Blend não pode voltar a ser carga simples no mesmo ciclo.");
+    throw new HttpError(
+      400,
+      "Um Blend não pode voltar a ser carga simples no mesmo ciclo."
+    );
   }
 
   if (isBlend && current.clientId !== clientId) {
-    throw new HttpError(400, "Blend só pode ser formado com cargas do mesmo cliente.");
+    throw new HttpError(
+      400,
+      "Blend só pode ser formado com cargas do mesmo cliente."
+    );
   }
 
   return {
@@ -208,7 +215,9 @@ export function resolveContainerTransition(params: {
   };
 }
 
-export async function rebuildContainerState(rawContainer: string | null): Promise<void> {
+export async function rebuildContainerState(
+  rawContainer: string | null
+): Promise<void> {
   const container = normalizeContainer(rawContainer);
   if (!container) return;
 
@@ -242,22 +251,38 @@ export async function listContainerStates(params: {
   query?: string;
   openOnly: boolean;
   status?: ContainerStatus;
+  transferSourceOnly?: boolean;
+  excludeContainer?: string;
   pagination: PaginationInput;
 }): Promise<{
   items: ContainerStateView[];
   nextCursor: string | null;
   incomplete: boolean;
 }> {
-  let firestoreQuery: FirebaseFirestore.Query = adminDb.collection("containerStates");
+  let firestoreQuery: FirebaseFirestore.Query =
+    adminDb.collection("containerStates");
 
-  if (params.status) {
+  if (params.transferSourceOnly) {
+    firestoreQuery = firestoreQuery.where(
+      "status",
+      "in",
+      TRANSFER_SOURCE_STATUSES
+    );
+  } else if (params.status) {
     firestoreQuery = firestoreQuery.where("status", "==", params.status);
   } else if (params.openOnly) {
-    firestoreQuery = firestoreQuery.where("status", "in", OPEN_CONTAINER_STATUSES);
+    firestoreQuery = firestoreQuery.where(
+      "status",
+      "in",
+      OPEN_CONTAINER_STATUSES
+    );
   }
 
   const needle = params.query?.replace(/[^A-Z0-9]/gi, "").toUpperCase();
+  const excluded = containerDocumentKey(params.excludeContainer || "");
   const scope = paginationScope("containers", [
+    Boolean(params.transferSourceOnly),
+    excluded,
     params.status || null,
     params.openOnly,
     needle || null
@@ -290,10 +315,7 @@ export async function listContainerStates(params: {
     initialPosition,
     fetchPage: async (after, limit) => {
       const pageQuery = after
-        ? firestoreQuery.startAfter(
-            after.operationalAt,
-            after.documentId
-          )
+        ? firestoreQuery.startAfter(after.operationalAt, after.documentId)
         : firestoreQuery;
       const snap = await pageQuery.limit(limit).get();
       return snap.docs;
@@ -301,10 +323,9 @@ export async function listContainerStates(params: {
     positionForDocument: containerListPosition,
     matchDocument: (doc) => {
       const state = doc.data() as ContainerStateView;
-      if (
-        needle &&
-        !containerDocumentKey(state.container).includes(needle)
-      ) {
+      if (excluded && containerDocumentKey(state.container) === excluded)
+        return undefined;
+      if (needle && !containerDocumentKey(state.container).includes(needle)) {
         return undefined;
       }
       return {
@@ -323,26 +344,27 @@ export async function listContainerStates(params: {
 
   return {
     items: pageEntries.map((entry) => entry.state),
-    nextCursor:
-      nextPosition
-        ? encodePaginationCursor({
-            kind: "containers",
-            scope,
-            values: [nextPosition.operationalAt.toMillis()],
-            documentId: nextPosition.documentId
-          })
-        : null,
+    nextCursor: nextPosition
+      ? encodePaginationCursor({
+          kind: "containers",
+          scope,
+          values: [nextPosition.operationalAt.toMillis()],
+          documentId: nextPosition.documentId
+        })
+      : null,
     incomplete: scan.incomplete
   };
 }
 
-export async function getContainerHistory(rawContainer: string): Promise<Array<{
-  id: string;
-  status: ContainerStateDoc["status"];
-  containerRole: "DESTINATION" | "SOURCE";
-  relatedContainer: string | null;
-  [key: string]: unknown;
-}>> {
+export async function getContainerHistory(rawContainer: string): Promise<
+  Array<{
+    id: string;
+    status: ContainerStateDoc["status"];
+    containerRole: "DESTINATION" | "SOURCE";
+    relatedContainer: string | null;
+    [key: string]: unknown;
+  }>
+> {
   const container = normalizeContainer(rawContainer);
   if (!container) {
     throw new HttpError(400, "Container inválido.");
@@ -355,7 +377,6 @@ export async function getContainerHistory(rawContainer: string): Promise<Array<{
       .where("deleted", "==", false)
       .orderBy("endAt", "desc")
       .orderBy("createdAt", "desc")
-      .limit(200)
       .get(),
     adminDb
       .collection("events")
@@ -363,35 +384,35 @@ export async function getContainerHistory(rawContainer: string): Promise<Array<{
       .where("deleted", "==", false)
       .orderBy("endAt", "desc")
       .orderBy("createdAt", "desc")
-      .limit(200)
       .get()
   ]);
   const byId = new Map(
     [...destinationSnap.docs, ...sourceSnap.docs].map((doc) => [doc.id, doc])
   );
 
-  return Array.from(byId.values())
-    .sort((left, right) => {
-      const endDelta = toMillis(right.data().endAt) - toMillis(left.data().endAt);
-      return endDelta || toMillis(right.data().createdAt) - toMillis(left.data().createdAt);
-    })
-    .flatMap((doc) => {
-      const data = doc.data() as EventDoc;
-      const isSource = normalizeContainer(data.sourceContainer ?? null) === container;
-      const status: ContainerStateDoc["status"] | null = isSource
-        ? data.sourceContainerEmptied
-          ? "TRANSFER_EMPTIED"
-          : "BUFFER"
-        : eventContainerStatus(data);
-      if (!status) return [];
-      return [{
-        id: doc.id,
-        ...data,
-        status,
-        containerRole: isSource ? "SOURCE" as const : "DESTINATION" as const,
-        relatedContainer: isSource
-          ? normalizeContainer(data.container)
-          : normalizeContainer(data.sourceContainer ?? null)
-      }];
-    });
+  const { effects } = planEffectsForContainer(
+    container,
+    Array.from(byId.values()).map((doc) => ({
+      id: doc.id,
+      data: doc.data() as EventDoc
+    })),
+    randomUUID
+  );
+  return effects
+    .slice()
+    .sort(
+      (a, b) =>
+        b.operationalAtMs - a.operationalAtMs ||
+        b.createdAtMs - a.createdAtMs ||
+        b.id.localeCompare(a.id)
+    )
+    .map((effect) => ({
+      id: effect.id,
+      ...effect.data,
+      status: effect.status,
+      containerCycleId: effect.containerCycleId,
+      previousContainerEventId: effect.previousContainerEventId,
+      containerRole: effect.role,
+      relatedContainer: effect.relatedContainer
+    }));
 }

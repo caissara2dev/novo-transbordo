@@ -24,7 +24,7 @@
     "verify:server-bundle": "node scripts/verify-server-bundle.mjs",
     "verify": "npm run lint && npm run typecheck && npm run verify:firestore-indexes && npm run test:coverage && npm run test:rules && npm run test:e2e && npm run build && npm run verify:server-bundle && npm run audit:all && npm run audit:prod",
     "copy:staging": "node scripts/copy-staging-data.mjs",
-    "backfill:container-states": "node scripts/backfill-container-states.mjs",
+    "backfill:container-states": "node --experimental-strip-types scripts/backfill-container-states.mjs",
     "promote-admin": "node scripts/promote-admin.mjs"
   },
   "dependencies": {

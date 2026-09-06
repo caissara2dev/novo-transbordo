@@ -1,4 +1,8 @@
 env:
+  - variable: CONTAINER_TRANSFERS_ENABLED
+    value: "true"
+    availability:
+      - RUNTIME
   - variable: NEXT_PUBLIC_APP_ENV
     value: "production"
     availability:

@@ -1,4 +1,4 @@
-import { HttpError } from "@/lib/domain/errors";
+import { HttpError } from "./errors.ts";
 
 const LETTER_VALUE_MAP: Record<string, number> = {
   A: 10,

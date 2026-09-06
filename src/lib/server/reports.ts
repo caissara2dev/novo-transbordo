@@ -678,7 +678,7 @@ function detailedCsvRows(events: ReportEvent[]): string {
         csvEscape(event.plate || ""),
         csvEscape(
           event.loadSourceType === "BUFFER_CONTAINER"
-            ? "CONTAINER PULMÃO"
+            ? "CONTAINER"
             : event.loadSourceType === "TRUCK"
               ? "CARRETA"
               : ""

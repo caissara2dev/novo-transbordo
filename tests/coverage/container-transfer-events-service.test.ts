@@ -42,7 +42,7 @@ function eventInput(
   };
 }
 
-describe("container transfer event command service", () => {
+describe.each(["BUFFER", "PARTIAL"] as const)("container transfer event command service: %s", (sourceStatus) => {
   beforeEach(() => {
     inMemoryAdminDb.reset();
     inMemoryAdminDb.seed("settings", "operations", {
@@ -62,7 +62,7 @@ describe("container transfer event command service", () => {
         clientId: "client-1",
         plate: "ABC1234",
         container: "MSCU6639870",
-        containerStatus: "BUFFER",
+        containerStatus: sourceStatus,
         containerReason: "Reserva operacional",
         expectedContainerStateVersion: 0,
         notes: null
@@ -102,7 +102,7 @@ describe("container transfer event command service", () => {
       plate: null
     });
     expect(inMemoryAdminDb.read("containerStates", "MSCU6639870")).toMatchObject({
-      status: "BUFFER",
+      status: sourceStatus,
       latestEventId: transfer.id,
       latestEventRole: "SOURCE",
       relatedContainer: "ABCU 123456-0"
@@ -132,7 +132,7 @@ describe("container transfer event command service", () => {
         clientId: "client-1",
         plate: "ABC1234",
         container: "MSCU6639870",
-        containerStatus: "BUFFER",
+        containerStatus: sourceStatus,
         containerReason: "Reserva operacional",
         expectedContainerStateVersion: 0,
         notes: null
@@ -194,7 +194,7 @@ describe("container transfer event command service", () => {
         clientId: "client-1",
         plate: "ABC1234",
         container: "MSCU6639870",
-        containerStatus: "BUFFER",
+        containerStatus: sourceStatus,
         containerReason: "Reserva operacional",
         expectedContainerStateVersion: 0,
         notes: null
@@ -243,7 +243,7 @@ describe("container transfer event command service", () => {
       });
       expect(inMemoryAdminDb.read("containerStates", "MSCU6639870")).toMatchObject({
         latestEventId: transfer.id,
-        status: "BUFFER"
+        status: sourceStatus
       });
     }
   );
@@ -260,7 +260,7 @@ describe("container transfer event command service", () => {
       clientId: "client-1",
       plate: "ABC1234",
       container: "MSCU6639870",
-      containerStatus: "BUFFER",
+      containerStatus: sourceStatus,
       containerReason: "Reserva operacional",
       expectedContainerStateVersion: 0,
       notes: null
@@ -308,7 +308,7 @@ describe("container transfer event command service", () => {
       clientId: "client-1",
       plate: "ABC1234",
       container: "MSCU6639870",
-      containerStatus: "BUFFER",
+      containerStatus: sourceStatus,
       containerReason: "Reserva operacional",
       expectedContainerStateVersion: 0,
       notes: null
@@ -373,7 +373,7 @@ describe("container transfer event command service", () => {
       clientId: "client-1",
       plate: "ABC1234",
       container: "MSCU6639870",
-      containerStatus: "BUFFER",
+      containerStatus: sourceStatus,
       containerReason: "Reserva operacional",
       expectedContainerStateVersion: 0,
       notes: null
@@ -447,7 +447,7 @@ describe("container transfer event command service", () => {
       clientId: "client-1",
       plate: "ABC1234",
       container: "MSCU6639870",
-      containerStatus: "BUFFER",
+      containerStatus: sourceStatus,
       containerReason: "Reserva operacional",
       expectedContainerStateVersion: 0,
       notes: null
@@ -488,7 +488,7 @@ describe("container transfer event command service", () => {
 
     expect(inMemoryAdminDb.read("containerStates", "ABCU1234560")).toBeUndefined();
     expect(inMemoryAdminDb.read("containerStates", "MSCU6639870")).toMatchObject({
-      status: "BUFFER"
+      status: sourceStatus
     });
 
     const restorePreview = await previewEventRestore(transfer.id);
@@ -526,7 +526,7 @@ describe("container transfer event command service", () => {
       clientId: "client-1",
       plate: "ABC1234",
       container: "MSCU6639870",
-      containerStatus: "BUFFER",
+      containerStatus: sourceStatus,
       containerReason: "Reserva operacional",
       expectedContainerStateVersion: 0,
       notes: null

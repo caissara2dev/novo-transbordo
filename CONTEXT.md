@@ -7,22 +7,26 @@ que recebem ou fornecem carga na operação.
 
 **Origem da carga**:
 Procedência da carga de um lançamento produtivo: uma carreta ou um container
-Pulmão.
+Pulmão ou Parcial.
 
 **Container Pulmão**:
 Container aberto que mantém carga disponível para complementar outro container
 em uma operação posterior.
+
+**Container Parcial**:
+Container aberto que ainda receberá carga para completar sua operação. Também
+pode fornecer carga a outro container, mantendo seu estado enquanto restar carga.
 
 **Container de destino**:
 Container que recebe a carga em um lançamento produtivo. Pode iniciar um ciclo
 ou continuar um ciclo aberto.
 
 **Container de origem**:
-Container aberto como Pulmão que fornece carga ao container de destino.
+Container aberto como Pulmão ou Parcial que fornece carga ao container de destino.
 _Evitar_: container doador.
 
 **Transferência entre containers**:
-Lançamento produtivo único em que um container Pulmão fornece carga a outro
+Lançamento produtivo único em que um container Pulmão ou Parcial fornece carga a outro
 container.
 
 **Esvaziado por transferência**:

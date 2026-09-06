@@ -14,10 +14,9 @@ export const containerStatuses = [
 
 export type ContainerStatus = (typeof containerStatuses)[number];
 
-export type ContainerLifecycleStatus =
-  | ContainerStatus
-  | "TRANSFER_EMPTIED";
+export type ContainerLifecycleStatus = ContainerStatus | "TRANSFER_EMPTIED";
 
+// BUFFER_CONTAINER is the compatible wire value for a Pulmão or Parcial origin.
 export type LoadSourceType = "TRUCK" | "BUFFER_CONTAINER";
 
 export type ContainerEventRole = "DESTINATION" | "SOURCE";

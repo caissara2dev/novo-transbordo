@@ -7,6 +7,13 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o 
 
 ## [2.5.0] - Em desenvolvimento
 
+- Origem automática por placa ou container no formulário, com seleção explícita,
+  busca paginada, cliente herdado e navegação por teclado.
+- Transferências aceitam Pulmão e Parcial, preservando o estado restante em
+  históricos, edição, exclusão, restauração e reconstrução.
+- Controle de ativação no servidor para suspender mutações de transferências
+  mantendo leitura e auditoria disponíveis.
+
 ### Adicionado
 
 - Lançamentos produtivos podem receber carga de um container atualmente aberto

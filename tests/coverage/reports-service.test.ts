@@ -249,7 +249,7 @@ describe("public reports service", () => {
     ]);
     const csv = await exportReportsCsv({ filters: baseFilters, mode: "detailed" });
     expect(csv).toContain("Origem da carga;Container de origem;Origem esvaziada");
-    expect(csv).toContain("CONTAINER PULMÃO;MSCU 663987-0;SIM");
+    expect(csv).toContain("CONTAINER;MSCU 663987-0;SIM");
   });
 
   it("includes deleted records only when explicitly requested", async () => {

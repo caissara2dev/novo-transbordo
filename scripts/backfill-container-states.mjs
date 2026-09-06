@@ -1,4 +1,14 @@
-import { applicationDefault, deleteApp, initializeApp } from "firebase-admin/app";
+import {
+  containersAffectedBy,
+  eventContainerStatus,
+  planEffectsForContainer,
+  projectionFromPlan
+} from "../src/lib/domain/container-effects.ts";
+import {
+  applicationDefault,
+  deleteApp,
+  initializeApp
+} from "firebase-admin/app";
 import { FieldPath, getFirestore } from "firebase-admin/firestore";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,7 +23,10 @@ const PAGE_SIZE = 300;
 const WRITE_BATCH_SIZE = 400;
 
 function argumentValue(argv, name) {
-  return argv.find((arg) => arg.startsWith(`${name}=`))?.slice(name.length + 1) || null;
+  return (
+    argv.find((arg) => arg.startsWith(`${name}=`))?.slice(name.length + 1) ||
+    null
+  );
 }
 
 export function parseArgs(argv) {
@@ -57,7 +70,9 @@ export function parseArgs(argv) {
 
 export function validateBackfillRequest(options) {
   if (!ALLOWED_PROJECTS.has(options.projectId)) {
-    throw new Error("Projeto recusado. Informe staging ou produção explicitamente.");
+    throw new Error(
+      "Projeto recusado. Informe staging ou produção explicitamente."
+    );
   }
   if (options.execute && options.confirmation !== options.projectId) {
     throw new Error(
@@ -87,26 +102,12 @@ function toMillis(value) {
 }
 
 function containerKey(container) {
-  return String(container).replace(/[^A-Z0-9]/gi, "").toUpperCase();
+  return String(container)
+    .replace(/[^A-Z0-9]/gi, "")
+    .toUpperCase();
 }
 
-function statusFromEvent(data) {
-  const allowed = new Set([
-    "FULL",
-    "PARTIAL",
-    "BUFFER",
-    "BLEND_FULL",
-    "BLEND_PARTIAL"
-  ]);
-  if (allowed.has(data.containerStatus)) return data.containerStatus;
-  return data.category === "PRODUTIVO" && data.container ? "FULL" : null;
-}
-
-function isNewer(candidate, current) {
-  const endDelta = toMillis(candidate.endAt) - toMillis(current.endAt);
-  if (endDelta !== 0) return endDelta > 0;
-  return toMillis(candidate.createdAt) > toMillis(current.createdAt);
-}
+const statusFromEvent = eventContainerStatus;
 
 function projectionValue(value) {
   return value && typeof value.toMillis === "function"
@@ -156,10 +157,12 @@ export function buildContainerStateBackfillPatch({
     updatedAt: data.updatedAt || data.createdAt
   };
   const currentVersion = Math.max(1, Number(existing?.version) || 1);
-  const changed = !existing || Object.entries(projection).some(
-    ([field, value]) =>
-      projectionValue(existing[field]) !== projectionValue(value)
-  );
+  const changed =
+    !existing ||
+    Object.entries(projection).some(
+      ([field, value]) =>
+        projectionValue(existing[field]) !== projectionValue(value)
+    );
 
   return {
     ...projection,
@@ -167,90 +170,60 @@ export function buildContainerStateBackfillPatch({
   };
 }
 
-function compareBackfillEvents(left, right) {
-  const endDelta = toMillis(left.data.endAt) - toMillis(right.data.endAt);
-  if (endDelta !== 0) return endDelta;
-  const createdDelta = toMillis(left.data.createdAt) - toMillis(right.data.createdAt);
-  if (createdDelta !== 0) return createdDelta;
-  return left.id.localeCompare(right.id);
-}
-
-function updateLatestCandidate(latest, candidate) {
-  const current = latest.get(candidate.key);
-  if (!current || isNewer(candidate.data, current.data)) {
-    latest.set(candidate.key, candidate);
-  }
-}
-
 export function buildContainerStateBackfillCandidates(events) {
-  const latest = new Map();
-  const ordered = [...events]
-    .filter(({ data }) => !data.deleted)
-    .sort(compareBackfillEvents);
-
-  for (const event of ordered) {
-    const { id, data } = event;
-    const destinationStatus = statusFromEvent(data);
-    if (destinationStatus && data.container && data.clientId) {
-      const key = containerKey(data.container);
-      updateLatestCandidate(latest, {
-        id,
-        key,
-        status: destinationStatus,
-        data: {
-          ...data,
-          plate: data.plate || null,
-          latestEventRole: "DESTINATION",
-          relatedContainer:
-            data.loadSourceType === "BUFFER_CONTAINER"
-              ? data.sourceContainer || null
-              : null
-        }
-      });
-    }
-
-    if (
-      destinationStatus &&
-      data.loadSourceType === "BUFFER_CONTAINER" &&
-      data.sourceContainer &&
-      data.clientId &&
-      typeof data.sourceContainerEmptied === "boolean"
-    ) {
-      const key = containerKey(data.sourceContainer);
-      const previous = latest.get(key)?.data;
-      const status = data.sourceContainerEmptied
-        ? "TRANSFER_EMPTIED"
-        : "BUFFER";
-      updateLatestCandidate(latest, {
-        id,
-        key,
-        status,
-        data: {
-          ...data,
-          container: data.sourceContainer,
-          containerStatus: status,
-          containerReason: previous?.containerReason || null,
-          containerCycleId:
-            data.sourceContainerCycleId ||
-            previous?.containerCycleId ||
-            `legacy-${key}`,
-          previousContainerEventId:
-            data.previousSourceContainerEventId || null,
-          plate: previous?.plate || null,
-          latestEventRole: "SOURCE",
-          relatedContainer: data.container
-        }
-      });
+  const grouped = new Map();
+  for (const event of events) {
+    if (event.data.deleted) continue;
+    for (const container of containersAffectedBy(event.data)) {
+      const records = grouped.get(container) || [];
+      records.push(event);
+      grouped.set(container, records);
     }
   }
-
+  const latest = new Map();
+  for (const [container, records] of grouped) {
+    const key = containerKey(container);
+    let cycle = 0;
+    const { effects, plan } = planEffectsForContainer(
+      container,
+      records,
+      () => `legacy-${key}-${++cycle}`
+    );
+    const current = effects.find((effect) => effect.id === plan.current?.id);
+    if (!current) continue;
+    const projection = projectionFromPlan({
+      effects,
+      links: plan.events,
+      current,
+      version: 0
+    });
+    latest.set(key, {
+      id: current.id,
+      key,
+      status: projection.status,
+      data: {
+        ...current.data,
+        container: projection.container,
+        containerStatus: projection.status,
+        containerReason: projection.reason,
+        containerCycleId: projection.cycleId,
+        previousContainerEventId: projection.previousEventId,
+        plate: projection.plate,
+        latestEventRole: projection.latestEventRole,
+        relatedContainer: projection.relatedContainer
+      }
+    });
+  }
   return latest;
 }
 
 async function* readEvents(db) {
   let cursor = null;
   while (true) {
-    let query = db.collection("events").orderBy(FieldPath.documentId()).limit(PAGE_SIZE);
+    let query = db
+      .collection("events")
+      .orderBy(FieldPath.documentId())
+      .limit(PAGE_SIZE);
     if (cursor) query = query.startAfter(cursor);
     const snap = await query.get();
     if (snap.empty) return;
@@ -268,7 +241,12 @@ async function buildLatestStates(db) {
   for await (const doc of readEvents(db)) {
     inspected += 1;
     const data = doc.data();
-    if (data.deleted || !statusFromEvent(data) || !data.container || !data.clientId) {
+    if (
+      data.deleted ||
+      !statusFromEvent(data) ||
+      !data.container ||
+      !data.clientId
+    ) {
       continue;
     }
 
@@ -306,10 +284,7 @@ async function writeStates(db, latest) {
     if (!patch) {
       continue;
     }
-    batch.set(
-      ref,
-      patch
-    );
+    batch.set(ref, patch);
     writes += 1;
     pending += 1;
     if (pending >= WRITE_BATCH_SIZE) await flush();
@@ -365,9 +340,13 @@ export async function main(argv = process.argv.slice(2)) {
     }
 
     const writes = await writeStates(db, result.latest);
-    const finalCount = (await db.collection("containerStates").count().get()).data().count;
+    const finalCount = (
+      await db.collection("containerStates").count().get()
+    ).data().count;
     if (finalCount < result.latest.size) {
-      throw new Error("Verificação final encontrou menos estados que o esperado.");
+      throw new Error(
+        "Verificação final encontrou menos estados que o esperado."
+      );
     }
     console.log(JSON.stringify({ writes, finalCount }, null, 2));
   } finally {

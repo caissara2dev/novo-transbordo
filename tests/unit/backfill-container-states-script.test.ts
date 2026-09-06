@@ -11,9 +11,14 @@ import {
 
 describe("container state backfill CLI policy", () => {
   it("awaits the direct CLI execution before Node can exit", () => {
-    const source = readFileSync("scripts/backfill-container-states.mjs", "utf8");
+    const source = readFileSync(
+      "scripts/backfill-container-states.mjs",
+      "utf8"
+    );
 
-    expect(source).toMatch(/if \(isDirectInvocation\) \{\s+try \{\s+await main\(\);/);
+    expect(source).toMatch(
+      /if \(isDirectInvocation\) \{\s+try \{\s+await main\(\);/
+    );
   });
 
   it("defaults to dry-run and rejects ambiguous write requests", () => {
@@ -115,7 +120,9 @@ describe("container state backfill CLI policy", () => {
       data
     });
     if (!first) {
-      throw new Error("Expected the initial backfill patch to be materialized.");
+      throw new Error(
+        "Expected the initial backfill patch to be materialized."
+      );
     }
     const rerun = buildContainerStateBackfillPatch({
       existing: first,
@@ -126,7 +133,9 @@ describe("container state backfill CLI policy", () => {
     });
 
     if (!rerun) {
-      throw new Error("Expected idempotent backfill patches to be materialized.");
+      throw new Error(
+        "Expected idempotent backfill patches to be materialized."
+      );
     }
     expect(first.version).toBe(1);
     expect(rerun.version).toBe(1);
@@ -225,6 +234,19 @@ describe("container state backfill CLI policy", () => {
 
   it("marks an emptied source as terminal during reconstruction", () => {
     const candidates = buildContainerStateBackfillCandidates([
+      {
+        id: "source",
+        data: {
+          category: "PRODUTIVO",
+          container: "MSCU 663987-0",
+          containerStatus: "PARTIAL",
+          containerCycleId: "cycle-source",
+          clientId: "client-1",
+          pump: "BOMBA_2",
+          endAt: "2026-07-27T08:00:00.000Z",
+          createdAt: "2026-07-27T08:01:00.000Z"
+        }
+      },
       {
         id: "transfer",
         data: {

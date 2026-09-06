@@ -21,9 +21,7 @@ import { EventDoc } from "@/types/domain";
 
 const CONTAINER = "ABCU 123456-0";
 
-function event(
-  overrides: Partial<EventDoc> = {}
-): EventDoc {
+function event(overrides: Partial<EventDoc> = {}): EventDoc {
   return {
     pump: "BOMBA_1",
     shiftDate: "2026-07-27",
@@ -110,26 +108,34 @@ describe("public container state service", () => {
 
   it("includes source-side transfers when falling back or rebuilding a projection", async () => {
     const source = "MSCU 663987-0";
-    inMemoryAdminDb.seed("events", "source-buffer", event({
-      container: source,
-      containerStatus: "BUFFER",
-      containerReason: "Reserva operacional",
-      containerCycleId: "source-cycle",
-      endAt: Timestamp.fromMillis(2_000),
-      createdAt: Timestamp.fromMillis(2_100)
-    }));
-    inMemoryAdminDb.seed("events", "transfer", event({
-      container: CONTAINER,
-      containerStatus: "FULL",
-      plate: null,
-      loadSourceType: "BUFFER_CONTAINER",
-      sourceContainer: source,
-      sourceContainerEmptied: true,
-      sourceContainerCycleId: "source-cycle",
-      previousSourceContainerEventId: "source-buffer",
-      endAt: Timestamp.fromMillis(3_000),
-      createdAt: Timestamp.fromMillis(3_100)
-    }));
+    inMemoryAdminDb.seed(
+      "events",
+      "source-buffer",
+      event({
+        container: source,
+        containerStatus: "BUFFER",
+        containerReason: "Reserva operacional",
+        containerCycleId: "source-cycle",
+        endAt: Timestamp.fromMillis(2_000),
+        createdAt: Timestamp.fromMillis(2_100)
+      })
+    );
+    inMemoryAdminDb.seed(
+      "events",
+      "transfer",
+      event({
+        container: CONTAINER,
+        containerStatus: "FULL",
+        plate: null,
+        loadSourceType: "BUFFER_CONTAINER",
+        sourceContainer: source,
+        sourceContainerEmptied: true,
+        sourceContainerCycleId: "source-cycle",
+        previousSourceContainerEventId: "source-buffer",
+        endAt: Timestamp.fromMillis(3_000),
+        createdAt: Timestamp.fromMillis(3_100)
+      })
+    );
 
     await expect(latestEventState(source)).resolves.toMatchObject({
       latestEventId: "transfer",
@@ -139,7 +145,9 @@ describe("public container state service", () => {
       relatedContainer: CONTAINER
     });
     await rebuildContainerState(source);
-    expect(inMemoryAdminDb.read("containerStates", "MSCU6639870")).toMatchObject({
+    expect(
+      inMemoryAdminDb.read("containerStates", "MSCU6639870")
+    ).toMatchObject({
       latestEventId: "transfer",
       latestEventRole: "SOURCE",
       status: "TRANSFER_EMPTIED"
@@ -147,22 +155,30 @@ describe("public container state service", () => {
   });
 
   it("keeps the latest closed legacy cycle available when projections are missing", async () => {
-    inMemoryAdminDb.seed("events", "legacy-first", event({
-      containerStatus: "FULL",
-      containerReason: null,
-      containerCycleId: null,
-      containerStateVersion: null,
-      endAt: Timestamp.fromMillis(2_000),
-      createdAt: Timestamp.fromMillis(2_100)
-    }));
-    inMemoryAdminDb.seed("events", "legacy-latest", event({
-      containerStatus: "FULL",
-      containerReason: null,
-      containerCycleId: null,
-      containerStateVersion: null,
-      endAt: Timestamp.fromMillis(3_000),
-      createdAt: Timestamp.fromMillis(3_100)
-    }));
+    inMemoryAdminDb.seed(
+      "events",
+      "legacy-first",
+      event({
+        containerStatus: "FULL",
+        containerReason: null,
+        containerCycleId: null,
+        containerStateVersion: null,
+        endAt: Timestamp.fromMillis(2_000),
+        createdAt: Timestamp.fromMillis(2_100)
+      })
+    );
+    inMemoryAdminDb.seed(
+      "events",
+      "legacy-latest",
+      event({
+        containerStatus: "FULL",
+        containerReason: null,
+        containerCycleId: null,
+        containerStateVersion: null,
+        endAt: Timestamp.fromMillis(3_000),
+        createdAt: Timestamp.fromMillis(3_100)
+      })
+    );
 
     await expect(latestEventState(CONTAINER)).resolves.toMatchObject({
       latestEventId: "legacy-latest",
@@ -171,22 +187,30 @@ describe("public container state service", () => {
   });
 
   it("keeps a legacy Blend closure available without requiring missing cycle links", async () => {
-    inMemoryAdminDb.seed("events", "legacy-first", event({
-      containerStatus: "FULL",
-      containerReason: null,
-      containerCycleId: null,
-      containerStateVersion: null,
-      endAt: Timestamp.fromMillis(2_000),
-      createdAt: Timestamp.fromMillis(2_100)
-    }));
-    inMemoryAdminDb.seed("events", "legacy-blend", event({
-      containerStatus: "BLEND_FULL",
-      containerReason: null,
-      containerCycleId: null,
-      containerStateVersion: null,
-      endAt: Timestamp.fromMillis(3_000),
-      createdAt: Timestamp.fromMillis(3_100)
-    }));
+    inMemoryAdminDb.seed(
+      "events",
+      "legacy-first",
+      event({
+        containerStatus: "FULL",
+        containerReason: null,
+        containerCycleId: null,
+        containerStateVersion: null,
+        endAt: Timestamp.fromMillis(2_000),
+        createdAt: Timestamp.fromMillis(2_100)
+      })
+    );
+    inMemoryAdminDb.seed(
+      "events",
+      "legacy-blend",
+      event({
+        containerStatus: "BLEND_FULL",
+        containerReason: null,
+        containerCycleId: null,
+        containerStateVersion: null,
+        endAt: Timestamp.fromMillis(3_000),
+        createdAt: Timestamp.fromMillis(3_100)
+      })
+    );
 
     await expect(latestEventState(CONTAINER)).resolves.toMatchObject({
       latestEventId: "legacy-blend",
@@ -195,31 +219,43 @@ describe("public container state service", () => {
   });
 
   it("reconstructs a modern open cycle after multiple independent legacy closures", async () => {
-    inMemoryAdminDb.seed("events", "legacy-first", event({
-      containerStatus: "FULL",
-      containerReason: null,
-      containerCycleId: null,
-      containerStateVersion: null,
-      endAt: Timestamp.fromMillis(2_000),
-      createdAt: Timestamp.fromMillis(2_100)
-    }));
-    inMemoryAdminDb.seed("events", "legacy-second", event({
-      containerStatus: "FULL",
-      containerReason: null,
-      containerCycleId: null,
-      containerStateVersion: null,
-      endAt: Timestamp.fromMillis(3_000),
-      createdAt: Timestamp.fromMillis(3_100)
-    }));
-    inMemoryAdminDb.seed("events", "modern-buffer", event({
-      containerStatus: "BUFFER",
-      containerReason: "Reserva operacional",
-      startsNewContainerCycle: true,
-      containerCycleId: "modern-cycle",
-      containerStateVersion: 3,
-      endAt: Timestamp.fromMillis(4_000),
-      createdAt: Timestamp.fromMillis(4_100)
-    }));
+    inMemoryAdminDb.seed(
+      "events",
+      "legacy-first",
+      event({
+        containerStatus: "FULL",
+        containerReason: null,
+        containerCycleId: null,
+        containerStateVersion: null,
+        endAt: Timestamp.fromMillis(2_000),
+        createdAt: Timestamp.fromMillis(2_100)
+      })
+    );
+    inMemoryAdminDb.seed(
+      "events",
+      "legacy-second",
+      event({
+        containerStatus: "FULL",
+        containerReason: null,
+        containerCycleId: null,
+        containerStateVersion: null,
+        endAt: Timestamp.fromMillis(3_000),
+        createdAt: Timestamp.fromMillis(3_100)
+      })
+    );
+    inMemoryAdminDb.seed(
+      "events",
+      "modern-buffer",
+      event({
+        containerStatus: "BUFFER",
+        containerReason: "Reserva operacional",
+        startsNewContainerCycle: true,
+        containerCycleId: "modern-cycle",
+        containerStateVersion: 3,
+        endAt: Timestamp.fromMillis(4_000),
+        createdAt: Timestamp.fromMillis(4_100)
+      })
+    );
 
     await expect(latestEventState(CONTAINER)).resolves.toMatchObject({
       latestEventId: "modern-buffer",
@@ -264,13 +300,7 @@ describe("public container state service", () => {
         ...result.current!,
         status: "PARTIAL"
       })
-    ).toEqual([
-      "FULL",
-      "PARTIAL",
-      "BUFFER",
-      "BLEND_FULL",
-      "BLEND_PARTIAL"
-    ]);
+    ).toEqual(["FULL", "PARTIAL", "BUFFER", "BLEND_FULL", "BLEND_PARTIAL"]);
   });
 
   it("rejects invalid container identifiers at read boundaries", async () => {
@@ -291,7 +321,9 @@ describe("public container state service", () => {
       version: 1
     });
     await rebuildContainerState(CONTAINER);
-    expect(inMemoryAdminDb.read("containerStates", "ABCU1234560")).toBeUndefined();
+    expect(
+      inMemoryAdminDb.read("containerStates", "ABCU1234560")
+    ).toBeUndefined();
     await expect(rebuildContainerState(null)).resolves.toBeUndefined();
   });
 
@@ -323,13 +355,17 @@ describe("public container state service", () => {
         openOnly: false,
         pagination: { limit: 20 }
       })
-    ).toMatchObject({ items: [expect.objectContaining({ container: CONTAINER })] });
+    ).toMatchObject({
+      items: [expect.objectContaining({ container: CONTAINER })]
+    });
     expect(
       await listContainerStates({
         openOnly: true,
         pagination: { limit: 20 }
       })
-    ).toMatchObject({ items: [expect.objectContaining({ status: "PARTIAL" })] });
+    ).toMatchObject({
+      items: [expect.objectContaining({ status: "PARTIAL" })]
+    });
     expect(
       await listContainerStates({
         openOnly: false,
@@ -347,6 +383,16 @@ describe("public container state service", () => {
   });
 
   it("shows one transfer from the perspective of both source and destination histories", async () => {
+    inMemoryAdminDb.seed(
+      "events",
+      "source-buffer",
+      event({
+        container: "MSCU 663987-0",
+        containerStatus: "BUFFER",
+        containerCycleId: "source-cycle",
+        endAt: Timestamp.fromMillis(500)
+      }) as unknown as Record<string, unknown>
+    );
     inMemoryAdminDb.seed(
       "events",
       "transfer",
@@ -370,13 +416,77 @@ describe("public container state service", () => {
         relatedContainer: "MSCU 663987-0"
       })
     ]);
-    await expect(getContainerHistory("MSCU6639870")).resolves.toEqual([
+    await expect(getContainerHistory("MSCU6639870")).resolves.toMatchObject([
       expect.objectContaining({
         id: "transfer",
         status: "TRANSFER_EMPTIED",
         containerRole: "SOURCE",
         relatedContainer: CONTAINER
-      })
+      }),
+      expect.objectContaining({ id: "source-buffer", status: "BUFFER" })
     ]);
+  });
+});
+
+describe("eligible transfer source pagination", () => {
+  beforeEach(() => inMemoryAdminDb.reset());
+  it("includes only Pulmão and Parcial, excludes destination and binds cursors to filters", async () => {
+    const codes = [
+      "TSTU 250001-9",
+      "TSTU 250003-0",
+      "TSTU 250002-4",
+      "MSCU 663987-0",
+      "ABCU 123456-0",
+      "CMAU 123456-4"
+    ];
+    for (const [index, status] of [
+      "BUFFER",
+      "PARTIAL",
+      "BUFFER",
+      "BLEND_PARTIAL",
+      "FULL",
+      "TRANSFER_EMPTIED"
+    ].entries()) {
+      inMemoryAdminDb.seed(
+        "containerStates",
+        containerDocumentKey(codes[index]),
+        {
+          container: codes[index],
+          status,
+          operationalAt: Timestamp.fromMillis(1000 - index)
+        }
+      );
+    }
+    const params = {
+      openOnly: true,
+      transferSourceOnly: true,
+      query: "tstu",
+      excludeContainer: "TSTU2500024"
+    };
+    const first = await listContainerStates({
+      ...params,
+      pagination: { limit: 1 }
+    });
+    expect(first.items.map((item) => item.status)).toEqual(["BUFFER"]);
+    expect(first.nextCursor).toBeTruthy();
+    const second = await listContainerStates({
+      ...params,
+      pagination: { limit: 1, cursor: first.nextCursor! }
+    });
+    expect(second.items.map((item) => item.status)).toEqual(["PARTIAL"]);
+    expect(second.nextCursor).toBeNull();
+    await expect(
+      listContainerStates({
+        ...params,
+        excludeContainer: "MSCU6639870",
+        pagination: { limit: 1, cursor: first.nextCursor! }
+      })
+    ).rejects.toThrow();
+    const all = await listContainerStates({
+      openOnly: true,
+      transferSourceOnly: true,
+      pagination: { limit: 20 }
+    });
+    expect(all.items).toHaveLength(3);
   });
 });

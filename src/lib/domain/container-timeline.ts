@@ -1,9 +1,10 @@
-import { HttpError } from "@/lib/domain/errors";
-import {
+import { HttpError } from "./errors.ts";
+import { isTransferSourceStatus } from "./container-transfer.ts";
+import type {
   ContainerEventRole,
   ContainerLifecycleStatus,
   Pump
-} from "@/types/domain";
+} from "../../types/domain.ts";
 
 export type ContainerTimelineEvent = {
   id: string;
@@ -17,7 +18,7 @@ export type ContainerTimelineEvent = {
   startsNewCycle: boolean;
   existingCycleId: string | null;
   role?: ContainerEventRole;
-  fromBufferTransfer?: boolean;
+  fromContainerTransfer?: boolean;
   legacyClosedCycleBoundary?: boolean;
 };
 
@@ -28,7 +29,7 @@ export type ContainerTimelineLink = {
 };
 
 export type ContainerTimelinePlan = {
-  events: ContainerTimelineLink[];
+  events: Array<ContainerTimelineEvent & ContainerTimelineLink>;
   current: (ContainerTimelineEvent & ContainerTimelineLink) | null;
 };
 
@@ -76,13 +77,14 @@ export function planContainerTimeline(params: {
 
   const planned: Array<ContainerTimelineEvent & ContainerTimelineLink> = [];
 
-  for (const [index, event] of ordered.entries()) {
+  for (const [index, input] of ordered.entries()) {
+    const event = { ...input };
     const previous = planned.at(-1) || null;
     const followsEmptiedTransfer = previous?.status === "TRANSFER_EMPTIED";
     const followsIndependentLegacyCycle = Boolean(
       previous?.legacyClosedCycleBoundary &&
-      event.existingCycleId &&
-      event.existingCycleId !== previous.containerCycleId
+        event.existingCycleId &&
+        event.existingCycleId !== previous.containerCycleId
     );
     const startsNewCycle =
       !previous ||
@@ -95,7 +97,7 @@ export function planContainerTimeline(params: {
       if (event.role === "SOURCE") {
         throw new HttpError(
           400,
-          "A origem da transferência exige um container Pulmão aberto."
+          "A origem da transferência exige um container Pulmão ou Parcial aberto."
         );
       }
       if (isBlend(event.status) && !event.legacyClosedCycleBoundary) {
@@ -109,28 +111,23 @@ export function planContainerTimeline(params: {
 
       const next = ordered[index + 1];
       const inheritedCycleId =
-        !previous &&
-        !event.startsNewCycle &&
-        next &&
-        !next.startsNewCycle
+        !previous && !event.startsNewCycle && next && !next.startsNewCycle
           ? next.existingCycleId
           : null;
       planned.push({
         ...event,
         containerCycleId:
-          event.existingCycleId ||
-          inheritedCycleId ||
-          params.createCycleId(),
+          event.existingCycleId || inheritedCycleId || params.createCycleId(),
         previousContainerEventId: null
       });
       continue;
     }
 
     if (event.role === "SOURCE") {
-      if (previous.status !== "BUFFER") {
+      if (!isTransferSourceStatus(previous.status)) {
         throw new HttpError(
           409,
-          "O container de origem não está mais aberto como Pulmão."
+          "O container de origem não está mais aberto como Pulmão ou Parcial."
         );
       }
       if (previous.clientId !== event.clientId) {
@@ -139,9 +136,16 @@ export function planContainerTimeline(params: {
           "A origem e o destino devem pertencer ao mesmo cliente."
         );
       }
-      if (event.status !== "BUFFER" && event.status !== "TRANSFER_EMPTIED") {
-        throw new HttpError(400, "Estado inválido para a origem da transferência.");
+      if (
+        !isTransferSourceStatus(event.status) &&
+        event.status !== "TRANSFER_EMPTIED"
+      ) {
+        throw new HttpError(
+          400,
+          "Estado inválido para a origem da transferência."
+        );
       }
+      if (event.status !== "TRANSFER_EMPTIED") event.status = previous.status;
     } else if (isClosed(previous.status)) {
       throw new HttpError(
         409,
@@ -157,12 +161,12 @@ export function planContainerTimeline(params: {
     }
 
     if (
-      (isBlend(event.status) || event.fromBufferTransfer) &&
+      (isBlend(event.status) || event.fromContainerTransfer) &&
       previous.clientId !== event.clientId
     ) {
       throw new HttpError(
         400,
-        event.fromBufferTransfer
+        event.fromContainerTransfer
           ? "A origem e o destino devem pertencer ao mesmo cliente."
           : "Blend só pode ser formado com cargas do mesmo cliente."
       );
@@ -176,13 +180,7 @@ export function planContainerTimeline(params: {
   }
 
   return {
-    events: planned.map(
-      ({ id, containerCycleId, previousContainerEventId }) => ({
-        id,
-        containerCycleId,
-        previousContainerEventId
-      })
-    ),
+    events: planned,
     current: planned.at(-1) || null
   };
 }

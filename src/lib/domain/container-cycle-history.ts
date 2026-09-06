@@ -1,4 +1,8 @@
-import { ContainerCyclePassage, ContainerStatus, Pump } from "@/types/domain";
+import {
+  ContainerCyclePassage,
+  ContainerLifecycleStatus,
+  Pump
+} from "@/types/domain";
 
 export type ContainerCycleHistoryEntry = {
   id: string;
@@ -8,7 +12,7 @@ export type ContainerCycleHistoryEntry = {
   endTime: string;
   pump: Pump;
   plate: string | null;
-  status: ContainerStatus;
+  status: ContainerLifecycleStatus;
   role?: "DESTINATION" | "SOURCE";
   relatedContainer?: string | null;
   deleted: boolean;

@@ -509,3 +509,47 @@ staging e aguarde o status Ready antes de publicar a aplicação.
 - Usar dry-run antes de promoções, cópias e deploys.
 - Manter staging e produção com chaves HMAC diferentes.
 - Conceder acesso mínimo necessário às credenciais operacionais.
+
+
+## Transferências entre containers — v2.5.0
+
+A origem automática exige seleção explícita de Pulmão ou Parcial. O cliente vem
+da origem selecionada. A resposta de esvaziamento encerra o ciclo ou preserva seu
+estado anterior, sem estimar volume. Ao corrigir o prefixo, o vínculo e o cliente
+herdado são limpos. Na edição histórica, use **Atualizar estado da origem** quando
+houver conflito de versão e confirme novamente o esvaziamento; a origem histórica
+pode estar encerrada atualmente.
+
+`CONTAINER_TRANSFERS_ENABLED` é uma variável de servidor, habilitada somente pelo
+valor literal `true`. Ausente ou `false`, suspende criação, edição, exclusão e
+restauração que afetem linhas do tempo com transferências. `/api/me` comunica a
+capacidade à interface; a API continua impondo a regra a sessões antigas.
+
+Antes de habilitar em cada ambiente, confirme os índices do manifesto como
+`READY`, incluindo busca por estado e histórico por `sourceContainer`. A Vercel
+usa exclusivamente `line-transbordo-staging-382612`; o Firebase App Hosting publica
+`line-transbordo` pela `main`. Ative a variável no ambiente Preview da branch da
+PR e explicitamente no rollout aprovado de produção.
+
+O backfill agora executa o planejador de domínio via suporte nativo a TypeScript
+do Node 22 (`--experimental-strip-types`, incluído no comando npm). Ele faz dry-run
+por padrão, rejeita históricos inconsistentes e não modifica `events`. Preserve
+as confirmações de projeto/produção e revise contagens antes de `--execute`.
+
+### Recuperação compatível após a primeira transferência
+
+1. Preserve logs, commit, rollout e evidências do incidente.
+2. Republique a versão compatível v2.5.0 com `CONTAINER_TRANSFERS_ENABLED=false`.
+   No App Hosting, altere a configuração de runtime em `apphosting.yaml` por PR;
+   em staging, altere a variável Preview e publique novamente.
+3. Verifique que novas transferências e alterações nas linhas do tempo afetadas
+   retornam conflito, enquanto históricos, relatórios e operações independentes
+   de carreta continuam disponíveis. Atualize a página para refletir a capacidade.
+4. Não retorne a uma versão que desconheça a origem nem apague eventos, projeções
+   ou índices. Corrija a regra e revalide a reconstrução em staging antes de reparar
+   projeções e reativar a funcionalidade.
+
+A homologação inclui Pulmão e Parcial, com e sem esvaziamento, conflito de versão,
+edição retroativa, exclusão/restauração, históricos dos dois containers e contagem
+única em relatórios/CSV. Use fixtures identificadas somente em staging. Produção
+recebe smoke test de navegação, consultas e logs, sem inserir dados fictícios.

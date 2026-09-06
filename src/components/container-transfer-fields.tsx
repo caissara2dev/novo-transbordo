@@ -1,8 +1,12 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { apiFetch } from "@/lib/auth/api-fetch";
-import { formatContainerForInput } from "@/lib/domain/identifiers";
+import {
+  identifyLoadSource,
+  isTransferSourceStatus,
+  originCode
+} from "@/lib/domain/container-transfer";
 import {
   ContainerLookupResponse,
   ContainerStateApiItem,
@@ -11,6 +15,7 @@ import {
 import { LoadSourceType } from "@/types/domain";
 
 type TransferFields = {
+  originInput: string;
   loadSourceType: LoadSourceType;
   sourceContainer: string;
   sourceContainerEmptied: boolean | null;
@@ -20,436 +25,430 @@ type TransferFields = {
   container: string;
 };
 
-type ContainerTransferFieldsProps = {
-  fields: TransferFields;
-  onChange: (patch: Partial<TransferFields>) => void;
+type SearchPage = {
+  key: string;
+  items: ContainerStateApiItem[];
+  nextCursor: string | null;
+  error: string | null;
 };
-
-async function fetchBufferContainers(params: {
-  query: string;
-  signal: AbortSignal;
-  cursor?: string;
-  accumulated?: ContainerStateApiItem[];
-  visitedCursors?: string[];
-}): Promise<ContainerStateApiItem[]> {
-  const searchParams = new URLSearchParams({
-    scope: "open",
-    status: "BUFFER",
-    query: params.query.trim(),
-    limit: "200"
-  });
-  if (params.cursor) searchParams.set("cursor", params.cursor);
-
-  const response = await apiFetch<PaginatedResponse<ContainerStateApiItem>>(
-    `/api/containers?${searchParams.toString()}`,
-    { signal: params.signal }
-  );
-  const accumulated = params.accumulated || [];
-  const merged = [
-    ...accumulated,
-    ...(response.items || []).filter(
-      (item) =>
-        item.status === "BUFFER" &&
-        !accumulated.some((current) => current.container === item.container)
-    )
-  ];
-  const nextCursor = response.nextCursor;
-  const visitedCursors = params.visitedCursors || [];
-  if (!nextCursor || visitedCursors.includes(nextCursor)) return merged;
-
-  return fetchBufferContainers({
-    ...params,
-    cursor: nextCursor,
-    accumulated: merged,
-    visitedCursors: [...visitedCursors, nextCursor]
-  });
-}
 
 export function ContainerTransferFields({
   fields,
-  onChange
-}: ContainerTransferFieldsProps) {
-  const [query, setQuery] = useState(fields.sourceContainer);
-  const [items, setItems] = useState<ContainerStateApiItem[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [loadedQuery, setLoadedQuery] = useState<string | null>(null);
+  onChange,
+  enabled,
+  isEditing
+}: {
+  fields: TransferFields;
+  onChange: (patch: Partial<TransferFields>, expectedOrigin?: string) => void;
+  enabled: boolean;
+  isEditing: boolean;
+}) {
+  const id = useId();
   const [open, setOpen] = useState(false);
-  const [activeIndex, setActiveIndex] = useState(-1);
-  const onChangeRef = useRef(onChange);
-  const comboboxId = useId();
-  const listboxId = `${comboboxId}-listbox`;
+  const [active, setActive] = useState(-1);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [retry, setRetry] = useState(0);
+  const [page, setPage] = useState<SearchPage | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const request = useRef<AbortController | null>(null);
+  const kind = identifyLoadSource(fields.originInput);
+  const key = JSON.stringify([
+    originCode(fields.originInput),
+    originCode(fields.container),
+    retry
+  ]);
+  const selected = Boolean(fields.sourceContainer);
+  const selectedStatus = page?.items.find(
+    (item) => item.container === fields.sourceContainer
+  )?.status;
+  const searching = enabled && kind === "BUFFER_CONTAINER" && !selected;
+  const ready = page?.key === key;
+  const items = ready ? page.items : [];
+  const error = ready ? page.error : null;
+  const loading = searching && !ready;
+  const same =
+    kind === "BUFFER_CONTAINER" &&
+    originCode(fields.originInput) === originCode(fields.container);
 
   useEffect(() => {
-    onChangeRef.current = onChange;
-  }, [onChange]);
-
-  useEffect(() => {
-    if (fields.loadSourceType !== "BUFFER_CONTAINER") {
-      return;
-    }
-
+    if (!searching) return;
     const controller = new AbortController();
-    const fetchQuery = query.trim();
+    request.current = controller;
+    const [query, excluded] = JSON.parse(key) as [string, string];
     const timer = window.setTimeout(async () => {
-      setLoading(true);
-      setError(null);
       try {
-        const candidates = await fetchBufferContainers({
+        const params = new URLSearchParams({
+          scope: "transfer-source",
           query,
-          signal: controller.signal
+          excludeContainer: excluded,
+          limit: "20"
         });
+        const response = await apiFetch<
+          PaginatedResponse<ContainerStateApiItem>
+        >(`/api/containers?${params}`, { signal: controller.signal });
         if (controller.signal.aborted) return;
-        setItems(candidates);
-        setLoadedQuery(fetchQuery);
-        setActiveIndex(candidates.length ? 0 : -1);
+        setPage({
+          key,
+          items: response.items,
+          nextCursor: response.nextCursor,
+          error: null
+        });
       } catch (reason) {
         if (controller.signal.aborted) return;
-        setItems([]);
-        setLoadedQuery(fetchQuery);
-        setError(
-          reason instanceof Error
-            ? reason.message
-            : "Não foi possível consultar os containers pulmão."
-        );
-      } finally {
-        if (!controller.signal.aborted) setLoading(false);
+        setPage({
+          key,
+          items: [],
+          nextCursor: null,
+          error:
+            reason instanceof Error
+              ? reason.message
+              : "Não foi possível consultar os containers."
+        });
       }
     }, 250);
-
     return () => {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [fields.loadSourceType, query]);
+  }, [key, searching]);
 
-  useEffect(() => {
+  async function loadMore() {
+    const controller = request.current;
     if (
-      fields.loadSourceType !== "BUFFER_CONTAINER" ||
-      !fields.sourceContainer
-    ) {
-      return;
-    }
-
-    const controller = new AbortController();
-    void apiFetch<ContainerLookupResponse>(
-      `/api/containers/lookup?container=${encodeURIComponent(fields.sourceContainer)}`,
-      { signal: controller.signal }
+      !ready ||
+      !page.nextCursor ||
+      !controller ||
+      controller.signal.aborted ||
+      loadingMore
     )
-      .then((response) => {
-        if (
-          !controller.signal.aborted &&
-          response.current &&
-          response.current.version !== fields.expectedSourceContainerStateVersion
-        ) {
-          onChangeRef.current({
-            expectedSourceContainerStateVersion: response.current.version
-          });
-        }
-      })
-      .catch((reason) => {
-        if (controller.signal.aborted) return;
-        setError(
-          reason instanceof Error
-            ? reason.message
-            : "Não foi possível atualizar o estado do container de origem."
+      return;
+    const cursor = page.nextCursor;
+    setLoadingMore(true);
+    try {
+      const params = new URLSearchParams({
+        scope: "transfer-source",
+        query: originCode(fields.originInput),
+        excludeContainer: originCode(fields.container),
+        limit: "20",
+        cursor
+      });
+      const response = await apiFetch<PaginatedResponse<ContainerStateApiItem>>(
+        `/api/containers?${params}`,
+        { signal: controller.signal }
+      );
+      if (controller.signal.aborted) return;
+      setPage((current) =>
+        current?.key === key
+          ? {
+              key,
+              items: Array.from(
+                new Map(
+                  [...current.items, ...response.items].map((item) => [
+                    item.container,
+                    item
+                  ])
+                ).values()
+              ),
+              nextCursor:
+                response.nextCursor === cursor ? null : response.nextCursor,
+              error: null
+            }
+          : current
+      );
+    } catch (reason) {
+      if (!controller.signal.aborted)
+        setPage((current) =>
+          current?.key === key
+            ? {
+                ...current,
+                error:
+                  reason instanceof Error
+                    ? reason.message
+                    : "Não foi possível carregar mais containers."
+              }
+            : current
         );
-      });
-
-    return () => controller.abort();
-  }, [
-    fields.expectedSourceContainerStateVersion,
-    fields.loadSourceType,
-    fields.sourceContainer
-  ]);
-
-  const candidates = useMemo(() => {
-    if (
-      !fields.sourceContainer ||
-      items.some((item) => item.container === fields.sourceContainer)
-    ) {
-      return items;
+    } finally {
+      setLoadingMore(false);
     }
+  }
 
-    return [
-      {
-        container: fields.sourceContainer,
-        clientId: fields.clientId,
-        clientNameSnapshot: "Container selecionado",
-        version: fields.expectedSourceContainerStateVersion ?? 0,
-        status: "BUFFER" as const
-      } as ContainerStateApiItem,
-      ...items
-    ];
-  }, [
-    fields.clientId,
-    fields.expectedSourceContainerStateVersion,
-    fields.sourceContainer,
-    items
-  ]);
-
-  const sameContainer =
-    fields.loadSourceType === "BUFFER_CONTAINER" &&
-    Boolean(fields.sourceContainer) &&
-    formatContainerForInput(fields.sourceContainer) ===
-      formatContainerForInput(fields.container);
-
-  const selectSource = (selected: ContainerStateApiItem) => {
-    setQuery(selected.container);
+  function select(item: ContainerStateApiItem) {
+    if (
+      !enabled ||
+      !isTransferSourceStatus(item.status) ||
+      originCode(item.container) === originCode(fields.container)
+    )
+      return;
     setOpen(false);
-    onChangeRef.current({
-      sourceContainer: selected.container,
+    setActive(-1);
+    onChange({
+      originInput: item.container,
+      loadSourceType: "BUFFER_CONTAINER",
+      plate: "",
+      sourceContainer: item.container,
       sourceContainerEmptied: null,
-      expectedSourceContainerStateVersion: selected.version,
-      clientId: selected.clientId
+      expectedSourceContainerStateVersion: item.version,
+      clientId: item.clientId
     });
-  };
-
-  const clearSelectedSource = (nextQuery: string) => {
-    if (
-      fields.sourceContainer &&
-      formatContainerForInput(fields.sourceContainer) !==
-        formatContainerForInput(nextQuery)
-    ) {
-      onChangeRef.current({
-        sourceContainer: "",
-        sourceContainerEmptied: null,
-        expectedSourceContainerStateVersion: null,
-        clientId: ""
-      });
-    }
-  };
+  }
 
   return (
-    <fieldset className="col-span-2 space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
-      <legend className="px-1 text-sm font-extrabold text-slate-700">
-        Origem da carga
-      </legend>
-      <div className="grid gap-2 sm:grid-cols-2">
-        <label
-          className={`container-state-choice ${
-            fields.loadSourceType === "TRUCK" ? "active" : ""
-          }`}
-        >
-          <input
-            checked={fields.loadSourceType === "TRUCK"}
-            name="load-source-type"
-            onChange={() => {
-              setQuery("");
-              setItems([]);
-              setError(null);
-              setLoadedQuery(null);
-              setOpen(false);
-              onChangeRef.current({
-                loadSourceType: "TRUCK",
-                sourceContainer: "",
-                sourceContainerEmptied: null,
-                expectedSourceContainerStateVersion: null
-              });
-            }}
-            type="radio"
-          />
-          <span>
-            <strong>Carreta</strong>
-            <small>A carga chega em um veículo.</small>
-          </span>
+    <div className="origin-fields col-span-2">
+      <div className="origin-label-row">
+        <label className="field-label" htmlFor={id}>
+          Placa ou container de origem *
         </label>
-        <label
-          className={`container-state-choice ${
-            fields.loadSourceType === "BUFFER_CONTAINER" ? "active" : ""
-          }`}
-        >
-          <input
-            checked={fields.loadSourceType === "BUFFER_CONTAINER"}
-            name="load-source-type"
-            onChange={() => {
-              setQuery("");
-              setItems([]);
-              setError(null);
-              setLoadedQuery(null);
-              setOpen(false);
-              onChangeRef.current({
-                loadSourceType: "BUFFER_CONTAINER",
-                plate: "",
-                clientId: "",
-                sourceContainer: "",
-                sourceContainerEmptied: null,
-                expectedSourceContainerStateVersion: null
-              });
-            }}
-            type="radio"
-          />
-          <span>
-            <strong>Container pulmão</strong>
-            <small>A carga vem de outro container aberto.</small>
-          </span>
-        </label>
+        <span className="origin-detected" role="status">
+          {kind === "BUFFER_CONTAINER"
+            ? "Container identificado"
+            : kind === "TRUCK"
+              ? "Carreta identificada"
+              : "A identificar"}
+        </span>
       </div>
-
-      {fields.loadSourceType === "BUFFER_CONTAINER" ? (
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div
-            className="relative sm:col-span-2"
-            onBlur={(event) => {
-              if (!event.currentTarget.contains(event.relatedTarget)) {
-                setOpen(false);
+      <div
+        className="relative"
+        onBlur={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget))
+            setOpen(false);
+        }}
+      >
+        <input
+          id={id}
+          className="input-ui"
+          value={fields.originInput}
+          onChange={(event) => {
+            const value = event.target.value;
+            const nextKind = identifyLoadSource(value);
+            setActive(-1);
+            setOpen(nextKind === "BUFFER_CONTAINER");
+            onChange({
+              originInput: value,
+              loadSourceType: nextKind || "TRUCK",
+              plate: nextKind === "BUFFER_CONTAINER" ? "" : value,
+              clientId:
+                selected || nextKind === "BUFFER_CONTAINER"
+                  ? ""
+                  : fields.clientId,
+              sourceContainer: "",
+              sourceContainerEmptied: null,
+              expectedSourceContainerStateVersion: null
+            });
+          }}
+          onFocus={() => {
+            if (searching) setOpen(true);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              setOpen(false);
+              return;
+            }
+            if (!searching) return;
+            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+              event.preventDefault();
+              setOpen(true);
+              setActive((current) =>
+                items.length
+                  ? event.key === "ArrowDown"
+                    ? Math.min(current + 1, items.length - 1)
+                    : Math.max(current - 1, 0)
+                  : -1
+              );
+            }
+            if (event.key === "Enter" && open) {
+              event.preventDefault();
+              if (!loading && !error && items[active]) select(items[active]);
+            }
+          }}
+          role={kind === "BUFFER_CONTAINER" ? "combobox" : undefined}
+          aria-expanded={
+            kind === "BUFFER_CONTAINER" ? open && searching : undefined
+          }
+          aria-controls={
+            kind === "BUFFER_CONTAINER" ? `${id}-options` : undefined
+          }
+          aria-autocomplete={kind === "BUFFER_CONTAINER" ? "list" : undefined}
+          aria-activedescendant={
+            open && searching && !loading && !error && items[active]
+              ? `${id}-option-${active}`
+              : undefined
+          }
+          aria-describedby={`${id}-hint`}
+          aria-invalid={same || undefined}
+          autoComplete="off"
+          spellCheck={false}
+          required
+          placeholder="Placa ou código do container"
+        />
+        {open && searching ? (
+          <div className="origin-options">
+            <div
+              id={`${id}-options`}
+              role="listbox"
+              aria-label="Containers de origem"
+              aria-busy={loading || loadingMore}
+            >
+              {loading ? (
+                <p role="status">Consultando containers…</p>
+              ) : (
+                items.map((item, index) => (
+                  <button
+                    key={item.container}
+                    id={`${id}-option-${index}`}
+                    type="button"
+                    role="option"
+                    aria-selected={active === index}
+                    className={active === index ? "active" : ""}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onMouseEnter={() => setActive(index)}
+                    onClick={() => select(item)}
+                  >
+                    <span>
+                      <strong>{item.container}</strong>
+                      <small>{item.clientNameSnapshot || "Sem cliente"}</small>
+                    </span>
+                    <span
+                      className={`container-status-badge status-${item.status.toLowerCase()}`}
+                    >
+                      {item.status === "BUFFER" ? "Pulmão" : "Parcial"}
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
+            {!loading && !error && !items.length ? (
+              <p role="status">
+                {page?.nextCursor
+                  ? "Nenhum resultado nesta página."
+                  : "Nenhum Pulmão ou Parcial aberto foi encontrado."}
+              </p>
+            ) : null}
+            {error ? (
+              <div>
+                <p role="alert">{error}</p>
+                <button
+                  type="button"
+                  className="btn-soft"
+                  onClick={() => {
+                    setActive(-1);
+                    setRetry((value) => value + 1);
+                  }}
+                >
+                  Tentar novamente
+                </button>
+              </div>
+            ) : null}
+            {ready && page.nextCursor && !error ? (
+              <button
+                type="button"
+                className="btn-soft"
+                onClick={() => void loadMore()}
+                disabled={loadingMore}
+              >
+                {loadingMore ? "Carregando…" : "Carregar mais"}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+      <p id={`${id}-hint`} className="origin-hint">
+        {kind === "BUFFER_CONTAINER" && !enabled
+          ? "Transferências entre containers estão temporariamente indisponíveis."
+          : selected
+            ? `Origem selecionada${selectedStatus ? ` · ${selectedStatus === "BUFFER" ? "Pulmão" : "Parcial"}` : ""}`
+            : kind === "BUFFER_CONTAINER"
+              ? "Selecione um container Pulmão ou Parcial em aberto."
+              : "Digite a placa ou comece pelas quatro letras do container."}
+      </p>
+      {same ? (
+        <p role="alert" className="notice error mt-2">
+          Origem e destino precisam ser containers diferentes.
+        </p>
+      ) : null}
+      {selected && enabled && isEditing ? (
+        <div className="mt-2">
+          <button
+            type="button"
+            className="origin-refresh"
+            disabled={refreshing}
+            onClick={async () => {
+              const origin = fields.originInput;
+              setRefreshing(true);
+              setRefreshError(null);
+              try {
+                const response = await apiFetch<ContainerLookupResponse>(
+                  `/api/containers/lookup?container=${encodeURIComponent(fields.sourceContainer)}`
+                );
+                onChange(
+                  {
+                    expectedSourceContainerStateVersion:
+                      response.current?.version ?? 0,
+                    sourceContainerEmptied: null
+                  },
+                  origin
+                );
+              } catch (reason) {
+                setRefreshError(
+                  reason instanceof Error
+                    ? reason.message
+                    : "Não foi possível atualizar o estado da origem."
+                );
+              } finally {
+                setRefreshing(false);
               }
             }}
           >
-            <label className="field-label" htmlFor={comboboxId}>
-              Container de origem *
-            </label>
-            <input
-              aria-activedescendant={
-                open && candidates[activeIndex]
-                  ? `${listboxId}-option-${activeIndex}`
-                  : undefined
-              }
-              aria-autocomplete="list"
-              aria-controls={listboxId}
-              aria-expanded={open}
-              className="input-ui"
-              id={comboboxId}
-              onChange={(event) => {
-                const nextQuery = formatContainerForInput(event.target.value);
-                setQuery(nextQuery);
-                setLoadedQuery(null);
-                setOpen(true);
-                setActiveIndex(0);
-                clearSelectedSource(nextQuery);
-              }}
-              onFocus={() => {
-                setOpen(true);
-                setActiveIndex(candidates.length ? 0 : -1);
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "Escape") {
-                  setOpen(false);
-                  return;
-                }
-                if (event.key === "ArrowDown") {
-                  event.preventDefault();
-                  setOpen(true);
-                  setActiveIndex((current) =>
-                    candidates.length
-                      ? Math.min(current + 1, candidates.length - 1)
-                      : -1
-                  );
-                  return;
-                }
-                if (event.key === "ArrowUp") {
-                  event.preventDefault();
-                  setActiveIndex((current) =>
-                    candidates.length ? Math.max(current - 1, 0) : -1
-                  );
-                  return;
-                }
-                if (event.key === "Enter" && candidates[activeIndex]) {
-                  event.preventDefault();
-                  selectSource(candidates[activeIndex]);
-                }
-              }}
-              placeholder="Digite ou selecione um Pulmão"
-              required
-              role="combobox"
-              type="search"
-              value={query}
-            />
-            {open ? (
-              <div
-                className="absolute z-20 mt-1 max-h-60 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-lg"
-                id={listboxId}
-                role="listbox"
-              >
-                {loading || loadedQuery !== query.trim() ? (
-                  <p className="px-3 py-2 text-sm text-slate-500">
-                    Consultando…
-                  </p>
-                ) : null}
-                {!loading &&
-                loadedQuery === query.trim() &&
-                !error &&
-                !candidates.length ? (
-                  <p className="px-3 py-2 text-sm text-slate-500">
-                    Nenhum container Pulmão aberto foi encontrado.
-                  </p>
-                ) : null}
-                {!loading
-                  ? candidates.map((item, index) => (
-                      <button
-                        aria-selected={fields.sourceContainer === item.container}
-                        className={`block w-full rounded-lg px-3 py-2 text-left text-sm ${
-                          activeIndex === index
-                            ? "bg-slate-100 text-slate-950"
-                            : "bg-white text-slate-700"
-                        }`}
-                        id={`${listboxId}-option-${index}`}
-                        key={item.container}
-                        onClick={() => selectSource(item)}
-                        onMouseDown={(event) => event.preventDefault()}
-                        onMouseEnter={() => setActiveIndex(index)}
-                        role="option"
-                        type="button"
-                      >
-                        <strong>{item.container}</strong>
-                        <span className="ml-2 text-slate-500">
-                          {item.clientNameSnapshot || "Sem cliente"}
-                        </span>
-                      </button>
-                    ))
-                  : null}
-              </div>
-            ) : null}
-          </div>
-          {error ? (
-            <div className="notice error sm:col-span-2">{error}</div>
-          ) : null}
-          {fields.sourceContainer ? (
-            <fieldset className="space-y-2 sm:col-span-2">
-              <legend className="field-label">
-                O container de origem foi completamente esvaziado? *
-              </legend>
-              <div className="grid gap-2 sm:grid-cols-2">
-                <label className="container-state-choice">
-                  <input
-                    checked={fields.sourceContainerEmptied === true}
-                    name="source-container-emptied"
-                    onChange={() =>
-                      onChangeRef.current({ sourceContainerEmptied: true })
-                    }
-                    required
-                    type="radio"
-                  />
-                  <span>
-                    <strong>Sim, foi esvaziado</strong>
-                    <small>O pulmão será encerrado.</small>
-                  </span>
-                </label>
-                <label className="container-state-choice">
-                  <input
-                    checked={fields.sourceContainerEmptied === false}
-                    name="source-container-emptied"
-                    onChange={() =>
-                      onChangeRef.current({ sourceContainerEmptied: false })
-                    }
-                    required
-                    type="radio"
-                  />
-                  <span>
-                    <strong>Não, continuará como pulmão</strong>
-                    <small>Ainda restará carga no container.</small>
-                  </span>
-                </label>
-              </div>
-            </fieldset>
-          ) : null}
-          {sameContainer ? (
-            <div className="notice error sm:col-span-2" role="alert">
-              Origem e destino precisam ser containers diferentes.
-            </div>
+            {refreshing ? "Atualizando…" : "Atualizar estado da origem"}
+          </button>
+          {refreshError ? (
+            <p className="notice error" role="alert">
+              {refreshError}
+            </p>
           ) : null}
         </div>
       ) : null}
-    </fieldset>
+      {selected ? (
+        <fieldset className="origin-empty" disabled={!enabled}>
+          <legend className="field-label">
+            O container de origem foi completamente esvaziado? *
+          </legend>
+          <div className="origin-empty-options">
+            {[
+              { value: true, label: "Sim, foi esvaziado" },
+              { value: false, label: "Não, restará carga" }
+            ].map((option) => (
+              <label
+                key={String(option.value)}
+                className={`container-state-choice ${fields.sourceContainerEmptied === option.value ? "active" : ""}`}
+              >
+                <input
+                  type="radio"
+                  required
+                  name={`${id}-emptied`}
+                  checked={fields.sourceContainerEmptied === option.value}
+                  onChange={() =>
+                    onChange({ sourceContainerEmptied: option.value })
+                  }
+                />
+                <span>
+                  <strong>{option.label}</strong>
+                </span>
+              </label>
+            ))}
+          </div>
+          {fields.sourceContainerEmptied !== null ? (
+            <p className="origin-hint" role="status">
+              {fields.sourceContainerEmptied
+                ? "A origem será esvaziada e o ciclo encerrado."
+                : selectedStatus
+                  ? `A origem continuará como ${selectedStatus === "BUFFER" ? "Pulmão" : "Parcial"}.`
+                  : "A origem manterá seu estado anterior."}
+            </p>
+          ) : null}
+        </fieldset>
+      ) : null}
+    </div>
   );
 }
