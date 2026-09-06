@@ -11,10 +11,7 @@ import {
   useRef,
   useState
 } from "react";
-import {
-  authenticatedFetch,
-  readApiResponse
-} from "@/lib/auth/api-fetch";
+import { authenticatedFetch, readApiResponse } from "@/lib/auth/api-fetch";
 import { auth } from "@/lib/firebase/client";
 import { createLatestRequestCoordinator } from "@/lib/ui/latest-request";
 import { UserDoc } from "@/types/domain";
@@ -22,6 +19,7 @@ import { UserDoc } from "@/types/domain";
 type SessionState = {
   firebaseUser: User | null;
   profile: UserDoc | null;
+  containerTransfersEnabled: boolean;
   approvalContactPhone: string | null;
   profileError: string | null;
   loading: boolean;
@@ -48,7 +46,9 @@ async function fetchWithTimeout(
   if (upstreamSignal?.aborted) {
     controller.abort();
   } else {
-    upstreamSignal?.addEventListener("abort", abortFromUpstream, { once: true });
+    upstreamSignal?.addEventListener("abort", abortFromUpstream, {
+      once: true
+    });
   }
 
   try {
@@ -70,6 +70,7 @@ async function fetchWithTimeout(
 
 export async function fetchSessionProfile(signal: AbortSignal): Promise<{
   profile: UserDoc;
+  containerTransfersEnabled?: boolean;
   approvalContactPhone: string | null;
 }> {
   const res = await fetchWithTimeout("/api/me", {
@@ -96,8 +97,12 @@ export async function fetchSessionProfile(signal: AbortSignal): Promise<{
 
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
+  const [containerTransfersEnabled, setContainerTransfersEnabled] =
+    useState(false);
   const [profile, setProfile] = useState<UserDoc | null>(null);
-  const [approvalContactPhone, setApprovalContactPhone] = useState<string | null>(null);
+  const [approvalContactPhone, setApprovalContactPhone] = useState<
+    string | null
+  >(null);
   const [profileError, setProfileError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const profileRequests = useRef(createLatestRequestCoordinator());
@@ -108,6 +113,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (!user) {
       profileRequests.current.cancel();
       setProfile(null);
+      setContainerTransfersEnabled(false);
       setApprovalContactPhone(null);
       setProfileError(null);
       setLoading(false);
@@ -125,6 +131,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       }
 
       setProfile(payload.profile);
+      setContainerTransfersEnabled(payload.containerTransfersEnabled === true);
       setApprovalContactPhone(payload.approvalContactPhone);
       setProfileError(null);
     } catch (error) {
@@ -133,8 +140,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       }
 
       setProfile(null);
+      setContainerTransfersEnabled(false);
       setApprovalContactPhone(null);
-      setProfileError(error instanceof Error ? error.message : "Falha ao carregar perfil.");
+      setProfileError(
+        error instanceof Error ? error.message : "Falha ao carregar perfil."
+      );
     } finally {
       if (request.isCurrent()) {
         setLoading(false);
@@ -147,6 +157,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     const unsub = onAuthStateChanged(auth, async (user) => {
       setFirebaseUser(user);
       setProfile(null);
+      setContainerTransfersEnabled(false);
       setApprovalContactPhone(null);
       setProfileError(null);
 
@@ -166,6 +177,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         }
 
         setProfile(payload.profile);
+        setContainerTransfersEnabled(
+          payload.containerTransfersEnabled === true
+        );
         setApprovalContactPhone(payload.approvalContactPhone);
         setProfileError(null);
       } catch (error) {
@@ -174,8 +188,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         }
 
         setProfile(null);
+        setContainerTransfersEnabled(false);
         setApprovalContactPhone(null);
-        setProfileError(error instanceof Error ? error.message : "Falha ao carregar perfil.");
+        setProfileError(
+          error instanceof Error ? error.message : "Falha ao carregar perfil."
+        );
       } finally {
         if (request.isCurrent()) {
           setLoading(false);
@@ -193,16 +210,27 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     () => ({
       firebaseUser,
       profile,
+      containerTransfersEnabled,
       approvalContactPhone,
       profileError,
       loading,
       refreshProfile,
       logout: () => signOut(auth)
     }),
-    [firebaseUser, profile, approvalContactPhone, profileError, loading, refreshProfile]
+    [
+      firebaseUser,
+      profile,
+      containerTransfersEnabled,
+      approvalContactPhone,
+      profileError,
+      loading,
+      refreshProfile
+    ]
   );
 
-  return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
+  return (
+    <SessionContext.Provider value={value}>{children}</SessionContext.Provider>
+  );
 }
 
 export function useAuthSession(): SessionState {

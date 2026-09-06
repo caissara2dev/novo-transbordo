@@ -281,12 +281,37 @@ export function EventsHistory({
               </div>
             ) : null}
             <p className="history-meta">
-              <strong>Placa:</strong> {item.plate || "-"} •{" "}
-              <strong>Container:</strong> {item.container || "-"}
+              {item.loadSourceType === "BUFFER_CONTAINER" ? (
+                <>
+                  <strong>Container de origem:</strong>{" "}
+                  {item.sourceContainer || "-"} •{" "}
+                  <strong>Container de destino:</strong>{" "}
+                  {item.container || "-"}
+                </>
+              ) : (
+                <>
+                  <strong>Placa:</strong> {item.plate || "-"} •{" "}
+                  <strong>Container:</strong> {item.container || "-"}
+                </>
+              )}
             </p>
+            {item.loadSourceType === "BUFFER_CONTAINER" ? (
+              <p className="history-meta">
+                Container de origem{" "}
+                {item.sourceContainerEmptied === true
+                  ? "esvaziado pela transferência"
+                  : item.sourceContainerEmptied === false
+                    ? "com carga remanescente"
+                    : "com esvaziamento não informado"}
+                .
+              </p>
+            ) : null}
             <p className="history-meta">
               Criado por: {item.createdByEmail}
             </p>
+            {item.warnings?.map((warning) => (
+              <p className="notice warn" role="alert" key={warning}>{warning}</p>
+            ))}
             {item.previousContainerPassages?.length ? (
               <details className="container-history-details">
                 <summary>
@@ -304,7 +329,11 @@ export function EventsHistory({
                         {toClockLabel(passage.endTime)}
                       </span>
                       <span>{pumpShortLabel(passage.pump)}</span>
-                      <span>{passage.plate || "Sem placa"}</span>
+                      <span>
+                        {passage.relatedContainer
+                          ? `${passage.role === "SOURCE" ? "Destino" : "Origem"}: ${passage.relatedContainer}`
+                          : passage.plate || "Sem placa"}
+                      </span>
                       <span
                         className={`container-status-badge status-${passage.status.toLowerCase()}`}
                       >

@@ -1,0 +1,87 @@
+{
+  "verifiedCodeCommit": "2b6178d6392c6b1b6bee87f433963952c4599493",
+  "version": "2.5.0",
+  "environment": "line-transbordo-staging-382612",
+  "productionChanged": false,
+  "mergePerformed": false,
+  "tests": {
+    "unitAndIntegration": 373,
+    "firestore": 17,
+    "e2e": 15,
+    "verify": "passed"
+  },
+  "stagingFlow": {
+    "completedAt": "2026-09-06T07:40:45.662Z",
+    "checks": [
+      "normal staging authentication and capability",
+      "BUFFER / emptied=false: atomic transfer and both histories",
+      "BUFFER / emptied=true: atomic transfer and both histories",
+      "PARTIAL / emptied=false: atomic transfer and both histories",
+      "PARTIAL / emptied=true: atomic transfer and both histories",
+      "eligible sources and server pagination",
+      "stale selected version rejected",
+      "single counting in history, report and CSV",
+      "normal browser login, automatic source, mobile and desktop",
+      "retroactive edit and source switch",
+      "delete and restore with later events"
+    ]
+  },
+  "sourceCycle": {
+    "completedAt": "2026-09-06T07:41:03.165Z",
+    "checks": [
+      "retroactive transfer rejected across source cycles, emptied=false",
+      "retroactive transfer rejected across source cycles, emptied=true",
+      "transfer in selected current cycle accepted",
+      "retroactive edit cannot silently change selected source cycle"
+    ]
+  },
+  "recovery": {
+    "enabled": "https://novo-transbordo-staging-5oov7flkh-caissara2devs-projects.vercel.app",
+    "disabled": "https://novo-transbordo-staging-2l8dntyj6-caissara2devs-projects.vercel.app",
+    "checks": [
+      "server capability off in compatible recovery, on in approved preview",
+      "existing transfer histories and report readable with flag off",
+      "new transfer rejected with explicit feature-disabled conflict",
+      "existing transfer edit rejected",
+      "existing transfer delete rejected",
+      "truck mutation affecting transfer timeline rejected",
+      "restoration of transfer rejected while flag off",
+      "fixture restored through enabled compatible version",
+      "independent truck creation remains available with flag off"
+    ],
+    "startedAt": "2026-09-06T07:42:27.757Z",
+    "beforeProductiveEvents": 10,
+    "afterProductiveEvents": 10,
+    "finishedAt": "2026-09-06T07:43:38.013Z"
+  },
+  "independentTruck": {
+    "enabled": "https://novo-transbordo-staging-5oov7flkh-caissara2devs-projects.vercel.app",
+    "disabled": "https://novo-transbordo-staging-2l8dntyj6-caissara2devs-projects.vercel.app",
+    "checks": [
+      "independent truck CREATED on reviewed version with flag off"
+    ],
+    "startedAt": "2026-09-06T07:43:39.883Z",
+    "productiveEvents": 11,
+    "eventId": "f7xhYLLOBUvYhnyJGLoz",
+    "finishedAt": "2026-09-06T07:43:54.667Z"
+  },
+  "backfill": {
+    "inspectedEvents": 955,
+    "eligibleEvents": 755,
+    "validCandidates": 510,
+    "preservedLegacyExceptions": 11,
+    "firstRunWrites": 509,
+    "secondRunWrites": 0,
+    "eventIntegrity": {
+      "events": 955,
+      "unchanged": true,
+      "hash": "24952a94766d475a2f23cc3ca51a68e0136d0eea182a16c33e8844c24021d2c4"
+    }
+  },
+  "review": {
+    "coderabbitFullReview": "completed on 51014bb; findings addressed in 880a1f5 and 2b6178d",
+    "coderabbitIncremental": "rate limited; remains required before merge",
+    "localStandards": "no outstanding findings in reviewed scope",
+    "localSpec": "no outstanding findings in reviewed scope"
+  }
+}

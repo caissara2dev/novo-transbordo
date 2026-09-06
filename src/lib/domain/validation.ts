@@ -36,6 +36,16 @@ const baseSchema = z.object({
   startsNewContainerCycle: z.boolean().optional(),
   blendConfirmed: z.boolean().optional(),
   expectedContainerStateVersion: z.number().int().min(0).nullable().optional(),
+  loadSourceType: z.enum(["TRUCK", "BUFFER_CONTAINER"]).nullable().optional(),
+  sourceContainer: z.string().trim().max(32).nullable().optional(),
+  sourceContainerEmptied: z.boolean().nullable().optional(),
+  expectedSourceContainerCycleId: z.string().trim().min(1).max(128).nullable().optional(),
+  expectedSourceContainerStateVersion: z
+    .number()
+    .int()
+    .min(0)
+    .nullable()
+    .optional(),
   notes: z.string().trim().nullable()
 });
 
@@ -69,6 +79,13 @@ export function validateEventInput(raw: unknown): EventValidationResult {
 
   const normalizedContainer = normalizeContainer(parsed.container);
   const isProductiveContainer = parsed.category === "PRODUTIVO" && Boolean(normalizedContainer);
+  const loadSourceType = isProductiveContainer
+    ? parsed.loadSourceType ?? "TRUCK"
+    : null;
+  const sourceContainer =
+    loadSourceType === "BUFFER_CONTAINER"
+      ? normalizeContainer(parsed.sourceContainer ?? null)
+      : null;
   const containerStatus = isProductiveContainer ? parsed.containerStatus ?? "FULL" : null;
   const containerReason = isProductiveContainer
     ? parsed.containerReason?.trim() || null
@@ -76,7 +93,10 @@ export function validateEventInput(raw: unknown): EventValidationResult {
 
   const normalized: EventInput = {
     ...parsed,
-    plate: normalizePlate(parsed.plate),
+    plate:
+      loadSourceType === "BUFFER_CONTAINER"
+        ? null
+        : normalizePlate(parsed.plate),
     container: normalizedContainer,
     containerStatus,
     containerReason,
@@ -88,6 +108,20 @@ export function validateEventInput(raw: unknown): EventValidationResult {
       parsed.expectedContainerStateVersion === undefined
         ? null
         : parsed.expectedContainerStateVersion,
+    loadSourceType,
+    sourceContainer,
+    sourceContainerEmptied:
+      loadSourceType === "BUFFER_CONTAINER"
+        ? parsed.sourceContainerEmptied ?? null
+        : null,
+    expectedSourceContainerStateVersion:
+      loadSourceType === "BUFFER_CONTAINER"
+        ? parsed.expectedSourceContainerStateVersion ?? null
+        : null,
+    expectedSourceContainerCycleId:
+      loadSourceType === "BUFFER_CONTAINER"
+        ? parsed.expectedSourceContainerCycleId ?? null
+        : null,
     notes: parsed.notes?.trim() || null
   };
 
@@ -97,12 +131,46 @@ export function validateEventInput(raw: unknown): EventValidationResult {
     throw new HttpError(400, "Cliente obrigatório para esta categoria.");
   }
 
-  if (rules.requiresPlate && !normalized.plate) {
+  if (
+    rules.requiresPlate &&
+    normalized.loadSourceType !== "BUFFER_CONTAINER" &&
+    !normalized.plate
+  ) {
     throw new HttpError(400, "Placa obrigatória para esta categoria.");
   }
 
   if (rules.requiresContainer && !normalized.container) {
     throw new HttpError(400, "Container obrigatório para esta categoria.");
+  }
+
+  if (normalized.loadSourceType === "BUFFER_CONTAINER") {
+    if (!normalized.sourceContainer) {
+      throw new HttpError(400, "Container de origem é obrigatório.");
+    }
+    if (normalized.sourceContainer === normalized.container) {
+      throw new HttpError(
+        400,
+        "O container de origem deve ser diferente do container de destino."
+      );
+    }
+    if (normalized.sourceContainerEmptied === null) {
+      throw new HttpError(
+        400,
+        "Informe se o container de origem foi esvaziado."
+      );
+    }
+    if (normalized.expectedSourceContainerStateVersion === null) {
+      throw new HttpError(
+        400,
+        "Atualize o estado do container de origem antes de salvar."
+      );
+    }
+    if (normalized.expectedContainerStateVersion === null) {
+      throw new HttpError(
+        400,
+        "Atualize o estado do container de destino antes de salvar."
+      );
+    }
   }
 
   if (rules.requiresNotes && !normalized.notes) {

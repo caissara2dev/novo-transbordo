@@ -36,6 +36,10 @@ bloquear localmente a requisição.
 
 Retorna perfil atual.
 
+Inclui `containerTransfersEnabled`, disponibilidade da flag de servidor. Ausente
+ou falsa, a interface bloqueia transferências; a API também bloqueia mutações
+que afetem suas linhas do tempo, preservando leitura e operações independentes.
+
 `data`:
 - `profile` (`email`, `role`, `approved`, `active`, etc.)
 - `approvalContactPhone`
@@ -105,8 +109,24 @@ Payload base:
 - `containerReason` (obrigatorio para Parcial, Pulmao e Blend parcial)
 - `startsNewContainerCycle`
 - `blendConfirmed`
-- `expectedContainerStateVersion`
+- `expectedContainerStateVersion` (inteiro `>= 0` obrigatório em transferências;
+  `0` confirma que a consulta não encontrou projeção do destino)
+- `loadSourceType` (`TRUCK` ou `BUFFER_CONTAINER`; ausente em eventos legados
+  equivale a `TRUCK`)
+- `sourceContainer` (obrigatório somente para `BUFFER_CONTAINER`)
+- `sourceContainerEmptied` (booleano obrigatório somente para
+  `BUFFER_CONTAINER`)
+- `expectedSourceContainerStateVersion` (inteiro `>= 0` obrigatório em
+  `BUFFER_CONTAINER`; `null` fora desse fluxo)
+- `expectedSourceContainerCycleId` (ciclo observado na seleção de origem; `null`
+  fora de transferência. Clientes anteriores podem omitir: o servidor deriva o
+  ciclo da projeção cuja versão foi confirmada, ou do vínculo histórico na edição.)
 - `notes` (ou `null`)
+
+O ciclo planejado para a transferência deve coincidir com o selecionado;
+horário retroativo em outro ciclo retorna `409`. Atualizar a versão durante a
+edição não substitui o ciclo histórico. O campo esperado é somente de controle
+da requisição e não é persistido no evento.
 
 Validacoes relevantes:
 - formato de horarios
@@ -114,9 +134,17 @@ Validacoes relevantes:
 - regras condicionais por categoria
 - sobreposicao por bomba
 - transicoes de ciclo e Blend somente para o mesmo cliente
-- concorrencia otimista pelo estado atual do container
+- transferência somente a partir de um container aberto como Pulmão ou Parcial
+- origem e destino diferentes e pertencentes ao mesmo cliente
+- concorrencia otimista pelos estados atuais da origem e do destino
 - schema JSON estrito, incluindo justificativas de gaps; campos desconhecidos e
   tipos incorretos retornam `400 VALIDATION_ERROR`
+
+Em uma transferência entre containers, a placa não é exigida. O destino segue
+as transições usuais e a origem permanece `BUFFER` ou passa ao estado interno
+terminal `TRANSFER_EMPTIED`, conforme `sourceContainerEmptied`. O lançamento e
+as projeções dos dois containers são gravados atomicamente e o evento continua
+sendo contado apenas uma vez como produtivo.
 
 ## PATCH /api/events/:id
 
@@ -134,7 +162,8 @@ O mesmo schema JSON estrito do `POST` é aplicado.
 
 Efeito colateral:
 - grava item em `events/{id}/revisions` quando houver diff.
-- recalcula o estado atual dos containers de origem e destino.
+- recalcula, na mesma transação, as linhas do tempo e os estados atuais dos
+  containers de origem e destino.
 
 ## GET /api/containers
 
@@ -144,13 +173,33 @@ Aceita `query=<codigo>`, `status=<estado>`, `limit=1..200` e
 
 `data` contém `items`, `nextCursor` e `incomplete`.
 
+`scope=transfer-source` retorna somente Pulmão (`BUFFER`) e Parcial (`PARTIAL`).
+`excludeContainer=<codigo>` exclui o destino da busca. O cursor fica vinculado
+ao escopo, à busca, ao estado e ao destino excluído. A seleção da origem deve ser
+explícita e incluir sua versão observada; a busca não confirma automaticamente.
+
 ## GET /api/containers/lookup
 
 Consulta o estado atual e as transicoes permitidas para `container=<codigo>`.
 
 ## GET /api/containers/history
 
-Retorna o historico operacional valido para `container=<codigo>`, ordenado pelo horario operacional.
+Retorna o historico operacional valido para `container=<codigo>`, ordenado pelo
+horario operacional. Em transferências, o mesmo evento pode ser retornado pela
+perspectiva de ambos os containers com:
+
+- `containerRole`: `DESTINATION` ou `SOURCE`;
+- `relatedContainer`: origem quando consultado pelo destino, ou destino quando
+  consultado pela origem;
+- `status`: estado resultante naquela linha do tempo, inclusive o estado
+  interno `TRANSFER_EMPTIED` para uma origem esvaziada.
+
+Aceita `limit=1..200` (padrão 50) e `cursor=<cursor opaco>`. `data` contém `items`,
+`nextCursor` e `incomplete` (verdadeiro quando uma passagem inconsistente não
+pôde ser resolvida; a interface mostra um aviso sem descartar as demais). O cursor é vinculado ao
+container, e a ordem decrescente é `endAt`, `createdAt`, ID. Os dois papéis usam
+o mesmo cursor, sem duplicar a passagem. A visibilidade compartilhada para
+perfis aprovados permanece igual à consulta de containers.
 
 ## DELETE /api/events/:id
 

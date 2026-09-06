@@ -1,11 +1,12 @@
 "use client";
 
 import {
-  Dispatch,
-  FormEvent,
-  SetStateAction
-} from "react";
+  identifyLoadSource,
+  originCode
+} from "@/lib/domain/container-transfer";
+import { Dispatch, FormEvent, SetStateAction } from "react";
 import { ContainerStatusFields } from "@/components/container-status-fields";
+import { ContainerTransferFields } from "@/components/container-transfer-fields";
 import { categoryRules } from "@/lib/domain/constants";
 import {
   formatContainerForInput,
@@ -34,6 +35,7 @@ type EventFormFieldsProps = {
   submitLabel: string;
   onSubmit: (event: FormEvent) => Promise<void>;
   loading: boolean;
+  containerTransfersEnabled?: boolean;
   isEditing?: boolean;
   isAutomatic?: boolean;
   gapState: { loading: boolean; error: string | null };
@@ -46,6 +48,7 @@ export function EventFormFields({
   submitLabel,
   onSubmit,
   loading,
+  containerTransfersEnabled = false,
   isEditing = false,
   isAutomatic = false,
   gapState
@@ -177,6 +180,13 @@ export function EventFormFields({
                   form.category === "PRODUTIVO"
                     ? null
                     : form.containerStatus || "FULL",
+                originInput: "",
+                clientId: form.sourceContainer ? "" : form.clientId,
+                loadSourceType: "TRUCK",
+                sourceContainer: "",
+                sourceContainerEmptied: null,
+                expectedSourceContainerStateVersion: null,
+                expectedSourceContainerCycleId: null,
                 gapPreview: null,
                 gapJustifications: [],
                 gapJustificationsByEvent: {}
@@ -211,7 +221,14 @@ export function EventFormFields({
                     containerReason: "",
                     startsNewContainerCycle: false,
                     blendConfirmed: false,
-                    expectedContainerStateVersion: null
+                    expectedContainerStateVersion: null,
+                    originInput: "",
+                    clientId: form.sourceContainer ? "" : form.clientId,
+                    loadSourceType: "TRUCK",
+                    sourceContainer: "",
+                    sourceContainerEmptied: null,
+                    expectedSourceContainerStateVersion: null,
+                    expectedSourceContainerCycleId: null
                   })
                 }
                 type="button"
@@ -243,8 +260,8 @@ export function EventFormFields({
               Outros lançamentos serão reconciliados
             </h3>
             <p className="text-sm text-amber-900">
-              A edição altera intervalos de lançamentos posteriores. Revise
-              cada trecho.
+              A edição altera intervalos de lançamentos posteriores. Revise cada
+              trecho.
             </p>
           </div>
           <ReconciliationPreviewList
@@ -258,9 +275,7 @@ export function EventFormFields({
                   [eventId]: (
                     current.gapJustificationsByEvent[eventId] || []
                   ).map((item) =>
-                    item.id === justificationId
-                      ? { ...item, ...patch }
-                      : item
+                    item.id === justificationId ? { ...item, ...patch } : item
                   )
                 }
               }))
@@ -268,6 +283,21 @@ export function EventFormFields({
             reconciliations={form.gapPreview.reconciliations}
           />
         </section>
+      ) : null}
+
+      {form.category === "PRODUTIVO" ? (
+        <ContainerTransferFields
+          fields={form}
+          enabled={containerTransfersEnabled}
+          isEditing={isEditing}
+          onChange={(patch, expectedOrigin) =>
+            setForm((current) =>
+              expectedOrigin && current.originInput !== expectedOrigin
+                ? current
+                : { ...current, ...patch }
+            )
+          }
+        />
       ) : null}
 
       <label className="field-label col-span-2">
@@ -278,6 +308,10 @@ export function EventFormFields({
             setForm({ ...form, clientId: event.target.value })
           }
           required={rules.requiresClient}
+          disabled={
+            form.category === "PRODUTIVO" &&
+            form.loadSourceType === "BUFFER_CONTAINER"
+          }
           value={form.clientId}
         >
           <option value="">Selecione</option>
@@ -289,30 +323,47 @@ export function EventFormFields({
         </select>
       </label>
 
-      <label className="field-label">
-        Placa {rules.requiresPlate ? "*" : ""}
-        <input
-          className="input-ui"
-          onChange={(event) =>
-            setForm({
-              ...form,
-              plate: formatPlateForInput(event.target.value)
-            })
-          }
-          placeholder="AAA1234 ou AAA1A23"
-          required={rules.requiresPlate}
-          type="text"
-          value={form.plate}
-        />
-      </label>
+      {form.category !== "PRODUTIVO" ? (
+        <label className="field-label">
+          Placa {rules.requiresPlate ? "*" : ""}
+          <input
+            className="input-ui"
+            onChange={(event) =>
+              setForm({
+                ...form,
+                plate: formatPlateForInput(event.target.value)
+              })
+            }
+            placeholder="AAA1234 ou AAA1A23"
+            required={rules.requiresPlate}
+            type="text"
+            value={form.plate}
+          />
+        </label>
+      ) : null}
 
-      <label className="field-label">
-        Container {rules.requiresContainer ? "*" : ""}
+      <label
+        className={`field-label ${
+          form.category === "PRODUTIVO" ? "col-span-2" : ""
+        }`}
+      >
+        Container de destino {rules.requiresContainer ? "*" : ""}
         <input
           className="input-ui"
           onChange={(event) =>
             setForm({
               ...form,
+              ...(form.sourceContainer &&
+              originCode(form.sourceContainer) ===
+                originCode(event.target.value)
+                ? {
+                    sourceContainer: "",
+                    sourceContainerEmptied: null,
+                    expectedSourceContainerStateVersion: null,
+                    expectedSourceContainerCycleId: null,
+                    clientId: ""
+                  }
+                : {}),
               container: formatContainerForInput(event.target.value),
               expectedContainerStateVersion: null,
               startsNewContainerCycle: false,
@@ -328,7 +379,7 @@ export function EventFormFields({
 
       <ContainerStatusFields
         fields={form}
-        onChange={(patch) => setForm({ ...form, ...patch })}
+        onChange={(patch) => setForm((current) => ({ ...current, ...patch }))}
         preserveStatus={isEditing}
       />
 
@@ -336,9 +387,7 @@ export function EventFormFields({
         Observações {rules.requiresNotes ? "*" : ""}
         <textarea
           className="textarea-ui h-24"
-          onChange={(event) =>
-            setForm({ ...form, notes: event.target.value })
-          }
+          onChange={(event) => setForm({ ...form, notes: event.target.value })}
           placeholder={categoryNotesPlaceholders[form.category]}
           required={rules.requiresNotes}
           value={form.notes}
@@ -350,10 +399,19 @@ export function EventFormFields({
         disabled={
           loading ||
           gapState.loading ||
+          (form.category === "PRODUTIVO" &&
+            !identifyLoadSource(form.originInput)) ||
+          (form.category === "PRODUTIVO" &&
+            form.loadSourceType === "BUFFER_CONTAINER" &&
+            (!containerTransfersEnabled ||
+              form.expectedContainerStateVersion === null ||
+              form.expectedSourceContainerStateVersion === null ||
+              form.sourceContainerEmptied === null ||
+              !form.sourceContainer ||
+              formatContainerForInput(form.sourceContainer) ===
+                formatContainerForInput(form.container))) ||
           Boolean(
-            form.category === "PRODUTIVO" &&
-              form.startTime &&
-              !form.gapPreview
+            form.category === "PRODUTIVO" && form.startTime && !form.gapPreview
           )
         }
         type="submit"

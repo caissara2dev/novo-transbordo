@@ -13,12 +13,26 @@ export async function GET(req: NextRequest) {
     ensureApproved(profile);
 
     const rawStatus = req.nextUrl.searchParams.get("status");
-    if (rawStatus && !containerStatuses.includes(rawStatus as ContainerStatus)) {
+    if (
+      rawStatus &&
+      !containerStatuses.includes(rawStatus as ContainerStatus)
+    ) {
       throw new HttpError(400, "Estado do container inválido.");
     }
 
+    const transferSourceOnly =
+      req.nextUrl.searchParams.get("scope") === "transfer-source";
+    if (transferSourceOnly && rawStatus)
+      throw new HttpError(
+        400,
+        "A busca de origens já define os estados elegíveis."
+      );
     const pagination = parsePagination(req.nextUrl.searchParams);
     const page = await listContainerStates({
+      transferSourceOnly,
+      excludeContainer: transferSourceOnly
+        ? req.nextUrl.searchParams.get("excludeContainer") || undefined
+        : undefined,
       query: req.nextUrl.searchParams.get("query") || undefined,
       openOnly: req.nextUrl.searchParams.get("scope") !== "all",
       status: (rawStatus as ContainerStatus | null) || undefined,

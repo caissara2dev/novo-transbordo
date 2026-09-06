@@ -19,7 +19,13 @@ import {
   ReportsDrilldownResponse,
   ReportsOverviewResponse
 } from "@/types/api";
-import { Category, ContainerStatus, Pump, ShiftType } from "@/types/domain";
+import {
+  Category,
+  ContainerStatus,
+  LoadSourceType,
+  Pump,
+  ShiftType
+} from "@/types/domain";
 
 type ReportEvent = {
   id: string;
@@ -37,6 +43,9 @@ type ReportEvent = {
   container: string | null;
   containerStatus: ContainerStatus | null;
   containerReason: string | null;
+  loadSourceType: LoadSourceType | null;
+  sourceContainer: string | null;
+  sourceContainerEmptied: boolean | null;
   notes: string | null;
   createdByEmail: string;
   updatedByEmail: string;
@@ -168,6 +177,15 @@ function reportEventFromDoc(id: string, data: DocumentData): ReportEvent {
     container: (data.container as string | null) || null,
     containerStatus: eventContainerStatus(data),
     containerReason: (data.containerReason as string | null) || null,
+    loadSourceType:
+      category === "PRODUTIVO"
+        ? (data.loadSourceType as LoadSourceType | undefined) || "TRUCK"
+        : null,
+    sourceContainer: (data.sourceContainer as string | null) || null,
+    sourceContainerEmptied:
+      data.loadSourceType === "BUFFER_CONTAINER"
+        ? Boolean(data.sourceContainerEmptied)
+        : null,
     notes: (data.notes as string | null) || null,
     createdByEmail: String(data.createdByEmail || "-"),
     updatedByEmail: String(data.updatedByEmail || "-"),
@@ -313,6 +331,9 @@ function toDrilldownRow(event: ReportEvent): ReportDrilldownRow {
     container: event.container,
     containerStatus: event.containerStatus,
     containerReason: event.containerReason,
+    loadSourceType: event.loadSourceType,
+    sourceContainer: event.sourceContainer,
+    sourceContainerEmptied: event.sourceContainerEmptied,
     createdByEmail: event.createdByEmail,
     updatedByEmail: event.updatedByEmail,
     createdAt: event.createdAtMs ? new Date(event.createdAtMs).toISOString() : "",
@@ -625,6 +646,9 @@ function detailedCsvRows(events: ReportEvent[]): string {
     "Duração (minutos)",
     "Produtivo",
     "Placa",
+    "Origem da carga",
+    "Container de origem",
+    "Origem esvaziada",
     "Container",
     "Estado do Container",
     "Motivo do Estado",
@@ -652,6 +676,21 @@ function detailedCsvRows(events: ReportEvent[]): string {
         csvEscape(event.durationMinutes),
         csvEscape(event.productive ? "SIM" : "NÃO"),
         csvEscape(event.plate || ""),
+        csvEscape(
+          event.loadSourceType === "BUFFER_CONTAINER"
+            ? "CONTAINER"
+            : event.loadSourceType === "TRUCK"
+              ? "CARRETA"
+              : ""
+        ),
+        csvEscape(event.sourceContainer || ""),
+        csvEscape(
+          event.sourceContainerEmptied === null
+            ? ""
+            : event.sourceContainerEmptied
+              ? "SIM"
+              : "NÃO"
+        ),
         csvEscape(event.container || ""),
         csvEscape(
           event.containerStatus ? containerStatusLabelMap[event.containerStatus] : ""

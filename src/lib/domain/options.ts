@@ -1,4 +1,10 @@
-import { Category, ContainerStatus, Pump, ShiftType } from "@/types/domain";
+import {
+  Category,
+  ContainerLifecycleStatus,
+  ContainerStatus,
+  Pump,
+  ShiftType
+} from "@/types/domain";
 
 export const pumpOptions: Array<{ value: Pump; label: string }> = [
   { value: "BOMBA_1", label: "Bomba 1" },
@@ -24,9 +30,12 @@ export const containerStatusOptions: Array<{ value: ContainerStatus; label: stri
   { value: "BLEND_PARTIAL", label: "Blend parcial" }
 ];
 
-export const containerStatusLabelMap = Object.fromEntries(
-  containerStatusOptions.map((option) => [option.value, option.label])
-) as Record<ContainerStatus, string>;
+export const containerStatusLabelMap: Record<ContainerLifecycleStatus, string> = {
+  ...Object.fromEntries(
+    containerStatusOptions.map((option) => [option.value, option.label])
+  ) as Record<ContainerStatus, string>,
+  TRANSFER_EMPTIED: "Esvaziado por transferência"
+};
 
 export const shiftOptions: Array<{ value: ShiftType; label: string }> = [
   { value: "MANHA", label: "MANHÃ" },

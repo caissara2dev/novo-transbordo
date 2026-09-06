@@ -78,6 +78,7 @@ function eventDoc(params: {
       shiftType: "MANHA",
       category: "PRODUTIVO",
       clientId: "client-1",
+      container: "ABCU 123456-0",
       containerStatus: params.status ?? "FULL",
       createdByUid: params.createdByUid ?? "operator-1",
       deleted: params.deleted ?? false,
@@ -137,7 +138,11 @@ describe("listEvents pagination", () => {
   it("scans additional Firestore pages until secondary filters fill the page", async () => {
     firestore.pageQueue.push(
       Array.from({ length: 50 }, (_, index) =>
-        eventDoc({ id: `wrong-${index}`, pump: "BOMBA_1", startAt: 500 - index })
+        eventDoc({
+          id: `wrong-${index}`,
+          pump: "BOMBA_1",
+          startAt: 500 - index
+        })
       ),
       [
         eventDoc({ id: "matching-3", startAt: 300 }),
@@ -267,6 +272,10 @@ describe("listEvents pagination", () => {
         startAt: 500
       })
     ]);
+    firestore.pageQueue.push(
+      [...firestore.docsById.values(), ...firestore.pageQueue[0]],
+      []
+    );
     const { listEvents } = await import("@/lib/server/events");
 
     const result = await listEvents({
@@ -284,7 +293,9 @@ describe("listEvents pagination", () => {
         endTime: "07:15",
         pump: "BOMBA_1",
         plate: "ABC-1234",
-        status: "PARTIAL"
+        status: "PARTIAL",
+        role: "DESTINATION",
+        relatedContainer: null
       }
     ]);
   });
@@ -305,9 +316,14 @@ describe("listEvents pagination", () => {
         createdByUid: "operator-1",
         containerCycleId: "cycle-1",
         previousContainerEventId: "other-operator-event",
+        startAt: 500,
         status: "FULL"
       })
     ]);
+    firestore.pageQueue.push(
+      [...firestore.docsById.values(), ...firestore.pageQueue[0]],
+      []
+    );
     const { listEvents } = await import("@/lib/server/events");
 
     const result = await listEvents({

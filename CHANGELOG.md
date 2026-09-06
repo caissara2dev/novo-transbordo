@@ -5,6 +5,37 @@ Todas as alterações relevantes deste projeto serão registradas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o projeto usa
 [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [2.5.0] - 2026-09-06
+
+- Origem automática por placa ou container no formulário, com seleção explícita,
+  busca paginada, cliente herdado e navegação por teclado.
+- Transferências aceitam Pulmão e Parcial, preservando o estado restante em
+  históricos, edição, exclusão, restauração e reconstrução.
+- Controle de ativação no servidor para suspender mutações de transferências
+  mantendo leitura e auditoria disponíveis.
+
+### Adicionado
+
+- Lançamentos produtivos podem receber carga de um container atualmente aberto
+  como Pulmão ou Parcial, além do fluxo existente por carreta.
+- Transferências registram o container de origem, o container de destino e a
+  confirmação de esvaziamento completo da origem.
+- O histórico apresenta o mesmo evento pela perspectiva dos dois containers,
+  sem duplicar duração ou produtividade nos indicadores.
+- Estado interno terminal `Esvaziado por transferência` para encerrar o ciclo
+  do container de origem que ficou vazio.
+
+### Alterado
+
+- Criação, edição, exclusão e restauração reconciliam atomicamente as linhas do
+  tempo e projeções da origem e do destino.
+- Eventos produtivos legados sem origem explícita continuam interpretados como
+  carga de carreta.
+- O ciclo valida que a origem esteja aberta como Pulmão ou Parcial e que origem
+  e destino sejam containers diferentes do mesmo cliente.
+- A seleção do container de origem usa um único campo pesquisável, que lista
+  origens abertas como Pulmão ou Parcial e filtra os resultados durante a digitação.
+
 ## [2.4.0] - 2026-09-04
 
 ### Adicionado
@@ -110,3 +141,4 @@ Não existe release nem tag `v2.1.0` separada.
 [2.2.0]: https://github.com/caissara2dev/novo-transbordo/releases/tag/v2.2.0
 [2.2.1]: https://github.com/caissara2dev/novo-transbordo/releases/tag/v2.2.1
 [2.4.0]: https://github.com/caissara2dev/novo-transbordo/releases/tag/v2.4.0
+[2.5.0]: https://github.com/caissara2dev/novo-transbordo/compare/v2.4.0...v2.5.0

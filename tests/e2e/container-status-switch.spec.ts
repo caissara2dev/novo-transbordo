@@ -126,4 +126,24 @@ test("switches Parcial and Pulmão in one click and clears the active choice", a
   await expect(partial).not.toBeChecked();
   await expect(buffer).not.toBeChecked();
   await expect(definedExit).toContainText("Cheio");
+
+  let lookups = 0;
+  await page.route("**/api/containers/lookup?*", (route) => {
+    lookups++;
+    return route.fulfill(json({ ok: true, data: {
+      current: { container: "ABCU 123456-0", status: "BLEND_PARTIAL", version: 5, clientId: "client-1", pump: "BOMBA_1" },
+      availableStatuses: ["BLEND_PARTIAL", "BLEND_FULL"], requiresNewCycleConfirmation: false
+    } }));
+  });
+  await createForm.getByLabel("Container de destino *").fill("ABCU1234560");
+  const blend = createForm.getByRole("checkbox", { name: /^Blend Mistura/ });
+  await expect(blend).toBeChecked();
+  const emptied = createForm.getByRole("checkbox", { name: /^O container foi esvaziado/ });
+  await emptied.check();
+  await expect(definedExit).toContainText("Cheio");
+  await emptied.uncheck();
+  await expect(blend).toBeChecked();
+  await expect(blend).toBeDisabled();
+  await expect(definedExit).toContainText("Blend parcial");
+  expect(lookups).toBe(1);
 });

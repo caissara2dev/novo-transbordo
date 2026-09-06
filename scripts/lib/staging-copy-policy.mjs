@@ -9,6 +9,7 @@ const SAFE_OPERATIONAL_STRING_FIELDS = new Set([
   "category",
   "containerStatus",
   "endTime",
+  "loadSourceType",
   "origin",
   "pump",
   "shiftDate",
@@ -145,7 +146,7 @@ function anonymizeString(key, value, sourceRecord, context) {
   if (key === "plate") {
     return anonymizePlate(value, context.secret);
   }
-  if (key === "container") {
+  if (["container", "sourceContainer", "relatedContainer"].includes(key)) {
     return `CT-${digest("container", value, context.secret).toUpperCase()}`;
   }
   if (/notes?|reason|comment|description/i.test(key)) {

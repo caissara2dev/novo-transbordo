@@ -300,9 +300,10 @@ npm run backfill:container-states -- --project=line-transbordo \
 
 O backfill é idempotente, preserva projeções mais novas e nunca altera a coleção
 `events`. Registre as contagens do dry-run e da execução na issue da release.
-Como `containerStates` é uma projeção derivada, o rollback imediato é restaurar
-a versão anterior da aplicação, que não depende dessa coleção, e preservar os
-documentos para análise. Não apague estados durante um incidente. Corrija a
+Após a primeira transferência, siga a [recuperação compatível](#recuperação-compatível-após-a-primeira-transferência):
+republique v2.5.0 com a flag desligada e preserve os documentos para análise.
+Uma versão anterior que desconheça transferências não é uma recuperação válida.
+Não apague estados durante um incidente. Corrija a
 lógica, valide novamente em staging e repare a projeção executando o backfill
 idempotente revisado; lotes parciais também podem ser retomados com segurança.
 
@@ -374,8 +375,10 @@ Se usuários legítimos forem bloqueados:
 4. investigue site key, allowlist, segredo, proxy, TTL e limites;
 5. não use `off` em produção.
 
-Se a versão da aplicação estiver defeituosa, use o rollback de release do
-Firebase App Hosting ou reverta o commit em um novo PR. Preserve a configuração
+Se a versão da aplicação estiver defeituosa, restaure uma versão compatível no
+Firebase App Hosting ou corrija o commit em um novo PR. Após a primeira transferência,
+siga a [recuperação compatível](#recuperação-compatível-após-a-primeira-transferência).
+Preserve a configuração
 `observe` e os segredos.
 
 ### Firestore Rules
@@ -509,3 +512,74 @@ staging e aguarde o status Ready antes de publicar a aplicação.
 - Usar dry-run antes de promoções, cópias e deploys.
 - Manter staging e produção com chaves HMAC diferentes.
 - Conceder acesso mínimo necessário às credenciais operacionais.
+
+
+## Transferências entre containers — v2.5.0
+
+A origem automática exige seleção explícita de Pulmão ou Parcial. O cliente vem
+da origem selecionada. A resposta de esvaziamento encerra o ciclo ou preserva seu
+estado anterior, sem estimar volume. Ao corrigir o prefixo, o vínculo e o cliente
+herdado são limpos. Na edição histórica, use **Atualizar estado da origem** quando
+houver conflito de versão e confirme novamente o esvaziamento; a origem histórica
+pode estar encerrada atualmente.
+
+`CONTAINER_TRANSFERS_ENABLED` é uma variável de servidor, habilitada somente pelo
+valor literal `true`. Ausente ou `false`, suspende criação, edição, exclusão e
+restauração que afetem linhas do tempo com transferências. `/api/me` comunica a
+capacidade à interface; a API continua impondo a regra a sessões antigas.
+
+Antes de habilitar em cada ambiente, confirme os índices do manifesto como
+`READY`, incluindo busca por estado e histórico por `sourceContainer`. A Vercel
+usa exclusivamente `line-transbordo-staging-382612`; o Firebase App Hosting publica
+`line-transbordo` pela `main`. Ative a variável no ambiente Preview da branch da
+PR e explicitamente no rollout aprovado de produção.
+
+O backfill agora executa o planejador de domínio via suporte nativo a TypeScript
+do Node 22 (`--experimental-strip-types`, incluído no comando npm). Ele faz dry-run
+por padrão, rejeita históricos inconsistentes e não modifica `events`. Preserve
+as confirmações de projeto/produção e revise contagens antes de `--execute`.
+Na execução, a varredura apenas escolhe os containers: cada projeção é recalculada
+com os eventos atuais dentro de uma transação, que também lê o estado existente.
+Edições concorrentes provocam nova leitura transacional; resultados idênticos não
+alteram versão nem data. O resumo distingue `writes`, `skipped` e `finalCount`;
+um evento removido após a varredura não recria sua projeção.
+O relatório `skippedLegacy` identifica eventos anteriores ao contrato de origem
+cujos códigos não passam na validação ISO. Esses eventos são preservados e não
+geram uma nova projeção; não se corrige o dígito por suposição. Revise e registre
+essas exceções junto às contagens. Um código inválido em evento que já declara
+o contrato de origem continua interrompendo o backfill.
+
+### Recuperação compatível após a primeira transferência
+
+1. Preserve logs, commit, rollout e evidências do incidente.
+2. Republique a versão compatível v2.5.0 com `CONTAINER_TRANSFERS_ENABLED=false`.
+   No App Hosting, altere a configuração de runtime em `apphosting.yaml` por PR;
+   em staging, altere a variável Preview e publique novamente.
+3. Verifique que novas transferências e alterações nas linhas do tempo afetadas
+   retornam conflito, enquanto históricos, relatórios e operações independentes
+   de carreta continuam disponíveis. Atualize a página para refletir a capacidade.
+4. Não retorne a uma versão que desconheça a origem nem apague eventos, projeções
+   ou índices. Corrija a regra e revalide a reconstrução em staging antes de reparar
+   projeções e reativar a funcionalidade.
+
+A homologação inclui Pulmão e Parcial, com e sem esvaziamento, conflito de versão,
+edição retroativa, exclusão/restauração, históricos dos dois containers e contagem
+única em relatórios/CSV. Use fixtures identificadas somente em staging. Produção
+recebe smoke test de navegação, consultas e logs, sem inserir dados fictícios.
+
+
+### Limite de reconciliação online
+
+A criação, edição, exclusão e restauração leem no máximo 1.001 documentos por
+papel e container para detectar excesso. Cada linha do tempo aceita até 1.000
+eventos distintos na reconciliação online. Ao exceder o limite, a operação
+retorna 409 antes de planejar ou gravar qualquer efeito; nenhum histórico é
+truncado para efetuar uma gravação. O container exige revisão administrativa
+para ampliar ou tratar essa linha do tempo. O limite de 450 escritas continua
+independente. O backfill administrativo mantém sua leitura completa e seu
+controle transacional próprios.
+
+Uma passagem SOURCE inconsistente não impede a leitura das demais. O histórico
+retorna `incomplete: true` e a interface solicita revisão da linha do tempo.
+A listagem global preserva o evento produtivo e sinaliza quando não consegue
+resolver suas passagens anteriores; esvaziamento ausente permanece desconhecido.

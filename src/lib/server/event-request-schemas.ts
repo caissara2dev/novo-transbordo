@@ -43,6 +43,11 @@ export const eventMutationBodySchema = z
     startsNewContainerCycle: z.boolean().optional(),
     blendConfirmed: z.boolean().optional(),
     expectedContainerStateVersion: z.number().int().min(0).nullable().optional(),
+    loadSourceType: z.enum(["TRUCK", "BUFFER_CONTAINER"]).nullable().optional(),
+    sourceContainer: z.string().trim().max(32).nullable().optional(),
+    sourceContainerEmptied: z.boolean().nullable().optional(),
+    expectedSourceContainerCycleId: z.string().trim().min(1).max(128).nullable().optional(),
+    expectedSourceContainerStateVersion: z.number().int().min(0).nullable().optional(),
     notes: z.string().nullable(),
     revisionReason: z.string().nullable().optional(),
     gapVersion: z.string().nullable().optional(),
@@ -75,6 +80,7 @@ export const restoreEventBodySchema = z
   .object({
     gapVersion: z.string().trim().min(1),
     gapJustificationsByEvent: gapJustificationsByEventSchema.optional(),
-    expectedContainerStateVersion: z.number().int().min(0).nullable()
+    expectedContainerStateVersion: z.number().int().min(0).nullable(),
+    expectedSourceContainerStateVersion: z.number().int().min(0).nullable().optional()
   })
   .strict();

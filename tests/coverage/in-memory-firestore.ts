@@ -1,3 +1,5 @@
+import { Timestamp } from "firebase-admin/firestore";
+
 type StoredDocument = Record<string, unknown>;
 
 type QueryFilter = {
@@ -51,7 +53,8 @@ function matchesFilter(data: StoredDocument, filter: QueryFilter): boolean {
 class FakeDocumentSnapshot {
   constructor(
     readonly ref: FakeDocumentReference,
-    private readonly stored: StoredDocument | undefined
+    private readonly stored: StoredDocument | undefined,
+    readonly updateTime: Timestamp = ref.updateTime
   ) {}
 
   get id(): string {
@@ -151,11 +154,15 @@ class FakeQuery {
         }
         return left[0].localeCompare(right[0]);
       });
-    const documentIdAfter = String(this.afterValues?.at(-1) ?? "");
-    const afterIndex = this.afterValues
-      ? entries.findIndex(([id]) => id === documentIdAfter)
-      : -1;
-    const pageEntries = afterIndex >= 0 ? entries.slice(afterIndex + 1) : entries;
+    const pageEntries = this.afterValues ? entries.filter(([id, data]) => {
+      for (const [index, order] of this.orders.entries()) {
+        const actual = order.field === "__name__" ? id : toComparable(getField(data, order.field));
+        const boundary = toComparable(this.afterValues![index]);
+        if (actual === boundary) continue;
+        return order.direction === "desc" ? (actual as never) < (boundary as never) : (actual as never) > (boundary as never);
+      }
+      return false;
+    }) : entries;
     const limited =
       this.maximum === null
         ? pageEntries
@@ -191,6 +198,10 @@ class FakeDocumentReference {
 
   get path(): string {
     return `${this.collectionPath}/${this.id}`;
+  }
+
+  get updateTime(): Timestamp {
+    return Timestamp.fromMillis(this.db.version(this.path));
   }
 
   get parent(): { parent: FakeDocumentReference | null } {
@@ -278,6 +289,11 @@ export class InMemoryFirestore {
     Map<string, StoredDocument>
   >();
   private idSequence = 0;
+  private readonly versions = new Map<string, number>();
+
+  version(path: string): number {
+    return this.versions.get(path) || 0;
+  }
 
   collection(name: string): FakeCollectionReference {
     return new FakeCollectionReference(this, name);
@@ -306,10 +322,13 @@ export class InMemoryFirestore {
     callback: (transaction: FakeTransaction) => Promise<T>
   ): Promise<T> {
     const before = this.cloneCollections();
+    const versionsBefore = new Map(this.versions);
     try {
       return await callback(new FakeTransaction(this));
     } catch (error) {
       this.restoreCollections(before);
+      this.versions.clear();
+      versionsBefore.forEach((version, path) => this.versions.set(path, version));
       throw error;
     }
   }
@@ -317,6 +336,7 @@ export class InMemoryFirestore {
   reset(): void {
     this.collections.clear();
     this.idSequence = 0;
+    this.versions.clear();
   }
 
   seed(
@@ -369,6 +389,8 @@ export class InMemoryFirestore {
     const previous = collection.get(id);
     collection.set(id, merge ? { ...previous, ...data } : { ...data });
     this.collections.set(collectionPath, collection);
+    const path = `${collectionPath}/${id}`;
+    this.versions.set(path, this.version(path) + 1);
   }
 
   remove(collectionPath: string, id: string): void {

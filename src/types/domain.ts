@@ -14,6 +14,13 @@ export const containerStatuses = [
 
 export type ContainerStatus = (typeof containerStatuses)[number];
 
+export type ContainerLifecycleStatus = ContainerStatus | "TRANSFER_EMPTIED";
+
+// BUFFER_CONTAINER is the compatible wire value for a Pulmão or Parcial origin.
+export type LoadSourceType = "TRUCK" | "BUFFER_CONTAINER";
+
+export type ContainerEventRole = "DESTINATION" | "SOURCE";
+
 export const categories = [
   "PRODUTIVO",
   "INTERVALO_OPERACIONAL",
@@ -71,6 +78,11 @@ export type EventInput = {
   startsNewContainerCycle: boolean;
   blendConfirmed: boolean;
   expectedContainerStateVersion: number | null;
+  loadSourceType: LoadSourceType | null;
+  sourceContainer: string | null;
+  sourceContainerEmptied: boolean | null;
+  expectedSourceContainerStateVersion: number | null;
+  expectedSourceContainerCycleId?: string | null;
   notes: string | null;
 };
 
@@ -97,7 +109,19 @@ export type ClientDoc = {
   updatedByUid: string;
 };
 
-export type EventDoc = Omit<EventInput, "expectedContainerStateVersion"> & {
+export type EventDoc = Omit<
+  EventInput,
+  | "expectedContainerStateVersion"
+  | "expectedSourceContainerStateVersion"
+  | "expectedSourceContainerCycleId"
+  | "loadSourceType"
+  | "sourceContainer"
+  | "sourceContainerEmptied"
+> & {
+  /** Productive legacy events omit this field and are interpreted as TRUCK. */
+  loadSourceType?: LoadSourceType | null;
+  sourceContainer?: string | null;
+  sourceContainerEmptied?: boolean | null;
   productive: boolean;
   origin: EventOrigin;
   generatedForEventId: string | null;
@@ -110,6 +134,9 @@ export type EventDoc = Omit<EventInput, "expectedContainerStateVersion"> & {
   containerCycleId: string | null;
   previousContainerEventId: string | null;
   containerStateVersion: number | null;
+  sourceContainerCycleId?: string | null;
+  previousSourceContainerEventId?: string | null;
+  sourceContainerStateVersion?: number | null;
   startAt: unknown;
   endAt: unknown;
   durationMinutes: number;
@@ -132,20 +159,24 @@ export type ContainerCyclePassage = {
   endTime: string;
   pump: Pump;
   plate: string | null;
-  status: ContainerStatus;
+  status: ContainerLifecycleStatus;
+  role?: ContainerEventRole;
+  relatedContainer?: string | null;
 };
 
 export type ContainerStateDoc = {
   container: string;
-  status: ContainerStatus;
+  status: ContainerLifecycleStatus;
   reason: string | null;
   cycleId: string;
   latestEventId: string;
   previousEventId: string | null;
   clientId: string;
   clientNameSnapshot: string | null;
-  plate: string;
+  plate: string | null;
   pump: Pump;
+  latestEventRole?: ContainerEventRole;
+  relatedContainer?: string | null;
   operationalAt: unknown;
   eventCreatedAt: unknown;
   version: number;

@@ -10,7 +10,12 @@ import {
   ContainerLookupResponse,
   ContainerStateApiItem
 } from "@/types/api";
-import { Category, ContainerStatus } from "@/types/domain";
+import {
+  Category,
+  ContainerLifecycleStatus,
+  ContainerStatus,
+  LoadSourceType
+} from "@/types/domain";
 
 type ContainerFields = {
   category: Category;
@@ -21,6 +26,7 @@ type ContainerFields = {
   startsNewContainerCycle: boolean;
   blendConfirmed: boolean;
   expectedContainerStateVersion: number | null;
+  loadSourceType?: LoadSourceType;
 };
 
 type ContainerLookupState = {
@@ -35,11 +41,11 @@ function isCompleteContainer(value: string): boolean {
   return value.replace(/[^A-Z0-9]/gi, "").length === 11;
 }
 
-function isBlend(status: ContainerStatus | null): boolean {
+function isBlend(status: ContainerLifecycleStatus | null): boolean {
   return status === "BLEND_FULL" || status === "BLEND_PARTIAL";
 }
 
-function isPartial(status: ContainerStatus | null): boolean {
+function isPartial(status: ContainerLifecycleStatus | null): boolean {
   return status === "PARTIAL" || status === "BLEND_PARTIAL";
 }
 
@@ -66,7 +72,7 @@ function CurrentStateCard({ current }: { current: ContainerStateApiItem }) {
         <div className="container-detail-grid">
           <span>
             <strong>Placa</strong>
-            {current.plate}
+            {current.plate || "Sem placa"}
           </span>
           <span>
             <strong>Motivo</strong>
@@ -103,6 +109,8 @@ export function ContainerStatusFields({
     loading: false
   });
   const onChangeRef = useRef(onChange);
+  const [lookupAttempt, setLookupAttempt] = useState(0);
+  const startsNewCycleRef = useRef(fields.startsNewContainerCycle);
   const lookupEnabled =
     fields.category === "PRODUTIVO" &&
     isCompleteContainer(fields.container);
@@ -110,14 +118,15 @@ export function ContainerStatusFields({
   const requestKey = lookupEnabled
     ? JSON.stringify([
         fields.container,
-        fields.startsNewContainerCycle,
-        preserveStatus
+        preserveStatus,
+        lookupAttempt
       ])
     : null;
 
   useEffect(() => {
     onChangeRef.current = onChange;
-  }, [onChange]);
+    startsNewCycleRef.current = fields.startsNewContainerCycle;
+  }, [onChange, fields.startsNewContainerCycle]);
 
   useEffect(() => {
     if (lookupEnabled || fields.expectedContainerStateVersion === null) {
@@ -139,6 +148,9 @@ export function ContainerStatusFields({
     }
 
     const controller = new AbortController();
+    const resetTimer = window.setTimeout(() => {
+      onChangeRef.current({ expectedContainerStateVersion: null });
+    }, 0);
     const timer = window.setTimeout(async () => {
       setLookupState((current) => ({
         lookupKey,
@@ -168,7 +180,7 @@ export function ContainerStatusFields({
         if (
           result.current &&
           isBlend(result.current.status) &&
-          !fields.startsNewContainerCycle &&
+          !startsNewCycleRef.current &&
           !preserveStatus
         ) {
           patch.containerStatus =
@@ -178,6 +190,7 @@ export function ContainerStatusFields({
         onChangeRef.current(patch);
       } catch (error) {
         if (!controller.signal.aborted) {
+          onChangeRef.current({ expectedContainerStateVersion: null });
           setLookupState({
             lookupKey,
             requestKey,
@@ -194,11 +207,11 @@ export function ContainerStatusFields({
 
     return () => {
       window.clearTimeout(timer);
+      window.clearTimeout(resetTimer);
       controller.abort();
     };
   }, [
     fields.container,
-    fields.startsNewContainerCycle,
     lookupKey,
     preserveStatus,
     requestKey
@@ -208,8 +221,8 @@ export function ContainerStatusFields({
     lookupState.lookupKey === lookupKey ? lookupState.data : null;
   const lookupError =
     lookupState.requestKey === requestKey ? lookupState.error : null;
-  const loading =
-    lookupState.requestKey === requestKey && lookupState.loading;
+  const loading = Boolean(requestKey) &&
+    (lookupState.requestKey !== requestKey || lookupState.loading);
   const current = lookup?.current ?? null;
   const partial = isPartial(fields.containerStatus);
   const buffer = fields.containerStatus === "BUFFER";
@@ -277,6 +290,8 @@ export function ContainerStatusFields({
         <span className="container-live-dot">
           {loading
             ? "Consultando…"
+            : lookupError
+              ? "Consulta indisponível"
             : current
               ? "Histórico encontrado"
               : isCompleteContainer(fields.container)
@@ -285,7 +300,14 @@ export function ContainerStatusFields({
         </span>
       </div>
 
-      {lookupError ? <div className="notice error">{lookupError}</div> : null}
+      {lookupError ? (
+        <div className="notice error">
+          {lookupError}{" "}
+          <button type="button" className="underline" onClick={() => setLookupAttempt((attempt) => attempt + 1)}>
+            Tentar novamente
+          </button>
+        </div>
+      ) : null}
       {current ? <CurrentStateCard current={current} /> : null}
 
       {current ? (
@@ -295,7 +317,11 @@ export function ContainerStatusFields({
             onChange={(event) =>
               onChange({
                 startsNewContainerCycle: event.target.checked,
-                containerStatus: event.target.checked ? "FULL" : fields.containerStatus,
+                containerStatus: event.target.checked
+                  ? "FULL"
+                  : isBlend(current.status)
+                    ? current.status as ContainerStatus
+                    : fields.containerStatus,
                 containerReason: event.target.checked ? "" : fields.containerReason,
                 blendConfirmed: false
               })
@@ -393,7 +419,9 @@ export function ContainerStatusFields({
           <span>
             <strong>Confirmo que este carregamento formará um Blend</strong>
             <small>
-              A placa atual ficará vinculada às placas anteriores deste ciclo.
+              {fields.loadSourceType === "BUFFER_CONTAINER"
+                ? "O container de origem ficará vinculado às passagens anteriores deste ciclo."
+                : "A placa atual ficará vinculada às placas anteriores deste ciclo."}
             </small>
           </span>
         </label>

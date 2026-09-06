@@ -1,7 +1,4 @@
-import {
-  FieldPath,
-  Timestamp
-} from "firebase-admin/firestore";
+import { FieldPath, Timestamp } from "firebase-admin/firestore";
 import {
   collectPreviousContainerPassages,
   ContainerCycleHistoryEntry
@@ -18,6 +15,8 @@ import {
   scanFilteredPage
 } from "@/lib/server/pagination";
 import { EventDoc, UserDoc } from "@/types/domain";
+
+import { readContainerPassage } from "@/lib/server/container-history";
 
 const MAX_PREVIOUS_CONTAINER_PASSAGES = 20;
 
@@ -57,7 +56,19 @@ function eventListItem(doc: FirebaseFirestore.QueryDocumentSnapshot) {
     gapSegmentId: data.gapSegmentId || null,
     justificationWaived: Boolean(data.justificationWaived),
     startsNewContainerCycle: Boolean(data.startsNewContainerCycle),
-    blendConfirmed: Boolean(data.blendConfirmed)
+    blendConfirmed: Boolean(data.blendConfirmed),
+    loadSourceType:
+      (data.productive ?? data.category === "PRODUTIVO")
+        ? data.loadSourceType || "TRUCK"
+        : null,
+    sourceContainer: data.sourceContainer || null,
+    sourceContainerEmptied:
+      data.loadSourceType === "BUFFER_CONTAINER"
+        ? data.sourceContainerEmptied ?? null
+        : null,
+    sourceContainerCycleId: data.sourceContainerCycleId || null,
+    previousSourceContainerEventId: data.previousSourceContainerEventId || null,
+    sourceContainerStateVersion: data.sourceContainerStateVersion ?? null
   };
 }
 
@@ -75,9 +86,10 @@ function containerHistoryEntry(
   id: string,
   data: EventListItem | EventDoc
 ): ContainerCycleHistoryEntry | null {
-  const status = "containerStatus" in data
-    ? data.containerStatus
-    : eventContainerStatus(data);
+  const status =
+    "containerStatus" in data
+      ? data.containerStatus
+      : eventContainerStatus(data);
   if (!status) {
     return null;
   }
@@ -91,36 +103,10 @@ function containerHistoryEntry(
     pump: data.pump,
     plate: data.plate || null,
     status,
+    role: "DESTINATION",
+    relatedContainer: data.sourceContainer || null,
     deleted: Boolean(data.deleted)
   };
-}
-
-async function fetchContainerHistoryEntry(params: {
-  id: string;
-  role: UserDoc["role"];
-  uid: string;
-  cache: Map<string, ContainerCycleHistoryEntry>;
-  missing: Set<string>;
-}) {
-  if (params.cache.has(params.id)) {
-    return params.cache.get(params.id) || null;
-  }
-  if (params.missing.has(params.id)) {
-    return null;
-  }
-
-  const snap = await adminDb.collection("events").doc(params.id).get();
-  const data = snap.exists ? (snap.data() as EventDoc | undefined) : undefined;
-  const entry =
-    data && canReadContainerPassage(data, params.role, params.uid)
-      ? containerHistoryEntry(snap.id, data)
-      : null;
-  if (entry) {
-    params.cache.set(params.id, entry);
-  } else {
-    params.missing.add(params.id);
-  }
-  return entry;
 }
 
 async function previousContainerPassagesForEvents(params: {
@@ -128,50 +114,62 @@ async function previousContainerPassagesForEvents(params: {
   role: UserDoc["role"];
   uid: string;
 }) {
-  const cache = new Map<string, ContainerCycleHistoryEntry>();
-  const missing = new Set<string>();
-  const result = new Map<string, ReturnType<typeof collectPreviousContainerPassages>>();
-
-  for (const event of params.events) {
-    const entry = containerHistoryEntry(event.id, event);
-    if (entry) {
-      cache.set(event.id, entry);
-    }
-  }
-
-  for (const event of params.events) {
-    const current = cache.get(event.id);
-    if (!current?.containerCycleId || !current.previousContainerEventId) {
-      result.set(event.id, []);
-      continue;
-    }
-
-    const visited = new Set<string>([event.id]);
-    let previousId: string | null = current.previousContainerEventId;
-    let depth = 0;
+  const documents = new Map<string, Promise<EventDoc | null>>();
+  const passages = new Map<string, ReturnType<typeof readContainerPassage>>();
+  const result = new Map<
+    string,
+    { passages: ReturnType<typeof collectPreviousContainerPassages>; incomplete: boolean }
+  >();
+  await Promise.all(params.events.map(async (event) => {
+    const current = containerHistoryEntry(event.id, event);
+    const history = new Map<string, ContainerCycleHistoryEntry>();
+    let previousId = current?.previousContainerEventId;
+    let incomplete = false;
     while (
+      current &&
+      event.container &&
       previousId &&
-      !visited.has(previousId) &&
-      depth < MAX_PREVIOUS_CONTAINER_PASSAGES
+      history.size < MAX_PREVIOUS_CONTAINER_PASSAGES &&
+      !history.has(previousId)
     ) {
-      visited.add(previousId);
-      const previous = await fetchContainerHistoryEntry({
-        id: previousId,
-        role: params.role,
-        uid: params.uid,
-        cache,
-        missing
-      });
-      if (!previous || previous.containerCycleId !== current.containerCycleId) {
+      let pending = documents.get(previousId);
+      if (!pending) {
+        pending = adminDb
+          .collection("events")
+          .doc(previousId)
+          .get()
+          .then((doc) => (doc.exists ? (doc.data() as EventDoc) : null));
+        documents.set(previousId, pending);
+      }
+      const data = await pending;
+      if (!data || !canReadContainerPassage(data, params.role, params.uid))
+        break;
+      const key = `${event.container}:${previousId}`;
+      let passage = passages.get(key);
+      if (!passage) {
+        passage = readContainerPassage(previousId, data, event.container);
+        passages.set(key, passage);
+      }
+      const entry = await passage;
+      if (!entry) {
+        incomplete = true;
         break;
       }
-      previousId = previous.previousContainerEventId;
-      depth += 1;
+      if (entry.containerCycleId !== current.containerCycleId) break;
+      history.set(entry.id, {
+        ...entry,
+        role: entry.containerRole
+      });
+      previousId = entry.previousContainerEventId;
     }
-
-    result.set(event.id, collectPreviousContainerPassages(current, cache));
-  }
-
+    result.set(
+      event.id,
+      {
+        passages: current ? collectPreviousContainerPassages(current, history) : [],
+        incomplete
+      }
+    );
+  }));
   return result;
 }
 
@@ -215,9 +213,7 @@ export async function listEvents(params: {
   }
 
   if (dateOrdered) {
-    query = query
-      .orderBy("shiftDate", "desc")
-      .orderBy("startAt", "desc");
+    query = query.orderBy("shiftDate", "desc").orderBy("startAt", "desc");
   } else {
     query = query.orderBy("startAt", "desc");
   }
@@ -263,8 +259,7 @@ export async function listEvents(params: {
       const snap = await pageQuery.limit(limit).get();
       return snap.docs;
     },
-    positionForDocument: (doc) =>
-      eventListPosition(doc, dateOrdered),
+    positionForDocument: (doc) => eventListPosition(doc, dateOrdered),
     matchDocument: (doc) => {
       const event = eventListItem(doc);
       if (!matchesOperationalHistory(event, { role, uid, filters })) {
@@ -294,10 +289,7 @@ export async function listEvents(params: {
         kind: "events",
         scope,
         values: dateOrdered
-          ? [
-              nextPosition.shiftDate || "",
-              nextPosition.startAt.toMillis()
-            ]
+          ? [nextPosition.shiftDate || "", nextPosition.startAt.toMillis()]
           : [nextPosition.startAt.toMillis()],
         documentId: nextPosition.documentId
       })
@@ -306,7 +298,10 @@ export async function listEvents(params: {
   return {
     items: visibleEvents.map((event) => ({
       ...event,
-      previousContainerPassages: previousPassagesByEventId.get(event.id) || []
+      previousContainerPassages: previousPassagesByEventId.get(event.id)?.passages || [],
+      ...(previousPassagesByEventId.get(event.id)?.incomplete
+        ? { warnings: ["Algumas passagens anteriores não puderam ser resolvidas. Solicite a revisão da linha do tempo."] }
+        : {})
     })),
     nextCursor,
     incomplete: scan.incomplete

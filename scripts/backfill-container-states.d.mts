@@ -13,6 +13,16 @@ export type BackfillOptions = {
 export function parseArgs(argv: string[]): BackfillOptions;
 export function validateBackfillRequest(options: BackfillOptions): void;
 
+export function buildContainerStateBackfillCandidates(events: Array<{
+  id: string;
+  data: Record<string, unknown>;
+}>): Map<string, {
+  id: string;
+  key: string;
+  status: string;
+  data: Record<string, unknown>;
+}>;
+
 export function buildContainerStateBackfillPatch(params: {
   existing: Record<string, unknown> | undefined;
   eventId: string;
@@ -22,3 +32,13 @@ export function buildContainerStateBackfillPatch(params: {
 }): (Record<string, unknown> & { version: number }) | null;
 
 export function main(argv?: string[]): Promise<void>;
+
+export function selectBackfillRecords(events: Array<{ id: string; data: Record<string, unknown> }>): {
+  records: Array<{ id: string; data: Record<string, unknown> }>;
+  skippedLegacy: Array<{ id: string; container: string; reason: string }>;
+};
+
+export function writeStates(
+  db: import("firebase-admin/firestore").Firestore,
+  latest: ReturnType<typeof buildContainerStateBackfillCandidates>
+): Promise<{ writes: number; skipped: number }>;

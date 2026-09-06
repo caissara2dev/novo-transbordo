@@ -1,7 +1,7 @@
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpError } from "@/lib/domain/errors";
 import { adminDb } from "@/lib/firebase/admin";
-import { reconcileContainerTimelineInTransaction } from "@/lib/server/container-states";
+import { reconcileEventContainerEffectsInTransaction } from "@/lib/server/container-event-effects";
 import { prepareDeletionGap, timelineLockRef } from "@/lib/server/gaps";
 import { EventDoc } from "@/types/domain";
 import { buildAutomaticGapEvents } from "./policies";
@@ -68,7 +68,12 @@ export async function softDeleteEvent(
     : [];
 
   await adminDb.runTransaction(async (transaction) => {
-    const lockSnap = await transaction.get(lockRef);
+    const [lockSnap, eventSnap] = await Promise.all([
+      transaction.get(lockRef), transaction.get(ref)
+    ]);
+    if (!eventSnap.exists || !eventSnap.updateTime?.isEqual(snap.updateTime!)) {
+      throw new HttpError(409, "O lançamento mudou durante a exclusão. Atualize e tente novamente.");
+    }
     const observedLockVersion = Number(lockSnap.data()?.version || 0);
     if (observedLockVersion !== expectedLockVersion) {
       throw new HttpError(
@@ -76,10 +81,11 @@ export async function softDeleteEvent(
         "A linha do tempo mudou durante a exclusão. Atualize e tente novamente."
       );
     }
-    await reconcileContainerTimelineInTransaction({
+    await reconcileEventContainerEffectsInTransaction({
       transaction,
-      rawContainer: existing.container,
-      override: { id: eventId, data: null },
+      eventId,
+      before: existing,
+      after: null,
       reservedWrites:
         2 +
         linkedAutomaticSnap.docs.filter((doc) => !doc.data().deleted).length +

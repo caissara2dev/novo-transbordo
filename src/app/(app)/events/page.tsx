@@ -93,7 +93,7 @@ async function submitEventRestore(plan: RestorePlan): Promise<void> {
 }
 
 export default function EventsPage() {
-  const { profile } = useAuthSession();
+  const { profile, containerTransfersEnabled } = useAuthSession();
   const initialFilters = useMemo(() => makeInitialEventFilters(), []);
   const [clients, setClients] = useState<ClientApiItem[]>([]);
   const [events, setEvents] = useState<EventApiItem[]>([]);
@@ -316,6 +316,13 @@ export default function EventsPage() {
       startsNewContainerCycle: Boolean(item.startsNewContainerCycle),
       blendConfirmed: Boolean(item.blendConfirmed),
       expectedContainerStateVersion: item.containerStateVersion,
+      originInput: item.sourceContainer || item.plate || "",
+      loadSourceType: item.loadSourceType || "TRUCK",
+      sourceContainer: item.sourceContainer || "",
+      sourceContainerEmptied: item.sourceContainerEmptied ?? null,
+      expectedSourceContainerStateVersion:
+        item.sourceContainerStateVersion ?? null,
+      expectedSourceContainerCycleId: item.sourceContainerCycleId ?? null,
       notes: item.notes || "",
       revisionReason: "",
       gapPreview: null,
@@ -565,6 +572,7 @@ export default function EventsPage() {
       <section className="panel space-y-3">
         <h2 className="panel-title text-2xl">Novo lançamento</h2>
         <EventFormFields
+          containerTransfersEnabled={containerTransfersEnabled}
           clients={clients}
           form={form}
           loading={loading}
@@ -617,6 +625,8 @@ export default function EventsPage() {
             />
           </label>
           <EventFormFields
+          containerTransfersEnabled={containerTransfersEnabled}
+            key={editId}
             clients={clients}
             form={editForm}
             isEditing

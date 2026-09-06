@@ -1,3 +1,4 @@
+import { containerTransfersEnabled } from "@/lib/server/container-transfer-capability";
 import { NextRequest } from "next/server";
 import { requireAuth } from "@/lib/server/auth";
 import { fail, ok } from "@/lib/server/http";
@@ -9,6 +10,7 @@ export async function GET(req: NextRequest) {
 
     return ok({
       profile: toPlain(profile),
+      containerTransfersEnabled: containerTransfersEnabled(),
       approvalContactPhone: process.env.APPROVAL_CONTACT_PHONE || null
     });
   } catch (error) {

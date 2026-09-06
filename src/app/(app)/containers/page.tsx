@@ -30,6 +30,8 @@ function toDateTime(value: string): string {
 export default function ContainersPage() {
   const [items, setItems] = useState<ContainerStateApiItem[]>([]);
   const [history, setHistory] = useState<ContainerHistoryItem[]>([]);
+  const [historyCursor, setHistoryCursor] = useState<string | null>(null);
+  const [historyIncomplete, setHistoryIncomplete] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [appliedList, setAppliedList] = useState<ContainerListSelection>({
@@ -139,16 +141,20 @@ export default function ContainersPage() {
     });
   };
 
-  const openHistory = async (container: string) => {
+  const openHistory = async (container: string, cursor?: string) => {
     const request = historyRequests.current.begin();
     setSelected(container);
-    setHistory([]);
+    if (!cursor) {
+      setHistory([]);
+      setHistoryCursor(null);
+      setHistoryIncomplete(false);
+    }
     setLoadingHistory(true);
     setError(null);
 
     try {
-      const data = await apiFetch<{ items: ContainerHistoryItem[] }>(
-        `/api/containers/history?container=${encodeURIComponent(container)}`,
+      const data = await apiFetch<PaginatedResponse<ContainerHistoryItem>>(
+        `/api/containers/history?container=${encodeURIComponent(container)}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
         { signal: request.signal }
       );
 
@@ -156,7 +162,11 @@ export default function ContainersPage() {
         return;
       }
 
-      setHistory(data.items || []);
+      setHistory((current) => cursor
+        ? Array.from(new Map([...current, ...(data.items || [])].map((item) => [item.id, item])).values())
+        : data.items || []);
+      setHistoryCursor(data.nextCursor || null);
+      setHistoryIncomplete((previous) => Boolean(data.incomplete) || Boolean(cursor && previous));
     } catch (err) {
       if (!request.isCurrent() || isAbortError(err)) {
         return;
@@ -228,9 +238,12 @@ export default function ContainersPage() {
                   <dd>{toDateTime(item.operationalAt)}</dd>
                 </div>
                 <div>
-                  <dt>Bomba / Placa</dt>
+                  <dt>
+                    {item.relatedContainer ? "Bomba / Contraparte" : "Bomba / Placa"}
+                  </dt>
                   <dd>
-                    {pumpShortLabelMap[item.pump]} · {item.plate}
+                    {pumpShortLabelMap[item.pump]} ·{" "}
+                    {item.relatedContainer || item.plate || "Sem placa"}
                   </dd>
                 </div>
               </dl>
@@ -267,6 +280,12 @@ export default function ContainersPage() {
             <span>Histórico do ciclo</span>
             <strong>{selected || "Selecione um container"}</strong>
           </div>
+          {historyIncomplete ? (
+            <p className="notice warn" role="alert">
+              Algumas passagens não puderam ser resolvidas. Os demais registros
+              continuam disponíveis; solicite a revisão da linha do tempo.
+            </p>
+          ) : null}
           {history.map((event, index) => (
             <article className="container-timeline-event" key={event.id}>
               <span className="timeline-index">{String(index + 1).padStart(2, "0")}</span>
@@ -279,12 +298,28 @@ export default function ContainersPage() {
                   {pumpShortLabelMap[event.pump]}
                 </h3>
                 <p>
-                  Placa {event.plate || "—"} · {event.clientNameSnapshot || "Sem cliente"}
+                  {event.relatedContainer
+                    ? `${event.containerRole === "SOURCE" ? "Destino" : "Origem"} ${event.relatedContainer}`
+                    : `Placa ${event.plate || "—"}`} ·{" "}
+                  {event.clientNameSnapshot || "Sem cliente"}
                 </p>
+                {event.containerRole === "SOURCE" ? (
+                  <p>
+                    {event.sourceContainerEmptied
+                      ? "Container de origem esvaziado pela transferência."
+                      : `Container de origem mantido como ${containerStatusLabelMap[event.status]}.`}
+                  </p>
+                ) : null}
                 {event.containerReason ? <blockquote>{event.containerReason}</blockquote> : null}
               </div>
             </article>
           ))}
+          {historyCursor && selected ? (
+            <button className="btn-soft" disabled={loadingHistory} type="button"
+              onClick={() => void openHistory(selected, historyCursor)}>
+              Carregar mais passagens
+            </button>
+          ) : null}
           {loadingHistory ? (
             <p className="containers-empty">Carregando histórico...</p>
           ) : null}

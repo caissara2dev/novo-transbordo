@@ -17,7 +17,7 @@ try {
     process.exitCode = 1;
   } else {
     console.log(
-      "Manifesto validado: 7 índices do histórico estão declarados."
+      "Manifesto validado: índices obrigatórios do histórico estão declarados."
     );
   }
 } catch (error) {

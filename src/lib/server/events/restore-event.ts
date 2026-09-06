@@ -1,7 +1,7 @@
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpError } from "@/lib/domain/errors";
 import { adminDb } from "@/lib/firebase/admin";
-import { reconcileContainerTimelineInTransaction } from "@/lib/server/container-states";
+import { reconcileEventContainerEffectsInTransaction } from "@/lib/server/container-event-effects";
 import { timelineLockRef } from "@/lib/server/gaps";
 import { EventDoc } from "@/types/domain";
 import {
@@ -16,6 +16,8 @@ export async function previewEventRestore(eventId: string) {
     gapVersion: plan.gapVersion,
     changedSinceDeletion: plan.changedSinceDeletion,
     expectedContainerStateVersion: plan.expectedContainerStateVersion,
+    expectedSourceContainerStateVersion:
+      plan.expectedSourceContainerStateVersion,
     reconciliations: plan.reconciliations.map(({ target, preview }) => ({
       eventId: target.id,
       preview
@@ -30,6 +32,7 @@ export async function restoreEvent(
     gapVersion?: string;
     gapJustificationsByEvent?: Record<string, unknown[]>;
     expectedContainerStateVersion?: number | null;
+    expectedSourceContainerStateVersion?: number | null;
   }
 ) {
   const plan = await prepareRestoreEvent(eventId);
@@ -50,6 +53,16 @@ export async function restoreEvent(
     throw new HttpError(
       409,
       "O estado do container mudou desde a prévia. Atualize a restauração e tente novamente."
+    );
+  }
+  if (
+    existing.sourceContainer &&
+    reconciliation?.expectedSourceContainerStateVersion !==
+      plan.expectedSourceContainerStateVersion
+  ) {
+    throw new HttpError(
+      409,
+      "O estado do container de origem mudou desde a prévia. Atualize a restauração e tente novamente."
     );
   }
   if (
@@ -145,7 +158,12 @@ export async function restoreEvent(
     ignoreEventIds: ignoredEventIds
   });
   await adminDb.runTransaction(async (transaction) => {
-    const lockSnap = await transaction.get(lockRef);
+    const [lockSnap, eventSnap] = await Promise.all([
+      transaction.get(lockRef), transaction.get(ref)
+    ]);
+    if (!eventSnap.exists || !eventSnap.data()?.deleted || !eventSnap.updateTime?.isEqual(plan.eventUpdateTime)) {
+      throw new HttpError(409, "O lançamento mudou durante a restauração. Atualize e tente novamente.");
+    }
     const observedLockVersion = Number(lockSnap.data()?.version || 0);
     if (observedLockVersion !== plan.lockVersion) {
       throw new HttpError(
@@ -161,11 +179,14 @@ export async function restoreEvent(
       deletedByEmail: null,
       deletedReason: null
     };
-    const containerPlan = await reconcileContainerTimelineInTransaction({
+    const containerEffects = await reconcileEventContainerEffectsInTransaction({
       transaction,
-      rawContainer: existing.container,
-      override: { id: eventId, data: restoredEvent },
-      expectedVersion: plan.expectedContainerStateVersion,
+      eventId,
+      before: null,
+      after: restoredEvent,
+      expectedContainerStateVersion: plan.expectedContainerStateVersion,
+      expectedSourceContainerStateVersion:
+        plan.expectedSourceContainerStateVersion,
       reservedWrites:
         2 +
         (explicitlyReconciled
@@ -189,9 +210,7 @@ export async function restoreEvent(
       deletedReason: null,
       deletionReconciliationEventId: null,
       deletionTimelineVersion: null,
-      containerCycleId: containerPlan.cycleId,
-      previousContainerEventId: containerPlan.previousEventId,
-      containerStateVersion: containerPlan.stateVersion,
+      ...containerEffects,
       updatedByUid: actor.uid,
       updatedByEmail: actor.email,
       updatedAt: FieldValue.serverTimestamp()

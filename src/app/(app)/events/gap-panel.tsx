@@ -1,5 +1,7 @@
 "use client";
 
+import { originCode } from "@/lib/domain/container-transfer";
+
 import { Dispatch, SetStateAction } from "react";
 import { categoryRules } from "@/lib/domain/constants";
 import { formatPlateForInput } from "@/lib/domain/identifiers";
@@ -19,17 +21,9 @@ type GapPanelProps = {
   gapState: { loading: boolean; error: string | null };
 };
 
-export function GapPanel({
-  form,
-  setForm,
-  clients,
-  gapState
-}: GapPanelProps) {
+export function GapPanel({ form, setForm, clients, gapState }: GapPanelProps) {
   const preview = form.gapPreview;
-  const patchJustification = (
-    id: string,
-    patch: Partial<GapJustification>
-  ) => {
+  const patchJustification = (id: string, patch: Partial<GapJustification>) => {
     setForm((current) => ({
       ...current,
       gapJustifications: current.gapJustifications.map((item) =>
@@ -105,19 +99,23 @@ export function GapPanel({
                     .value as GapJustification["category"];
 
                   setForm((current) => {
-                    const currentJustification =
-                      current.gapJustifications.find(
-                        (justification) => justification.id === item.id
-                      );
+                    const currentJustification = current.gapJustifications.find(
+                      (justification) => justification.id === item.id
+                    );
                     const copiedPlate = currentJustification?.plate || "";
                     const shouldClearProductivePlate =
                       currentJustification?.category === "EM_TRANSITO" &&
                       category !== "EM_TRANSITO" &&
-                      current.plate === copiedPlate;
+                      current.loadSourceType === "TRUCK" &&
+                      originCode(current.originInput) ===
+                        originCode(copiedPlate);
 
                     return {
                       ...current,
                       plate: shouldClearProductivePlate ? "" : current.plate,
+                      originInput: shouldClearProductivePlate
+                        ? ""
+                        : current.originInput,
                       gapJustifications: current.gapJustifications.map(
                         (justification) =>
                           justification.id === item.id
@@ -181,10 +179,16 @@ export function GapPanel({
                         currentJustification?.plate || "";
                       const shouldFillProductivePlate =
                         currentJustification?.category === "EM_TRANSITO" &&
-                        (!current.plate || current.plate === previousGapPlate);
+                        current.loadSourceType === "TRUCK" &&
+                        (!current.originInput ||
+                          originCode(current.originInput) ===
+                            originCode(previousGapPlate));
 
                       return {
                         ...current,
+                        originInput: shouldFillProductivePlate
+                          ? plate
+                          : current.originInput,
                         plate: shouldFillProductivePlate
                           ? plate
                           : current.plate,

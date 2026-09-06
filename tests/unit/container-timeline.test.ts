@@ -6,7 +6,8 @@ import {
 } from "@/lib/domain/container-timeline";
 
 const baseEvent = (
-  overrides: Partial<ContainerTimelineEvent> & Pick<ContainerTimelineEvent, "id">
+  overrides: Partial<ContainerTimelineEvent> &
+    Pick<ContainerTimelineEvent, "id">
 ): ContainerTimelineEvent => {
   const { id, ...rest } = overrides;
   return {
@@ -48,7 +49,7 @@ describe("container timeline planner", () => {
       createCycleId: () => "cycle-new"
     });
 
-    expect(plan.events).toEqual([
+    expect(plan.events).toMatchObject([
       {
         id: "first",
         containerCycleId: "cycle-existing",
@@ -85,7 +86,7 @@ describe("container timeline planner", () => {
       createCycleId: () => "cycle-should-not-change"
     });
 
-    expect(plan.events).toEqual([
+    expect(plan.events).toMatchObject([
       {
         id: "new-retroactive",
         containerCycleId: "cycle-existing",
@@ -152,7 +153,7 @@ describe("container timeline planner", () => {
       createCycleId: () => "cycle-new"
     });
 
-    expect(plan.events[2]).toEqual({
+    expect(plan.events[2]).toMatchObject({
       id: "blend-after",
       containerCycleId: "cycle-1",
       previousContainerEventId: "restored"
@@ -185,5 +186,91 @@ describe("container timeline planner", () => {
         reservedWrites: 30
       })
     ).not.toThrow();
+  });
+
+  it("starts a new cycle automatically after a source container is emptied by transfer", () => {
+    const plan = planContainerTimeline({
+      events: [
+        baseEvent({
+          id: "buffer",
+          status: "BUFFER",
+          existingCycleId: "source-cycle"
+        }),
+        baseEvent({
+          id: "emptied-transfer",
+          status: "TRANSFER_EMPTIED",
+          operationalAtMs: 2_000,
+          existingCycleId: "source-cycle"
+        }),
+        baseEvent({
+          id: "next-use",
+          status: "PARTIAL",
+          operationalAtMs: 3_000
+        })
+      ],
+      createCycleId: () => "new-cycle"
+    });
+
+    expect(plan.events).toMatchObject([
+      {
+        id: "buffer",
+        containerCycleId: "source-cycle",
+        previousContainerEventId: null
+      },
+      {
+        id: "emptied-transfer",
+        containerCycleId: "source-cycle",
+        previousContainerEventId: "buffer"
+      },
+      {
+        id: "next-use",
+        containerCycleId: "new-cycle",
+        previousContainerEventId: null
+      }
+    ]);
+  });
+
+  it("treats each unlinked legacy closure as an independent cycle", () => {
+    let cycleSequence = 0;
+    const plan = planContainerTimeline({
+      events: [
+        baseEvent({
+          id: "legacy-full-1",
+          status: "FULL",
+          legacyClosedCycleBoundary: true
+        }),
+        baseEvent({
+          id: "legacy-full-2",
+          status: "FULL",
+          operationalAtMs: 2_000,
+          legacyClosedCycleBoundary: true
+        }),
+        baseEvent({
+          id: "modern-buffer",
+          status: "BUFFER",
+          operationalAtMs: 3_000,
+          existingCycleId: "modern-cycle"
+        })
+      ],
+      createCycleId: () => `legacy-cycle-${++cycleSequence}`
+    });
+
+    expect(plan.events).toMatchObject([
+      {
+        id: "legacy-full-1",
+        containerCycleId: "legacy-cycle-1",
+        previousContainerEventId: null
+      },
+      {
+        id: "legacy-full-2",
+        containerCycleId: "legacy-cycle-2",
+        previousContainerEventId: null
+      },
+      {
+        id: "modern-buffer",
+        containerCycleId: "modern-cycle",
+        previousContainerEventId: null
+      }
+    ]);
   });
 });
