@@ -34,3 +34,6 @@ output/
 tmp/
 .vercel
 /ECC/
+
+# Generated queue prototype and screenshots
+/outputs/

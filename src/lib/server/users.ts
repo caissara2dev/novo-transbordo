@@ -79,6 +79,7 @@ export async function setRole(params: {
 
   await ref.update({
     role: params.role,
+    clientId: null,
     updatedAt: FieldValue.serverTimestamp(),
     updatedByUid: params.actorUid
   });

@@ -7,7 +7,7 @@ import { setRole } from "@/lib/server/users";
 
 const roleBodySchema = z
   .object({
-    role: z.enum(["OPERATOR", "SUPERVISOR", "DISPLAY", "ADMIN"])
+    role: z.enum(["OPERATOR", "SUPERVISOR", "DISPLAY", "ADMIN", "ANALYST"])
   })
   .strict();
 

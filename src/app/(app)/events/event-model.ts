@@ -19,6 +19,8 @@ import {
 } from "@/lib/ui/filters";
 
 export type EventFormState = {
+  checkInId?: string;
+  expectedCheckinVersion?: number;
   pump: Pump;
   shiftDate: string;
   shiftType: ShiftType;
@@ -123,6 +125,7 @@ export function makeInitialEventFilters(): EventListFilters {
 
 export function toPayload(form: EventFormState) {
   return {
+    ...(form.category === "PRODUTIVO" && form.loadSourceType !== "BUFFER_CONTAINER" && form.checkInId ? { checkInId: form.checkInId, expectedCheckinVersion: form.expectedCheckinVersion } : {}),
     pump: form.pump,
     shiftDate: form.shiftDate,
     shiftType: form.shiftType,

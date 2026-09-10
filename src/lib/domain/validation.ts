@@ -22,6 +22,8 @@ const isoDateSchema = z
   }, "Data inválida.");
 
 const baseSchema = z.object({
+  checkInId: z.string().min(1).max(128).regex(/^[^/]+$/).nullable().optional(),
+  expectedCheckinVersion: z.number().int().positive().nullable().optional(),
   pump: z.enum(["BOMBA_1", "BOMBA_2", "BOMBA_3"]),
   shiftDate: isoDateSchema,
   shiftType: z.enum(["MANHA", "NOITE"]),
@@ -72,6 +74,7 @@ export function canEdit(role: string, createdAtMs: number, nowMs: number): boole
 
 export function validateEventInput(raw: unknown): EventValidationResult {
   const parsed = baseSchema.parse(raw);
+  if (parsed.checkInId && (parsed.category !== "PRODUTIVO" || parsed.loadSourceType === "BUFFER_CONTAINER")) throw new HttpError(400,"Vínculo de check-in incompatível com a origem da carga.");
 
   if (!isValidHHMM(parsed.startTime) || !isValidHHMM(parsed.endTime)) {
     throw new HttpError(400, "Horário deve estar no formato HH:MM.");

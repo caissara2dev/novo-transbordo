@@ -11,6 +11,7 @@ export async function GET(req: NextRequest) {
     return ok({
       profile: toPlain(profile),
       containerTransfersEnabled: containerTransfersEnabled(),
+      checkinsEnabled: process.env.CHECKIN_SYSTEM_RECORD_ENABLED === "true" && ["observe","enforce"].includes(process.env.CHECKIN_INTEGRATION_MODE ?? "off"),
       approvalContactPhone: process.env.APPROVAL_CONTACT_PHONE || null
     });
   } catch (error) {

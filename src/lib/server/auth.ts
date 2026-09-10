@@ -23,6 +23,15 @@ export function ensureDisplayApiAccess(profile: UserDoc, pathname: string): void
   }
 }
 
+export function ensureQueueApiAccess(profile: UserDoc, pathname: string): void {
+  if (profile.role !== "CUSTOMER" && profile.role !== "ANALYST") return;
+  const common = pathname === "/api/me" || pathname === "/api/auth/sync";
+  const allowed = profile.role === "CUSTOMER"
+    ? /^\/api\/customer\/checkins(?:\/[^/]+)?$/.test(pathname)
+    : /^\/api\/checkins(?:\/[^/]+)?$/.test(pathname);
+  if (!common && !allowed) throw new HttpError(403, "Perfil sem acesso a esta área.");
+}
+
 export async function requireVerifiedToken(req: NextRequest): Promise<DecodedIdToken> {
   const decoded = await protectApiRequest(req);
 
@@ -53,6 +62,7 @@ export async function requireAuth(req: NextRequest): Promise<RequestContext> {
   }
 
   ensureDisplayApiAccess(profile, req.nextUrl.pathname);
+  ensureQueueApiAccess(profile, req.nextUrl.pathname);
 
   return {
     token: decoded,

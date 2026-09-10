@@ -5,6 +5,7 @@ import {
   originCode
 } from "@/lib/domain/container-transfer";
 import { Dispatch, FormEvent, SetStateAction } from "react";
+import { CalledVisitField } from "@/components/queue/called-visit-field";
 import { ContainerStatusFields } from "@/components/container-status-fields";
 import { ContainerTransferFields } from "@/components/container-transfer-fields";
 import { categoryRules } from "@/lib/domain/constants";
@@ -285,6 +286,7 @@ export function EventFormFields({
         </section>
       ) : null}
 
+      {!isEditing && form.category === "PRODUTIVO" && form.loadSourceType !== "BUFFER_CONTAINER" && <CalledVisitField form={form} onChange={patch => setForm(current => ({...current,...patch}))} />}
       {form.category === "PRODUTIVO" ? (
         <ContainerTransferFields
           fields={form}
@@ -294,7 +296,7 @@ export function EventFormFields({
             setForm((current) =>
               expectedOrigin && current.originInput !== expectedOrigin
                 ? current
-                : { ...current, ...patch }
+                : { ...current, ...patch, ...((patch.plate !== undefined && patch.plate !== current.plate) || patch.loadSourceType === "BUFFER_CONTAINER" ? { checkInId: undefined, expectedCheckinVersion: undefined } : {}) }
             )
           }
         />
@@ -305,7 +307,7 @@ export function EventFormFields({
         <select
           className="select-ui"
           onChange={(event) =>
-            setForm({ ...form, clientId: event.target.value })
+            setForm({ ...form, clientId: event.target.value, checkInId: undefined, expectedCheckinVersion: undefined })
           }
           required={rules.requiresClient}
           disabled={

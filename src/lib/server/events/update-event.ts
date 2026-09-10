@@ -33,6 +33,12 @@ export async function updateEvent(
   }
 
   const validated = validateEventInput(raw);
+  if (existing.checkInId) {
+    const next = validated.event;
+    if ((next.checkInId !== undefined && next.checkInId !== existing.checkInId) || next.plate !== existing.plate || next.clientId !== existing.clientId || next.category !== "PRODUTIVO" || next.loadSourceType === "BUFFER_CONTAINER") throw new HttpError(409,"Desfaça o lançamento para alterar o vínculo, a placa ou o cliente da visita.");
+    validated.event.checkInId = existing.checkInId;
+  } else if (validated.event.checkInId) throw new HttpError(409,"Vincule uma visita ao criar um novo lançamento.");
+  delete validated.event.expectedCheckinVersion;
   const existingOrigin = existing.origin || "MANUAL";
   if (existingOrigin === "AUTO_GAP") {
     const changedDerivedField =

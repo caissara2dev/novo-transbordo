@@ -98,7 +98,9 @@ export default function UsersPage() {
                     <option value="OPERATOR">OPERATOR</option>
                     <option value="SUPERVISOR">SUPERVISOR</option>
                     <option value="DISPLAY">DISPLAY</option>
-                    <option value="ADMIN">ADMIN</option>
+                    <option value="ANALYST">Analista</option>
+                  {user.role === "CUSTOMER" && <option value="CUSTOMER" disabled>Cliente</option>}
+                  <option value="ADMIN">ADMIN</option>
                   </select>
                 </div>
               </div>
