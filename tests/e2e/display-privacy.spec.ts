@@ -151,7 +151,7 @@ test("toggles client names locally and resets visibility after reload", async ({
 test("keeps the Full HD layout stable when data is empty and then stale", async ({
   page
 }) => {
-  test.setTimeout(50_000);
+  await page.clock.install();
   let failRefresh = false;
 
   await page.setViewportSize({ width: 1920, height: 1080 });
@@ -203,8 +203,9 @@ test("keeps the Full HD layout stable when data is empty and then stale", async 
   expect(dimensions.documentWidth).toBeLessThanOrEqual(dimensions.viewportWidth);
 
   failRefresh = true;
+  await page.clock.runFor(120_001);
   await expect(
     page.getByText("Dados desatualizados — mantendo a última leitura válida")
-  ).toBeVisible({ timeout: 35_000 });
+  ).toBeVisible();
   await expect(page.getByText("Sem movimentação registrada")).toBeVisible();
 });

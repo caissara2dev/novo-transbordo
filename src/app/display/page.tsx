@@ -1,14 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { DisplayGate } from "@/components/display-gate";
 import { apiFetch } from "@/lib/auth/api-fetch";
-import { isAbortError } from "@/lib/ui/latest-request";
+import { startDisplayPolling } from "@/lib/ui/display-polling";
 import { DisplayOverviewResponse } from "@/types/api";
 
 const DISPLAY_ZONE = "America/Sao_Paulo";
 const CLIENTS_PER_PAGE = 8;
-const REFRESH_INTERVAL_MS = 30_000;
 const ROTATION_INTERVAL_MS = 10_000;
 
 const timeFormatter = new Intl.DateTimeFormat("pt-BR", {
@@ -76,12 +75,12 @@ function DisplayContent() {
   const [clientNamesVisible, setClientNamesVisible] = useState(true);
   const hasOverview = useRef(false);
 
-  const refresh = useCallback(async (signal?: AbortSignal) => {
-    try {
-      const next = await apiFetch<DisplayOverviewResponse>("/api/display/overview", {
-        cache: "no-store",
-        signal
-      });
+  useEffect(() => startDisplayPolling<DisplayOverviewResponse>({
+    load: (signal) => apiFetch<DisplayOverviewResponse>("/api/display/overview", {
+      cache: "no-store",
+      signal
+    }),
+    onData: (next) => {
       const nextPageCount = Math.max(
         1,
         Math.ceil(next.clients.length / CLIENTS_PER_PAGE)
@@ -92,32 +91,12 @@ function DisplayContent() {
       setPage((current) => Math.min(current, nextPageCount - 1));
       setStale(false);
       setInitialError(false);
-    } catch (reason) {
-      if (isAbortError(reason)) {
-        return;
-      }
-
+    },
+    onError: () => {
       setStale(true);
       setInitialError(!hasOverview.current);
     }
-  }, []);
-
-  useEffect(() => {
-    let activeController: AbortController | null = null;
-    const runRefresh = () => {
-      activeController?.abort();
-      activeController = new AbortController();
-      void refresh(activeController.signal);
-    };
-    const initialRefresh = window.setTimeout(runRefresh, 0);
-    const interval = window.setInterval(runRefresh, REFRESH_INTERVAL_MS);
-
-    return () => {
-      window.clearTimeout(initialRefresh);
-      window.clearInterval(interval);
-      activeController?.abort();
-    };
-  }, [refresh]);
+  }), []);
 
   useEffect(() => {
     const interval = window.setInterval(() => setClock(new Date()), 1_000);
