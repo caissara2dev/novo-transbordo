@@ -1,6 +1,6 @@
 {
   "name": "controle-transbordo",
-  "version": "2.5.0",
+  "version": "2.5.1",
   "private": true,
   "engines": {
     "node": ">=22.12 <23",
@@ -32,7 +32,7 @@
     "firebase": "^12.17.0",
     "firebase-admin": "14.2.0",
     "luxon": "^3.5.0",
-    "next": "^16.2.12",
+    "next": "^16.3.5",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "recharts": "^3.7.0",
@@ -61,7 +61,7 @@
     },
     "next": {
       "postcss": "$postcss",
-      "sharp": "0.35.3"
+      "sharp": "0.35.4"
     },
     "gaxios": {
       "uuid": "11.1.1"
