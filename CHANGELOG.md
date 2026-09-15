@@ -5,6 +5,13 @@ Todas as alterações relevantes deste projeto serão registradas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o projeto usa
 [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## Não publicado — homologação do processador de notas
+
+- Configuração explícita de CPU por requisição para eliminar alocação contínua entre tarefas.
+- Atualização restrita e idempotente do serviço existente, com simulação, controle de concorrência e evidência para rollback.
+- Código e testes do processador versionados separadamente da aplicação de check-in.
+- Pré-release planejada `checkin-nf-staging.2026-09-15.1`; sem alteração da versão estável ou promoção para produção.
+
 ## 2.5.1 - 2026-09-15
 
 ### Corrigido
