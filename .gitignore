@@ -34,3 +34,7 @@ output/
 tmp/
 .vercel
 /ECC/
+
+# Python worker caches
+__pycache__/
+*.py[cod]
