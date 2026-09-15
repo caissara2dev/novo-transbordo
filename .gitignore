@@ -37,3 +37,6 @@ tmp/
 
 # Generated queue prototype and screenshots
 /outputs/
+# Python worker caches
+__pycache__/
+*.py[cod]
