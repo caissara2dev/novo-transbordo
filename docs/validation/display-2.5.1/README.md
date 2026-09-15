@@ -96,3 +96,25 @@ O Next.js regenerou sua orientação de agentes e a referência de tipos de par�
 raiz; esses arquivos acompanham a atualização de framework. O teste antigo de
 estado desatualizado passou a avançar o relógio em 120 segundos, preservando suas
 asserções de layout e conteúdo.
+
+
+### Revisões locais
+
+**Standards:** organização dos commits ajustada: patches de segurança separados
+em `dcaccf7`, comportamento/testes/documentação em `efbde5e`. Nenhum apontamento
+pendente; árvore idêntica à inicialmente testada (`75eaa8d`).
+
+**Spec:** nenhum comportamento ausente ou incorreto identificado na revisão
+estática do Plano A. Resultado: zero apontamentos pendentes em ambos os eixos.
+
+### CI e ambiente
+
+CI `validate` e CodeQL aprovados no commit `efbde5e`:
+[CI](https://github.com/caissara2dev/novo-transbordo/actions/runs/34895430216),
+[CodeQL](https://github.com/caissara2dev/novo-transbordo/actions/runs/34895423823).
+O commit final continuará sujeito aos mesmos checks antes do merge.
+
+Conferência de leitura: índices existentes prontos nos dois ambientes; regras de
+produção iguais às versionadas. Staging possui regras adicionais de outros
+trabalhos, preservadas nesta release. A mudança não depende de novas regras ou
+índices e não reaplica configurações do ambiente compartilhado.
