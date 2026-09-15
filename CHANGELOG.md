@@ -5,6 +5,21 @@ Todas as alterações relevantes deste projeto serão registradas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o projeto usa
 [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## 2.5.1 - 2026-09-15
+
+### Corrigido
+
+- Display consulta ao abrir e a cada 120 segundos após a resposta anterior,
+  pausa em abas ocultas e antecipa a consulta ao retornar sem rajadas.
+- Uma atualização por vez, timeout de 30 segundos, recuperação automática e
+  descarte de respostas antigas preservando a última leitura válida.
+- Relógio, rotação dos clientes, privacidade e indicadores permanecem iguais.
+
+### Segurança
+
+- Next.js atualizado para 16.3.5 e Sharp para 0.35.4 para atender aos gates de
+  auditoria da release. Demais dependências diretas preservadas.
+
 ## [2.5.0] - 2026-09-06
 
 - Origem automática por placa ou container no formulário, com seleção explícita,
