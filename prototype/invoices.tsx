@@ -1,10 +1,10 @@
 /* eslint-disable @next/next/no-img-element -- Offline Vite prototype: generated data URLs, without a Next.js image server. */
 import { useEffect, useRef, useState } from "react";
-import type { QueueVisit } from "../src/lib/domain/queue";
+import type { QueueRevision, QueueVisit } from "../src/lib/domain/queue";
 import "./invoices.css";
 
 type DocumentVersion = { id: string; name: string; kind: "image" | "pdf"; original: string; preview: string; at: string; actor: string; replacedAt?: string; removedAt?: string };
-type Entry = { current?: DocumentVersion; history: DocumentVersion[]; log: string[] };
+type Entry = { current?: DocumentVersion; history: DocumentVersion[]; log: QueueRevision[] };
 type Store = Record<string, Entry>;
 const date = (value: string) => new Date(value).toLocaleString("pt-BR");
 function pdfData(plate: string) {
@@ -28,7 +28,7 @@ function fixture(plate: string, kind: "image" | "pdf", actor: string): DocumentV
   return { id: crypto.randomUUID(), name: `nota-demo-${plate}.${kind === "pdf" ? "pdf" : "png"}`, kind, original: kind === "pdf" ? pdfData(plate) : originalImage, preview: small.toDataURL("image/jpeg",0.82), at: new Date().toISOString(), actor };
 }
 function initialStore(): Store {
-  return Object.fromEntries(["ABC1D23","DEF4G56","GHI7J89","JKL1M23","MNO4P56","PQR7S89"].map((plate,i)=>[`demo-${i+1}`,{ current: i === 3 ? undefined : fixture(plate,"image","Motorista de demonstração"), history: [], log: i === 3 ? ["Check-in confirmado pela exceção após duas tentativas malsucedidas. Documento pendente."] : [] }]));
+  return Object.fromEntries(["ABC1D23","DEF4G56","GHI7J89","JKL1M23","MNO4P56","PQR7S89"].map((plate,i)=>[`demo-${i+1}`,{ current: i === 3 ? undefined : fixture(plate,"image","Motorista de demonstração"), history: [], log: i === 3 ? [{id:"demo-4-document-pending",action:"Check-in com documento pendente",actor:"Sistema",at:"2026-09-10T10:10:00-03:00",fields:["Exceção após duas tentativas malsucedidas."]}] : [] }]));
 }
 export function useDemoInvoices(role: string) {
   const [store, setStore] = useState<Store>(initialStore);
@@ -37,14 +37,55 @@ export function useDemoInvoices(role: string) {
   function save(id: string, plate: string, kind: "image" | "pdf", expectedId?: string) {
     if (!isInternal) throw new Error("Cliente não pode acessar notas fiscais.");
     const next = fixture(plate,kind,actor);
-    setStore(previous=>{const entry=previous[id];if(entry.current?.id!==expectedId)return previous; return {...previous,[id]:{current:next,history:entry.current?[{...entry.current,replacedAt:next.at},...entry.history]:entry.history,log:[`${date(next.at)} · ${actor}: ${entry.current?'substituiu':'anexou'} ${next.name}.`,...entry.log]}};});
+    const eventId = crypto.randomUUID();
+    setStore(previous => {
+      const entry = previous[id];
+      if (entry.current?.id !== expectedId) return previous;
+      const revision: QueueRevision = {
+        id: eventId,
+        action: entry.current ? "Nota fiscal substituída" : "Nota fiscal anexada",
+        actor,
+        at: next.at,
+        fields: entry.current ? [`${entry.current.name} → ${next.name}`] : [next.name],
+      };
+      return {...previous, [id]: {
+        current: next,
+        history: entry.current ? [{...entry.current, replacedAt: next.at}, ...entry.history] : entry.history,
+        log: [revision, ...entry.log],
+      }};
+    });
   }
   function remove(id: string, versionId: string) {
     if (!["admin","supervisor"].includes(role)) return;
-    setStore(previous=>{const entry=previous[id]; const currentMatch=entry.current?.id===versionId;const target=currentMatch?entry.current:entry.history.find(v=>v.id===versionId);if(!target)return previous;
-      return {...previous,[id]:{current:currentMatch?undefined:entry.current,history:entry.history.filter(v=>v.id!==versionId),log:[`${date(new Date().toISOString())} · ${actor}: excluiu ${target.name} (${currentMatch?'atual':'anterior'}). Registro textual preservado.`,...entry.log]}};});
+    const eventId = crypto.randomUUID();
+    const at = new Date().toISOString();
+    setStore(previous => {
+      const entry = previous[id];
+      const currentMatch = entry.current?.id === versionId;
+      const target = currentMatch ? entry.current : entry.history.find(v => v.id === versionId);
+      if (!target) return previous;
+      const revision: QueueRevision = {
+        id: eventId, action: "Nota fiscal excluída", actor, at,
+        fields: [`${target.name} (${currentMatch ? 'atual' : 'anterior'})`, "Registro textual preservado."],
+      };
+      return {...previous, [id]: {
+        current: currentMatch ? undefined : entry.current,
+        history: entry.history.filter(v => v.id !== versionId),
+        log: [revision, ...entry.log],
+      }};
+    });
   }
   return {
+    withHistory: (visit: QueueVisit): QueueVisit => {
+      const documentEvents = isInternal ? store[visit.id]?.log : undefined;
+      if (!documentEvents?.length) return visit;
+      // Both internal views read the same events; draft/version state remains unchanged.
+      const revisions = [...(visit.revisions ?? []), ...documentEvents]
+        .sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+      const latest = revisions[0];
+      return {...visit, revisions, ...(Date.parse(latest.at) > Date.parse(visit.updatedAtIso)
+        ? {updatedAtIso: latest.at, updatedBy: latest.actor} : {})};
+    },
     hasDocument: (id: string) => Boolean(store[id]?.current),
     reset: () => setStore(initialStore()),
     render: (visit: QueueVisit) => isInternal ? <InvoicePanel key={visit.id} visit={visit} entry={store[visit.id]} canDelete={["admin","supervisor"].includes(role)} onSave={(kind,expected)=>save(visit.id,visit.plate,kind,expected)} onRemove={(id)=>remove(visit.id,id)} /> : null,
@@ -58,7 +99,7 @@ function AnalysisDialog({visit, entry, close, canDelete, onRemove}: {visit:Queue
   const [original,setOriginal]=useState(false);
   const selected=[entry.current,...entry.history].find(v=>v?.id===selectedId);
   useEffect(()=>{const dialog=ref.current!;returnFocus.current=document.activeElement instanceof HTMLElement ? document.activeElement : null;dialog.showModal();return()=>{dialog.close();returnFocus.current?.focus();};},[]);
-  return <dialog ref={ref} className="nf-dialog" aria-label="Análise da nota fiscal" onCancel={close}><div className="nf-dialog-heading"><div><span className="q-eyebrow">{visit.publicCode} · {visit.plate}</span><h2>Análise da nota fiscal</h2></div><button onClick={close}>Voltar à fila</button></div><div className="nf-analysis-layout"><div className="nf-analysis-document">{selected ? <>{selected.kind==='pdf'&&original?<iframe title="PDF original de demonstração" src={selected.original} />:<img src={original?selected.original:selected.preview} alt={`Documento fictício da visita ${visit.publicCode}`} />}<p className="q-help">{selected.kind==='pdf'&&!original?'Representação do PDF fictício; use Ver original para abrir o PDF.':original?'Arquivo original de demonstração.':'Versão otimizada do documento fictício.'}</p></>:<p>Arquivo excluído. O registro textual da alteração foi preservado.</p>}</div><aside><strong>{selected?.name || 'Documento indisponível'}</strong>{selected&&<><p className="q-help">{selected.actor} · {date(selected.at)}</p><div className="nf-actions"><button onClick={()=>setOriginal(!original)}>{original?'Ver versão otimizada':'Ver original'}</button><a className="nf-button" href={selected.original} download={selected.name}>Baixar original</a></div>{canDelete&&<DeleteDocument document={selected} visit={visit} onRemove={()=>onRemove(selected.id)} />}</>}<h3>Documentos da visita</h3>{entry.current&&<button className="nf-version" onClick={()=>{setSelectedId(entry.current!.id);setOriginal(false);}}>Atual · {entry.current.name}</button>}{entry.history.map(v=><button className="nf-version" key={v.id} onClick={()=>{setSelectedId(v.id);setOriginal(false);}}>Anterior · {v.name}<small>Disponível até {new Date(new Date(v.replacedAt!).getTime()+90*86400000).toLocaleDateString('pt-BR')}</small></button>)}<p className="q-help">Atual: 12 meses após conclusão/cancelamento. Substituído: 90 dias após a troca. Expiração automática não executada nesta simulação.</p><h3>Registro das alterações</h3>{entry.log.length?entry.log.map((line,i)=><p className="q-help" key={i}>{line}</p>):<p className="q-help">Nenhuma alteração nesta demonstração.</p>}</aside></div></dialog>;
+  return <dialog ref={ref} className="nf-dialog" aria-label="Análise da nota fiscal" onCancel={close}><div className="nf-dialog-heading"><div><span className="q-eyebrow">{visit.publicCode} · {visit.plate}</span><h2>Análise da nota fiscal</h2></div><button onClick={close}>Voltar à fila</button></div><div className="nf-analysis-layout"><div className="nf-analysis-document">{selected ? <>{selected.kind==='pdf'&&original?<iframe title="PDF original de demonstração" src={selected.original} />:<img src={original?selected.original:selected.preview} alt={`Documento fictício da visita ${visit.publicCode}`} />}<p className="q-help">{selected.kind==='pdf'&&!original?'Representação do PDF fictício; use Ver original para abrir o PDF.':original?'Arquivo original de demonstração.':'Versão otimizada do documento fictício.'}</p></>:<p>Arquivo excluído. O registro textual da alteração foi preservado.</p>}</div><aside><strong>{selected?.name || 'Documento indisponível'}</strong>{selected&&<><p className="q-help">{selected.actor} · {date(selected.at)}</p><div className="nf-actions"><button onClick={()=>setOriginal(!original)}>{original?'Ver versão otimizada':'Ver original'}</button><a className="nf-button" href={selected.original} download={selected.name}>Baixar original</a></div>{canDelete&&<DeleteDocument document={selected} visit={visit} onRemove={()=>onRemove(selected.id)} />}</>}<h3>Documentos da visita</h3>{entry.current&&<button className="nf-version" onClick={()=>{setSelectedId(entry.current!.id);setOriginal(false);}}>Atual · {entry.current.name}</button>}{entry.history.map(v=><button className="nf-version" key={v.id} onClick={()=>{setSelectedId(v.id);setOriginal(false);}}>Anterior · {v.name}<small>Disponível até {new Date(new Date(v.replacedAt!).getTime()+90*86400000).toLocaleDateString('pt-BR')}</small></button>)}<p className="q-help">Atual: 12 meses após conclusão/cancelamento. Substituído: 90 dias após a troca. Expiração automática não executada nesta simulação.</p><h3>Registro das alterações</h3>{entry.log.length?entry.log.map(event=><p className="q-help" key={event.id}><strong>{event.action}</strong><br />{date(event.at)} · {event.actor}<br />{event.fields.join(", ")}</p>):<p className="q-help">Nenhuma alteração nesta demonstração.</p>}</aside></div></dialog>;
 }
 function DeleteDocument({document,visit,onRemove}:{document:DocumentVersion;visit:QueueVisit;onRemove:()=>void}) {
   const [confirm,setConfirm]=useState(false);

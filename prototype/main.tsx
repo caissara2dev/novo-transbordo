@@ -274,7 +274,7 @@ function Demo() {
               ? snapshot
                   .filter((v) => v.clientId === customer.id)
                   .map(publicCustomerVisit)
-              : snapshot
+              : snapshot.map(invoices.withHistory)
           }
           clients={customer ? [customer] : clients}
           customer={customer}
