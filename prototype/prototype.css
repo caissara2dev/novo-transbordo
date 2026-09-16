@@ -130,3 +130,19 @@ body {
     max-width: 200px;
   }
 }
+/* Prototype frame uses the application's established Line palette. */
+.demo-chrome { padding: 14px 32px; }
+.demo-brand > span { font-size: 20px; }
+.demo-brand small { color: #53675f; font-size: 11px; }
+.demo-chrome label { font-size: 12px; }
+.demo-chrome select { min-width: 220px; }
+.demo-tools { margin: 0 32px 16px; padding: 14px 16px; font-size: 12px; }
+.demo-tools > p { color: #53675f; line-height: 1.5; }
+.demo-footer { font-size: 12px; color: #53675f; padding: 12px 24px 20px; }
+@media(max-width:760px) {
+ .demo-chrome { padding: 14px 16px; }
+ .demo-brand { font-size: 13px; }
+ .demo-chrome > label { width: 100%; justify-content: space-between; }
+ .demo-chrome select { min-width: 0; max-width: 65%; }
+ .demo-tools { margin: 0 16px 16px; }
+}

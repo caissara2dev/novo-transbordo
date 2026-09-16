@@ -113,6 +113,11 @@ describe("protectApiRequest", () => {
       appId: "1:123:web:abc",
       token: {}
     });
+    // These cases model production and must not inherit the coverage emulator.
+    vi.stubEnv("FIRESTORE_EMULATOR_HOST", "");
+    vi.stubEnv("FIREBASE_AUTH_EMULATOR_HOST", "");
+    vi.stubEnv("NEXT_PUBLIC_FIREBASE_AUTH_EMULATOR_HOST", "");
+    vi.stubEnv("NEXT_PUBLIC_USE_FIREBASE_EMULATOR", "false");
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("APP_CHECK_MODE", "enforce");
     vi.stubEnv("APP_CHECK_ALLOWED_APP_IDS", "1:123:web:abc");

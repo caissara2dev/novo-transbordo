@@ -1,5 +1,6 @@
 import "server-only";
 
+import { documentConfirmedReplay } from "./documents";
 import { z } from "zod";
 import { HttpError } from "@/lib/domain/errors";
 import { fail, ok } from "@/lib/server/http";
@@ -256,7 +257,8 @@ async function executeConfirmation(
   input: z.infer<typeof checkinConfirmationSchema>,
   context: OperationContext,
   dependencies: CheckinIntegrationHandlerDependencies,
-  expectedVersion?: number
+  expectedVersion?: number,
+  documentOperation: "confirm" | "walk-in" = "confirm"
 ): Promise<ConfirmationData> {
   const version = expectedVersion ?? await (
     dependencies.resolveVersion ?? resolvePublicCheckinVersion
@@ -273,6 +275,7 @@ async function executeConfirmation(
     {
       ...input,
       expectedVersion: version,
+      ...(input.document?{documentOperation}:{}),
       nowIso: context.nowIso,
       requestId: context.requestId
     },
@@ -322,6 +325,10 @@ const walkInDefinition: OperationDefinition<
   schema: checkinWalkInSchema,
   successStatus: 201,
   async execute(input, context, dependencies) {
+    if(process.env.CHECKIN_DOCUMENTS_ENABLED==="true" && input.document) {
+      const replay=await documentConfirmedReplay(input.document,input.form);
+      if(replay) return replay;
+    }
     const preRegistration = await (
       dependencies.createPreRegistration ?? createOrRecoverPreRegistration
     )(
@@ -339,11 +346,13 @@ const walkInDefinition: OperationDefinition<
         driverLicense: input.form.driverLicense,
         driverPhone: input.form.driverPhone,
         plate: input.form.plate,
-        location: input.location
+        location: input.location,
+        ...(input.document ? {document:input.document} : {})
       },
       context,
       dependencies,
-      preRegistration.version
+      preRegistration.version,
+      "walk-in"
     );
   },
   ...confirmationReplay

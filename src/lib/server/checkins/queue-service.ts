@@ -153,6 +153,7 @@ function dto(data: RecordData, id: string, customer?: QueueClient): QueueVisit {
     location: data.location ?? null,
     driverLicense: data.driverLicense,
     driverPhone: data.driverPhone,
+    ...(data.document?{document:data.document}:{}),
   };
   return customer ? publicCustomerVisit(value) : value;
 }
@@ -281,6 +282,8 @@ export async function mutateQueue(actor: QueueActor, id: string, raw: unknown) {
       );
     if (stored.pendingOfficialMutation || stored.status === "PRE_CADASTRO")
       throw new HttpError(409, "A visita ainda não tem check-in confirmado.");
+    if(command.kind === "TRANSITION" && ["AGUARDANDO_CHAMADA","CHAMADO"].includes(command.toStatus) && stored.document && (stored.document.status!=="received" || !stored.document.current))
+      throw new HttpError(409,"A Line precisa receber a nota fiscal antes de liberar ou chamar esta visita.");
     const before = dto(stored, id);
     if (
       customer &&

@@ -1,0 +1,15 @@
+import {readFile,writeFile} from 'node:fs/promises';
+import {resolve,dirname} from 'node:path';
+import {fileURLToPath} from 'node:url';
+const here=dirname(fileURLToPath(import.meta.url));
+const build=resolve(here,'../outputs/checkin-prototype');
+if(!process.argv[2])throw Error('Specify output HTML path. Run build:prototype first.');
+let html=await readFile(resolve(build,'index.html'),'utf8');
+const script=html.match(/<script\b[^>]*src="([^\"]+)"[^>]*><\/script>/);
+const css=html.match(/<link\b[^>]*href="([^\"]+\.css)"[^>]*>/);
+if(!script||!css)throw Error('Expected one compiled JS and CSS asset.');
+const js=(await readFile(resolve(build,script[1]),'utf8')).replaceAll('</script','<\\/script');
+const style=await readFile(resolve(build,css[1]),'utf8');
+html=html.replace(script[0],()=>`<script type="module">${js}</script>`).replace(css[0],()=>`<style>${style}</style>`);
+await writeFile(resolve(process.argv[2]),html);
+console.log('Standalone prototype exported.');

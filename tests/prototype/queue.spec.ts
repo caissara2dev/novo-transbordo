@@ -46,7 +46,6 @@ test("analyst classifies, client collaborates, sample does not release", async (
   });
   await page.getByLabel("Visualizar como").selectOption("line");
   await detail(page).getByRole("checkbox").check();
-  await detail(page).getByRole("button", { name: "Salvar alterações" }).click();
   await detail(page)
     .getByRole("button", { name: "Liberar para chamada" })
     .click();

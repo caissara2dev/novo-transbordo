@@ -2,6 +2,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiFetch } from "@/lib/auth/api-fetch";
 import { useAuthSession } from "@/lib/auth/use-auth-session";
+import { InvoiceSummary } from "./invoice-summary";
+import { documentBlocksCall } from "@/lib/domain/checkin-document";
 import { QueueWorkspace } from "./workspace";
 import { queueCsv } from "@/lib/domain/queue";
 import type { QueueClient, QueueVisit, QueueCommand } from "@/lib/domain/queue";
@@ -66,7 +68,7 @@ export function LiveQueue({ customer = false }: { customer?: boolean }) {
         setVisits((list) =>
           list.map((v) =>
             v.id === item.id && item.version === v.version
-              ? { ...v, revisions: item.revisions, location: item.location }
+              ? { ...v, revisions: item.revisions, location: item.location, document:item.document }
               : v,
           ),
         );
@@ -111,6 +113,8 @@ export function LiveQueue({ customer = false }: { customer?: boolean }) {
   return (
     <QueueWorkspace
       visits={visits}
+      renderVisitSupplement={customer?undefined:(visit)=><InvoiceSummary key={visit.id} visit={visit} />}
+      isReleaseBlocked={(visit)=>documentBlocksCall(visit.document)}
       clients={clients}
       customer={ownClient}
       onCommand={command}

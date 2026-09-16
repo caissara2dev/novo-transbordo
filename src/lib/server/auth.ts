@@ -28,7 +28,7 @@ export function ensureQueueApiAccess(profile: UserDoc, pathname: string): void {
   const common = pathname === "/api/me" || pathname === "/api/auth/sync";
   const allowed = profile.role === "CUSTOMER"
     ? /^\/api\/customer\/checkins(?:\/[^/]+)?$/.test(pathname)
-    : /^\/api\/checkins(?:\/[^/]+)?$/.test(pathname);
+    : /^\/api\/checkins(?:\/[^/]+(?:\/document)?)?$/.test(pathname);
   if (!common && !allowed) throw new HttpError(403, "Perfil sem acesso a esta área.");
 }
 

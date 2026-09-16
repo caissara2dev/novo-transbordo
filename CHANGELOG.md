@@ -5,6 +5,13 @@ Todas as alterações relevantes deste projeto serão registradas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o projeto usa
 [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## Não publicado — consolidação do check-in V2
+
+- Fila e área do cliente, registro oficial no sistema e documentos por visita versionados para homologação.
+- Portal independente vinculado, protótipos separados, procedimento de mudanças e pendências de produção documentados.
+- Cobertura inclui transações documentais no emulador protegido; preservados os gates de segurança e cobertura.
+- Sem merge, deploy, migração ou nova release nesta entrega.
+
 ## Não publicado — homologação do processador de notas
 
 - Configuração explícita de CPU por requisição para eliminar alocação contínua entre tarefas.

@@ -15,6 +15,7 @@ export type QueueRevision = {
   fields: string[];
 };
 export type QueueVisit = {
+  document?: import("./checkin-document").VisitDocument;
   id: string;
   publicCode: string;
   plate: string;

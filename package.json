@@ -14,7 +14,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
+    "test:coverage": "firebase emulators:exec --config firebase.documents-test.json --project demo-checkin-nf --only firestore \"node scripts/run-checkin-coverage.mjs\"",
     "test:integration": "vitest run tests/integration",
     "test:rules": "firebase emulators:exec --project demo-transbordo --only firestore \"vitest run --config vitest.rules.config.ts\"",
     "test:e2e": "playwright test --pass-with-no-tests",

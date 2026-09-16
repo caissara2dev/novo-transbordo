@@ -24,6 +24,9 @@ import type {
   StoredCheckin
 } from "@/types/checkins";
 
+import { prepareVisitDocument } from "./documents";
+import type { DocumentReceipt } from "@/lib/domain/checkin-document";
+
 const CHECKINS_COLLECTION = "checkins";
 const UNIQUE_LOCKS_COLLECTION = "_checkinUniqueLocks";
 const PUBLIC_CODES_COLLECTION = "_checkinPublicCodes";
@@ -53,6 +56,8 @@ type RecoverPreRegistrationInput = {
 };
 
 type ConfirmCheckinInput = {
+  document?: DocumentReceipt;
+  documentOperation?: "confirm" | "walk-in";
   publicCode: string;
   driverLicense: string;
   driverPhone: string;
@@ -153,7 +158,7 @@ function hasValidCnhVerifiers(value: string): boolean {
   return digits[9] === firstVerifier && digits[10] === secondVerifier;
 }
 
-function normalizeIdentityInput(input: {
+export function normalizeIdentityInput(input: {
   driverLicense: string;
   driverPhone: string;
   plate: string;
@@ -551,11 +556,18 @@ export async function confirmCheckin(input: ConfirmCheckinInput, dependencies: C
     const stored = snap.data() as StoredCheckin | undefined;
     if (!snap.exists || !stored) return null;
     assertIdentityMatches(stored, context.indexes);
-    if (stored.status !== "PRE_CADASTRO" && stored.status !== "CANCELADO" && stored.confirmedAtIso) return publicCheckinState(stored);
+    if (stored.status !== "PRE_CADASTRO" && stored.status !== "CANCELADO" && stored.confirmedAtIso) {
+      if(input.document && stored.document && input.document.sessionId!==stored.document.sessionId)
+        throw new HttpError(409,"Esta visita já tem check-in confirmado. Para complementar a nota, fale com a Line.");
+      return publicCheckinState(stored);
+    }
     if (stored.pendingOfficialMutation) throw new HttpError(409, "Visita legada pendente de reconciliação.");
     if (expirePreRegistration({ transaction, stored, nowIso: context.nowIso })) return null;
     if (stored.version !== input.expectedVersion || !canTransitionCheckinStatus({ role: "SYSTEM", from: stored.status, to: "AGUARDANDO_LIBERACAO", trigger: "CHECKIN_CONFIRMED" })) throw new HttpError(409, "O pré-cadastro foi alterado. Atualize e tente novamente.");
+    const invoice = process.env.CHECKIN_DOCUMENTS_ENABLED === "true"
+      ? await prepareVisitDocument(transaction,input.document,input,stored.id,stored.publicCode,input.documentOperation??"confirm") : undefined;
     const patch = {
+      ...(invoice ? {document:invoice.document,environment:"homologation" as const} : {}),
       status: "AGUARDANDO_LIBERACAO" as const, syncState: "CONFIRMADO" as const,
       version: stored.version + 1, confirmedAtIso: context.nowIso, updatedAtIso: context.nowIso,
       recordVersion: 2, geofence: context.geofence,
@@ -563,6 +575,7 @@ export async function confirmCheckin(input: ConfirmCheckinInput, dependencies: C
         accuracyMeters: input.location.accuracyMeters, capturedAtIso: input.location.capturedAtIso },
       booking: "", sample: "", observation: "", issues: [], updatedBy: "Sistema"
     };
+    invoice?.link();
     transaction.update(ref, patch);
     transaction.create(ref.collection("revisions").doc(), {
       action: "CHECKIN_CONFIRMED", source: "SYSTEM", actor: "Sistema", requestId: input.requestId ?? null,

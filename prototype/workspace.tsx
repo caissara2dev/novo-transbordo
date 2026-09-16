@@ -5,11 +5,13 @@ import type { DriverCheckinForm } from "@/lib/domain/checkins";
 import { closedVisit, queueLabels } from "@/lib/domain/queue";
 import type {
   QueueClient,
-  QueueCommand,
+  QueueCommand as DomainCommand,
   QueueIssue,
   QueueVisit,
 } from "@/lib/domain/queue";
+import "../src/components/queue/workspace.css";
 import "./workspace.css";
+export type PrototypeCommand = DomainCommand | { kind: "ISSUES"; issues: QueueIssue[] };
 
 type Props = {
   renderVisitSupplement?: (visit: QueueVisit) => ReactNode;
@@ -21,8 +23,8 @@ type Props = {
   onCommand: (
     id: string,
     version: number,
-    command: QueueCommand,
-  ) => Promise<void>;
+    command: PrototypeCommand,
+  ) => Promise<QueueVisit>;
   onInspect?: (id: string) => Promise<void>;
   onRefresh: () => Promise<void>;
   onExport: (visits: QueueVisit[]) => Promise<void>;
@@ -58,7 +60,7 @@ function VisitEditor({
     sample: visit.sample,
     observation: visit.observation,
   });
-  const [issues, setIssues] = useState<QueueIssue[]>(visit.issues ?? []);
+  const issues = visit.issues ?? [];
   const [newIssue, setNewIssue] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -86,16 +88,20 @@ function VisitEditor({
         booking: visit.booking,
         sample: visit.sample,
         observation: visit.observation,
-      }) ||
-    JSON.stringify(issues) !== JSON.stringify(visit.issues ?? []);
+      });
   const openIssues = issues.filter((issue) => !issue.resolved).length;
-  async function run(command: QueueCommand) {
+  async function run(command: PrototypeCommand) {
     setPending(true);
     setError("");
     setMessage("");
     try {
-      await onCommand(visit.id, visit.version, command);
-      setMessage("Alterações salvas.");
+      const updated = await onCommand(visit.id, visit.version, command);
+      if (command.kind === "CLASSIFY" || command.kind === "SHARED") {
+        setShared({ booking: updated.booking, sample: updated.sample, observation: updated.observation });
+        setClientId(updated.clientId ?? "");
+      }
+      if (command.kind === "ISSUES") setNewIssue("");
+      setMessage(command.kind === "ISSUES" ? "Pendência salva. Outros campos em edição não foram alterados." : "Alterações salvas.");
     } catch (error) {
       setError(
         error instanceof Error
@@ -120,7 +126,7 @@ function VisitEditor({
     >
       <header className="q-detail-heading">
         <div>
-          <span className="q-eyebrow">{visit.publicCode}</span>
+          <span className="q-visit-code">{visit.publicCode}</span>
           <h2>{visit.plate}</h2>
           <p>{visit.driverName}</p>
         </div>
@@ -129,7 +135,7 @@ function VisitEditor({
       <div className="q-detail-body">
         {!customer && (
           <section className="q-section">
-            <h3>Classificação</h3>
+            <h3>Cliente da carga</h3>
             <label>
               Cliente
               <select
@@ -162,9 +168,121 @@ function VisitEditor({
           </section>
         )}
         <section className="q-section">
-          <h3>
-            Dados da viagem <span>Recebidos no check-in</span>
-          </h3>
+          <h3>Informações compartilhadas</h3>
+          <fieldset disabled={readOnly || pending} className="q-fields">
+            <label>
+              <span className="q-field-label">Booking <small aria-hidden="true">{shared.booking.length}/100</small></span>
+              <input aria-label="Booking"
+                maxLength={100}
+                value={shared.booking}
+                onChange={(e) =>
+                  setShared({ ...shared, booking: e.target.value })
+                }
+                placeholder="Informe o booking"
+              />
+            </label>
+            {(!customer || customer.usesSample) && (
+              <label>
+                <span className="q-field-label">Amostra <small aria-hidden="true">{shared.sample.length}/100</small></span>
+                <input aria-label="Amostra"
+                  maxLength={100}
+                  value={shared.sample}
+                  onChange={(e) =>
+                    setShared({ ...shared, sample: e.target.value })
+                  }
+                  placeholder={
+                    client?.usesSample === false
+                      ? "Não utilizada neste processo"
+                      : "Ex.: OK"
+                  }
+                />
+              </label>
+            )}
+            <label className="q-wide">
+              <span className="q-field-label">Observação <small aria-hidden="true">{shared.observation.length}/300</small></span>
+              <textarea
+                aria-label="Observação"
+                maxLength={300}
+                rows={2}
+                value={shared.observation}
+                onChange={(e) =>
+                  setShared({ ...shared, observation: e.target.value })
+                }
+                placeholder="Informações sobre esta carga"
+              />
+            </label>
+          </fieldset>
+          {(!customer || customer.usesSample) && (
+            <p className="q-help">
+              Amostra “OK” indica aprovação da amostra. A liberação é uma
+              decisão da Line.
+            </p>
+          )}
+          {readOnly && (
+            <p className="q-notice">
+              Visita encerrada. Para correções, entre em contato com a Line.
+            </p>
+          )}
+        </section>
+        {!customer && (
+          <section className="q-section">
+            <h3>
+              Pendências internas <span>{openIssues} em aberto</span>
+            </h3>
+            <p className="q-help q-issue-hint">Adicionar ou marcar como resolvida salva a pendência na hora.</p>
+            <div className="q-issues">
+              {issues.map((issue) => (
+                <label
+                  key={issue.id}
+                  className={`q-issue ${issue.resolved ? "q-resolved" : ""}`}
+                >
+                  <input
+                    type="checkbox"
+                    disabled={pending}
+                    checked={issue.resolved}
+                    onChange={(e) =>
+                      void run({ kind: "ISSUES", issues: issues.map((item) =>
+                          item.id === issue.id
+                            ? { ...item, resolved: e.target.checked }
+                            : item,
+                        ) })
+                    }
+                  />
+                  <span>{issue.description}</span>
+                  <small>{issue.resolved ? "Resolvida" : "Em aberto"}</small>
+                </label>
+              ))}
+              {!issues.length && (
+                <p className="q-help">Nenhuma pendência registrada.</p>
+              )}
+            </div>
+            <form
+              className="q-add-issue"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (newIssue.trim()) {
+                  void run({ kind: "ISSUES", issues: [...issues, {
+                    id: crypto.randomUUID(), description: newIssue.trim(), resolved: false,
+                  }] });
+                }
+              }}
+            >
+              <input
+                aria-label="Nova pendência"
+                maxLength={500}
+                value={newIssue}
+                onChange={(e) => setNewIssue(e.target.value)}
+                placeholder="Descreva a pendência"
+              />
+              <button type="submit" disabled={!newIssue.trim() || pending}>
+                Adicionar
+              </button>
+            </form>
+          </section>
+        )}
+        {!customer && renderVisitSupplement?.(visit)}
+        <details className="q-section q-trip">
+          <summary>Dados da viagem <span>Transportadora, produto, usina e notas</span></summary>
           <dl className="q-facts">
             {[
               ["Transportadora", visit.carrierName],
@@ -302,190 +420,7 @@ function VisitEditor({
               </details>
             </>
           )}
-        </section>
-        {!customer && renderVisitSupplement?.(visit)}
-        <section className="q-section">
-          <h3>Informações compartilhadas</h3>
-          <fieldset disabled={readOnly || pending} className="q-fields">
-            <label>
-              Booking
-              <input
-                maxLength={1000}
-                value={shared.booking}
-                onChange={(e) =>
-                  setShared({ ...shared, booking: e.target.value })
-                }
-                placeholder="Informe o booking"
-              />
-            </label>
-            {(!customer || customer.usesSample) && (
-              <label>
-                Amostra
-                <input
-                  maxLength={500}
-                  value={shared.sample}
-                  onChange={(e) =>
-                    setShared({ ...shared, sample: e.target.value })
-                  }
-                  placeholder={
-                    client?.usesSample === false
-                      ? "Não utilizada neste processo"
-                      : "Ex.: OK"
-                  }
-                />
-              </label>
-            )}
-            <label className="q-wide">
-              Observação
-              <textarea
-                aria-label="Observação"
-                maxLength={2000}
-                rows={3}
-                value={shared.observation}
-                onChange={(e) =>
-                  setShared({ ...shared, observation: e.target.value })
-                }
-                placeholder="Informações sobre esta carga"
-              />
-            </label>
-          </fieldset>
-          {(!customer || customer.usesSample) && (
-            <p className="q-help">
-              Amostra “OK” indica aprovação da amostra. A liberação é uma
-              decisão da Line.
-            </p>
-          )}
-          {readOnly && (
-            <p className="q-notice">
-              Visita encerrada. Para correções, entre em contato com a Line.
-            </p>
-          )}
-        </section>
-        {!customer && (
-          <section className="q-section">
-            <h3>
-              Pendências internas <span>{openIssues} em aberto</span>
-            </h3>
-            <div className="q-issues">
-              {issues.map((issue) => (
-                <label
-                  key={issue.id}
-                  className={`q-issue ${issue.resolved ? "q-resolved" : ""}`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={issue.resolved}
-                    onChange={(e) =>
-                      setIssues(
-                        issues.map((item) =>
-                          item.id === issue.id
-                            ? { ...item, resolved: e.target.checked }
-                            : item,
-                        ),
-                      )
-                    }
-                  />
-                  <span>{issue.description}</span>
-                  <small>{issue.resolved ? "Resolvida" : "Em aberto"}</small>
-                </label>
-              ))}
-              {!issues.length && (
-                <p className="q-help">Nenhuma pendência registrada.</p>
-              )}
-            </div>
-            <form
-              className="q-add-issue"
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (newIssue.trim()) {
-                  setIssues([
-                    ...issues,
-                    {
-                      id: crypto.randomUUID(),
-                      description: newIssue.trim(),
-                      resolved: false,
-                    },
-                  ]);
-                  setNewIssue("");
-                }
-              }}
-            >
-              <input
-                aria-label="Nova pendência"
-                maxLength={500}
-                value={newIssue}
-                onChange={(e) => setNewIssue(e.target.value)}
-                placeholder="Descreva a pendência"
-              />
-              <button type="submit" disabled={!newIssue.trim() || pending}>
-                Adicionar
-              </button>
-            </form>
-          </section>
-        )}
-        {error && (
-          <p className="q-error" role="alert">
-            {error}
-          </p>
-        )}
-        {message && (
-          <p className="q-notice" role="status">
-            {message}
-          </p>
-        )}
-        <div className="q-savebar">
-          {!readOnly && (
-            <button
-              className="q-primary"
-              disabled={pending || !dirty}
-              onClick={() => void save()}
-            >
-              {pending ? "Salvando…" : "Salvar alterações"}
-            </button>
-          )}
-          {!customer && visit.status === "AGUARDANDO_LIBERACAO" && (
-            <button
-              disabled={pending || dirty || !visit.clientId || openIssues > 0 || isReleaseBlocked?.(visit)}
-              onClick={() =>
-                void run({ kind: "TRANSITION", toStatus: "AGUARDANDO_CHAMADA" })
-              }
-            >
-              Liberar para chamada
-            </button>
-          )}
-          {!customer && visit.status === "AGUARDANDO_CHAMADA" && (
-            <button
-              disabled={pending || dirty || openIssues > 0}
-              onClick={() =>
-                void run({ kind: "TRANSITION", toStatus: "CHAMADO" })
-              }
-            >
-              Chamar motorista
-            </button>
-          )}
-          {!customer && visit.status === "EM_DESCARGA" && (
-            <button
-              disabled={pending || dirty}
-              onClick={() =>
-                void run({ kind: "TRANSITION", toStatus: "CONCLUIDO" })
-              }
-            >
-              Concluir visita
-            </button>
-          )}
-        </div>
-        {dirty && (
-          <p className="q-help">
-            Há alterações para salvar. Salvar não libera nem chama a visita.
-          </p>
-        )}
-        {visit.status === "CHAMADO" && (
-          <p className="q-notice">
-            {customer
-              ? "Aguardando o início da operação pela Line."
-              : "A entrada em descarga será registrada quando o operador salvar o lançamento vinculado."}
-          </p>
-        )}
+        </details>
         <p className="q-last">
           Última alteração: {visit.updatedBy || "Sistema"} ·{" "}
           {date(visit.updatedAtIso)}
@@ -511,6 +446,69 @@ function VisitEditor({
           </details>
         )}
       </div>
+      <footer className="q-editor-footer">
+        {error && (
+          <p className="q-error" role="alert">
+            {error}
+          </p>
+        )}
+        {message && (
+          <p className="q-notice" role="status">
+            {message}
+          </p>
+        )}
+
+        <div className="q-action-context" role="status">
+          <strong>{dirty ? "Alterações não salvas" : readOnly ? "Carga encerrada · somente consulta" : "Informações salvas"}</strong>
+          <span>{customer ? "A Line é responsável pela liberação e chamada." :
+            dirty ? "Salve a classificação para continuar. Salvar não libera a carga." :
+            visit.status === "AGUARDANDO_LIBERACAO" ?
+              [!visit.clientId && "Atribua o cliente", openIssues > 0 && `${openIssues} pendência(s) em aberto`, isReleaseBlocked?.(visit) && "Nota fiscal pendente"].filter(Boolean).join(" · ") || "Sem bloqueios registrados. A Line decide quando liberar." :
+            visit.status === "AGUARDANDO_CHAMADA" ? "Carga liberada. A próxima ação é chamar o motorista." :
+            visit.status === "CHAMADO" ? "A descarga começa após salvar o lançamento para esta placa." : visit.status === "EM_DESCARGA" ? "Operação em andamento. Conclua ao finalizar a descarga." : "Visita encerrada."}</span>
+        </div>
+        <div className="q-savebar">
+          {!readOnly && (
+            <button
+              className="q-primary"
+              disabled={pending || !dirty}
+              onClick={() => void save()}
+            >
+              {pending ? "Salvando…" : "Salvar alterações"}
+            </button>
+          )}
+          {!customer && visit.status === "AGUARDANDO_LIBERACAO" && (
+            <button
+              disabled={pending || dirty || !visit.clientId || openIssues > 0 || isReleaseBlocked?.(visit)}
+              onClick={() =>
+                void run({ kind: "TRANSITION", toStatus: "AGUARDANDO_CHAMADA" })
+              }
+            >
+              Liberar para chamada
+            </button>
+          )}
+          {!customer && visit.status === "AGUARDANDO_CHAMADA" && (
+            <button
+              disabled={pending || dirty || openIssues > 0 || isReleaseBlocked?.(visit)}
+              onClick={() =>
+                void run({ kind: "TRANSITION", toStatus: "CHAMADO" })
+              }
+            >
+              Chamar motorista
+            </button>
+          )}
+          {!customer && visit.status === "EM_DESCARGA" && (
+            <button
+              disabled={pending || dirty}
+              onClick={() =>
+                void run({ kind: "TRANSITION", toStatus: "CONCLUIDO" })
+              }
+            >
+              Concluir visita
+            </button>
+          )}
+        </div>
+      </footer>
     </section>
   );
 }
@@ -599,9 +597,6 @@ export function QueueWorkspace({
     <main className={`queue-workspace ${customer ? "q-customer" : ""}`}>
       <header className="q-page-heading">
         <div>
-          <p className="q-eyebrow">
-            LINE TRANSPORTES / {customer ? customer.name : "OPERAÇÃO"}
-          </p>
           <h1>{customer ? "Minhas cargas" : "Fila de check-ins"}</h1>
           <p>
             {customer
@@ -633,13 +628,14 @@ export function QueueWorkspace({
         {tabs.map(([id, label]) => (
           <button
             key={id}
+            aria-label={label}
             aria-pressed={tab === id}
             onClick={() => {
               setTab(id);
               setSelectedId(null);
             }}
           >
-            {label}
+            {label}<span className="q-tab-count" aria-hidden="true">{visits.filter(v => id === "ACTIVE" ? !closedVisit(v.status) && v.status !== "PRE_CADASTRO" : id === "HISTORY" ? closedVisit(v.status) : id === "UNASSIGNED" ? !v.clientId && !closedVisit(v.status) : v.status === id).length}</span>
           </button>
         ))}
       </nav>
@@ -684,7 +680,8 @@ export function QueueWorkspace({
               ))}
           </select>
         </label>
-        <span className="q-count">
+        {(query || clientFilter || status) && <button className="q-clear" onClick={() => {setQuery(""); setClientFilter(""); setStatus("");}}>Limpar filtros</button>}
+        <span className="q-count" aria-live="polite">
           {filtered.length} {filtered.length === 1 ? "visita" : "visitas"}
         </span>
       </section>
@@ -693,6 +690,7 @@ export function QueueWorkspace({
           {error}
         </p>
       )}
+      <div className="q-workbench">
       {customer && (
         <div className="q-table-wrap">
           <table>
@@ -741,13 +739,13 @@ export function QueueWorkspace({
           </table>
         </div>
       )}
-      <div className="q-workbench">
         {!customer && (
           <section className="q-list" aria-label="Visitas">
             {filtered.map((v) => (
               <button
                 key={v.id}
                 className={`q-visit ${selected?.id === v.id ? "q-selected" : ""}`}
+                aria-pressed={selected?.id === v.id}
                 onClick={() => setSelectedId(v.id)}
               >
                 <span className="q-visit-meta">
@@ -777,7 +775,7 @@ export function QueueWorkspace({
         )}
         {selected ? (
           <VisitEditor
-            key={`${customer?.id ?? "line"}:${selected.id}:${selected.version}`}
+            key={`${customer?.id ?? "line"}:${selected.id}`}
             visit={selected}
             clients={clients}
             customer={customer}
@@ -789,6 +787,7 @@ export function QueueWorkspace({
           <section className="q-empty">
             <h2>Nenhuma visita nesta seleção</h2>
             <p>Altere os filtros para consultar outras cargas.</p>
+            <button onClick={() => {setQuery("");setClientFilter("");setStatus("");setTab("ACTIVE");}}>Ver cargas em andamento</button>
           </section>
         )}
       </div>

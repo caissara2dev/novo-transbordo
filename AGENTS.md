@@ -1,3 +1,7 @@
+## Ciclo obrigatório de mudanças
+
+Leia `docs/agents/change-lifecycle.md` antes de alterar este projeto. Toda alteração deve ligar demanda, issue, branch, PR, validação e encerramento. A autorização de staging não autoriza merge ou produção.
+
 ## Agent skills
 
 ### Issue tracker

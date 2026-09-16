@@ -1,6 +1,6 @@
 import React, { useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { QueueWorkspace } from "../src/components/queue/workspace";
+import { QueueWorkspace, type PrototypeCommand } from "./workspace";
 import {
   applyQueueCommand,
   publicCustomerVisit,
@@ -9,9 +9,10 @@ import {
 import type {
   QueueClient,
   QueueVisit,
-  QueueCommand,
 } from "../src/lib/domain/queue";
 import "./prototype.css";
+import { useDemoInvoices } from "./invoices";
+import "./brand.css";
 const clients: QueueClient[] = [
   { id: "allog", name: "ALLOG", portalEnabled: true, usesSample: true },
   {
@@ -135,17 +136,20 @@ function Demo() {
   const [failExport, setFailExport] = useState(false);
   const [eventId, setEventId] = useState("demo-3");
   const [note, setNote] = useState("");
+  const invoices = useDemoInvoices(role);
   const customer = clients.find((c) => c.id === role);
   function refresh() {
     setSnapshot(structuredClone(database.current));
   }
-  async function command(id: string, version: number, action: QueueCommand) {
+  async function command(id: string, version: number, action: PrototypeCommand) {
     const before = database.current.find((v) => v.id === id)!;
     if (before.version !== version)
       throw new Error(
         "Outra pessoa alterou esta visita. Seu preenchimento foi mantido. Use Atualizar para carregar a versão atual e reaplicar sua alteração.",
       );
-    const updated = applyQueueCommand(before, action, clients, customer);
+    if (action.kind === "TRANSITION" && ["AGUARDANDO_CHAMADA", "CHAMADO"].includes(action.toStatus) && !invoices.hasDocument(id)) throw new Error("Documento pendente: anexe a nota antes de liberar ou chamar.");
+    if (action.kind === "ISSUES" && customer) throw new Error("Pendências são exclusivas da Line.");
+    const updated = action.kind === "ISSUES" ? {...before, issues: action.issues} : applyQueueCommand(before, action, clients, customer);
     const now = new Date().toISOString();
     database.current = database.current.map((v) =>
       v.id !== id
@@ -161,19 +165,20 @@ function Demo() {
                 action:
                   action.kind === "TRANSITION"
                     ? "Status alterado"
-                    : "Informações atualizadas",
+                    : action.kind === "ISSUES" ? "Pendências atualizadas" : "Informações atualizadas",
                 actor: customer ? customer.name : "Analista Line",
                 at: now,
                 fields:
                   action.kind === "SHARED"
                     ? ["Booking", "Amostra", "Observação"]
-                    : [action.kind],
+                    : [action.kind === "ISSUES" ? "Pendências internas" : action.kind],
               },
               ...(v.revisions ?? []),
             ],
           },
     );
     refresh();
+    return database.current.find(v => v.id === id)!;
   }
   async function exportData(visits: QueueVisit[]) {
     if (failExport)
@@ -195,6 +200,7 @@ function Demo() {
       setNote("Selecione uma visita chamada.");
       return;
     }
+    if (!invoices.hasDocument(visit.id)) { setNote("Documento pendente nesta visita."); return; }
     if (visit.issues?.some((i) => !i.resolved)) {
       setNote("Há pendências em aberto nesta visita.");
       return;
@@ -240,6 +246,8 @@ function Demo() {
             }}
           >
             <option value="line">Analista Line</option>
+            <option value="supervisor">Supervisor Line</option>
+            <option value="admin">Admin Line</option>
             {clients.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
@@ -249,6 +257,7 @@ function Demo() {
           </select>
         </label>
       </header>
+
       {customer && !customer.portalEnabled ? (
         <main className="demo-no-access">
           <h1>Acesso não habilitado</h1>
@@ -269,6 +278,9 @@ function Demo() {
           }
           clients={customer ? [customer] : clients}
           customer={customer}
+          renderVisitSupplement={customer ? undefined : invoices.render}
+          renderVisitMarker={customer ? undefined : invoices.marker}
+          isReleaseBlocked={customer ? undefined : (visit) => !invoices.hasDocument(visit.id)}
           onCommand={command}
           onRefresh={async () => refresh()}
           onExport={exportData}
@@ -276,6 +288,7 @@ function Demo() {
       )}
       <details className="demo-tools">
         <summary>Experimentar situações do fluxo</summary>
+        <p className="q-help">DEMO-04 começa sem nota. Envio e substituição usam arquivos fictícios; recarregar reinicia a simulação.</p>
         <div>
           <button
             onClick={() => {
@@ -294,6 +307,7 @@ function Demo() {
           <button
             onClick={() => {
               database.current = fixtures();
+              invoices.reset();
               refresh();
               setNote("Demonstração reiniciada.");
             }}
@@ -312,7 +326,7 @@ function Demo() {
         <fieldset>
           <legend>Seleção pelo operador</legend>
           <label>
-            Visita chamada
+            Placa ou container de origem
             <select
               value={eventId}
               onChange={(e) => setEventId(e.target.value)}
@@ -321,7 +335,7 @@ function Demo() {
                 .filter((v) => v.status === "CHAMADO")
                 .map((v) => (
                   <option key={v.id} value={v.id}>
-                    {v.publicCode} · {v.plate}
+                    {v.plate} · {v.publicCode}
                   </option>
                 ))}
             </select>

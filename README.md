@@ -235,3 +235,7 @@ colaboração restrita por cliente. Consulte [homologação e execução local](
 e [decisão de domínio](docs/adr/0002-fila-com-registro-oficial-no-sistema.md).
 `npm run prototype` abre a simulação fictícia na porta 4173. A nova integração
 permanece desligada por padrão e não depende de Excel para confirmar visitas.
+
+## Consolidação do check-in V2
+
+Consulte [escopo, repositórios e pendências](docs/CHECKIN_V2_ENTREGA.md) e o [procedimento de mudanças](docs/agents/change-lifecycle.md). Código em branch/PR de homologação não representa liberação para produção.

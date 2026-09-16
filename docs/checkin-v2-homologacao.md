@@ -1,3 +1,5 @@
+> Registro histórico da implementação/homologação. As frases de estado se referem à data do documento. Para a consolidação atual e as pendências de produção, consulte [CHECKIN_V2_ENTREGA.md](CHECKIN_V2_ENTREGA.md).
+
 # Check-in v2 — implementação e homologação
 
 Data: 10/09/2026. Trabalho local em `codex/checkin-system-v2`, baseado na main

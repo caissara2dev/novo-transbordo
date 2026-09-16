@@ -36,20 +36,24 @@ export const checkinPreRegistrationSchema = z
   })
   .strict();
 
+export const documentReceiptSchema = z.object({sessionId:z.string().regex(/^[a-f0-9]{64}$/),skip:z.boolean()}).strict();
+
 export const checkinConfirmationSchema = z
   .object({
     publicCode: boundedText(16),
     driverLicense: boundedText(32),
     driverPhone: boundedText(32),
     plate: boundedText(16),
-    location: checkinLocationSchema
+    location: checkinLocationSchema,
+    document: documentReceiptSchema.optional()
   })
   .strict();
 
 export const checkinWalkInSchema = z
   .object({
     form: checkinFormSchema,
-    location: checkinLocationSchema
+    location: checkinLocationSchema,
+    document: documentReceiptSchema.optional()
   })
   .strict();
 
