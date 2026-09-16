@@ -10,6 +10,7 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o 
 - Fila e área do cliente, registro oficial no sistema e documentos por visita versionados para homologação.
 - Portal independente vinculado, protótipos separados, procedimento de mudanças e pendências de produção documentados.
 - Cobertura inclui transações documentais no emulador protegido; preservados os gates de segurança e cobertura.
+- Seleção de visitas usa verde-petróleo com fundo suave e indicador lateral; estados de mouse e teclado mantêm a mesma identidade visual.
 - Sem merge, deploy, migração ou nova release nesta entrega.
 
 ## Não publicado — homologação do processador de notas

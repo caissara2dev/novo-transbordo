@@ -6,6 +6,7 @@
   --q-paper: #fff;
   --q-back: #f3f6f4;
   --q-wine: #8d2446;
+  --q-selected: #eaf0f0;
   font:
     14px/1.5 -apple-system,
     BlinkMacSystemFont,
@@ -171,7 +172,10 @@
 .queue-workspace .q-visit.q-selected {
   border-color: var(--q-teal);
   box-shadow: inset 4px 0 var(--q-teal);
-  background: #fafffc;
+  background: var(--q-selected);
+}
+.queue-workspace .q-visit:focus-visible {
+  outline-color: var(--q-teal);
 }
 .q-visit-meta {
   display: flex;
@@ -469,7 +473,7 @@
   margin-top: 3px;
 }
 .q-selected-row {
-  background: #f1f7f3;
+  background: var(--q-selected);
 }
 .q-customer .q-workbench {
   display: block;

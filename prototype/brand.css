@@ -31,7 +31,7 @@ body { background: var(--bg); color: var(--text); }
   --q-back: var(--bg);
   --q-wine: var(--accent);
   --q-control-line: var(--line);
-  --q-selected: var(--accent-soft);
+  --q-selected: var(--primary-soft);
   --q-soft: var(--surface);
 }
 .demo-chrome { background: var(--surface); border-bottom-color: var(--accent); }
@@ -57,8 +57,10 @@ body { background: var(--bg); color: var(--text); }
 .q-tabs button[aria-pressed=true] .q-tab-count { color: var(--surface); background: var(--accent); }
 .queue-workspace .q-visit { background: var(--surface); color: var(--text); border-color: var(--line); }
 .queue-workspace .q-visit:hover:not(:disabled) { background: var(--primary-soft); }
-.queue-workspace .q-visit.q-selected { background: var(--accent-soft); border-color: var(--accent); }
-.queue-workspace .q-visit.q-selected > strong::after, .q-unassigned { color: var(--accent-strong); }
+.queue-workspace .q-visit.q-selected { background: var(--q-selected); border-color: var(--primary); box-shadow: inset 4px 0 var(--primary); }
+.queue-workspace .q-visit.q-selected > strong::after { color: var(--primary); }
+.queue-workspace .q-visit:focus-visible { outline-color: var(--primary); }
+.q-unassigned { color: var(--accent-strong); }
 .queue-workspace .q-link { color: var(--accent-strong); background: transparent; border-color: transparent; }
 .q-badge { background: var(--bg); color: var(--muted); }
 .q-state-AGUARDANDO_LIBERACAO, .q-state-EM_DESCARGA { background: var(--accent-soft); color: var(--accent-strong); }
@@ -73,12 +75,12 @@ body { background: var(--bg); color: var(--text); }
 .q-error { background: var(--accent-soft); color: var(--danger); }
 .q-editor-footer { background: var(--bg); }
 .q-table-wrap th { background: var(--bg); color: var(--muted); }
-.q-table-wrap tr.q-selected-row { background: var(--accent-soft); }
+.q-table-wrap tr.q-selected-row { background: var(--q-selected); }
 .nf-dialog { background: var(--bg); }
 .nf-dialog::backdrop { background: #1f2933b3; }
 .nf-dialog-heading { background: var(--surface); border-bottom-color: var(--accent); }
 .nf-upload { border-color: var(--line); }
 @media(max-width:760px) {
  .q-table-wrap th:first-child { background: var(--bg); }
- .q-table-wrap tr.q-selected-row td:first-child { background: var(--accent-soft); }
+ .q-table-wrap tr.q-selected-row td:first-child { background: var(--q-selected); }
 }
