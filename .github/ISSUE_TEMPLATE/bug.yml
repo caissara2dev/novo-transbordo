@@ -8,6 +8,8 @@ body:
   - type: markdown
     attributes:
       value: |
+        É permitido agrupar bugs nesta issue: identifique cada correção e mantenha sua causa, solução, validação e estado.
+        Causa, solução e validação podem ser completadas durante a investigação.
         Não inclua senhas, tokens, dados pessoais ou credenciais Firebase.
   - type: textarea
     id: context
@@ -21,7 +23,7 @@ body:
     id: steps
     attributes:
       label: Passos para reproduzir
-      description: Liste a sequência mínima que reproduz o problema.
+      description: Liste a sequência mínima para cada problema identificado.
       placeholder: |
         1. Acesse…
         2. Selecione…
@@ -46,7 +48,7 @@ body:
       label: Ambiente
       options:
         - Local
-        - Preview Vercel / staging
+        - Homologação / staging
         - Produção
     validations:
       required: true
@@ -64,7 +66,7 @@ body:
     id: acceptance
     attributes:
       label: Critérios de aceite
-      description: Como confirmaremos que o bug foi corrigido?
+      description: Como confirmaremos que cada correção foi validada?
     validations:
       required: true
   - type: checkboxes
@@ -72,7 +74,22 @@ body:
     attributes:
       label: Confirmações
       options:
-        - label: Pesquisei issues abertas e não encontrei uma duplicata.
+        - label: Pesquisei issues abertas e encerradas; todas as correções estão identificadas e duplicatas ou recorrências foram vinculadas.
           required: true
         - label: Removi credenciais e dados pessoais das evidências.
           required: true
+  - type: textarea
+    id: cause
+    attributes:
+      label: Causa confirmada
+      description: Preencher após investigar. Enquanto isso, indicar que a causa está em análise.
+  - type: textarea
+    id: resolution
+    attributes:
+      label: Solução e rastreabilidade
+      description: "Para cada correção: como e por que foi corrigido; branch, commits, PR e outros registros relacionados."
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validação e estado da entrega
+      description: "Por correção: testes e resultados, antes/depois, ambiente validado, versão corrigida, rollback, estado e pendências. Distinguir local, homologação e produção."

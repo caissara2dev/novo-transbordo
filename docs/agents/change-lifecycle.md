@@ -6,7 +6,7 @@ Acordado com o responsável pelo projeto em 15/09/2026. Aplica-se a funcionalida
 
 Antes de alterar o sistema, identificar o repositório, estado da branch, alterações locais, ambiente alvo e autorização existente. Consultar issues, PRs e releases atuais; não inferir o estado pelo histórico de uma conversa.
 
-Investigações somente de leitura podem preceder uma issue. Ao virar trabalho de alteração, abrir uma issue ou vincular a demanda a uma existente. Ajustes pequenos do mesmo escopo pertencem à mesma issue; não criar uma issue por arquivo ou commit.
+Investigações somente de leitura podem preceder uma issue. Antes de implementar qualquer correção, garantir que ela esteja explicitamente registrada em uma issue do GitHub, mesmo que seja pequena, visual ou encontrada em um protótipo. É permitido agrupar várias correções em uma mesma issue ou reutilizar uma issue existente, desde que cada problema e sua resolução estejam identificados e acompanhados. Pesquisar registros existentes para evitar duplicatas.
 
 A issue deve conter:
 
@@ -18,6 +18,16 @@ A issue deve conter:
 - Links da branch, PR e evidências à medida que existirem.
 
 Usar os labels do repositório. Associar ao milestone quando houver uma entrega programada. Uma pré-release de homologação deve estar identificada como tal e não deve ser confundida com a versão estável.
+
+### Rastreabilidade de todas as correções — regra de 16/09/2026
+
+1. Pesquisar issues abertas e encerradas no repositório responsável. Abrir uma issue ou acrescentar a correção a uma existente antes de alterar o código. Uma issue pode agrupar bugs relacionados ou as correções de uma entrega; uma referência genérica à release só é suficiente se ela também descrever e acompanhar cada correção.
+2. Dar a cada correção um título ou identificador dentro da issue e registrar ambiente, versão/commit afetado, impacto, reprodução, resultado esperado/observado, evidências sanitizadas e critérios de aceite. Enquanto a causa não for confirmada, indicar que está em análise.
+3. Registrar, por correção, a causa confirmada, a solução e seu motivo, branch, commits e PR. Em issues agrupadas, usar uma lista de itens com links para os detalhes ou comentários correspondentes; cada item deve permitir localizar sua implementação e validação. Uma mesma correção envolvendo sistema e portal pode usar uma issue com links completos para os dois repositórios.
+4. Atualizar cada item com testes e resultados, evidência antes/depois, ambiente efetivamente validado, limitações e estado: em investigação, em correção, aguardando validação ou validado no ambiente indicado. Listar as issues no PR e relacionar quais correções ele entrega. Relatos de recorrência devem apontar para o registro anterior.
+5. Encerrar a issue somente depois de dar um destino explícito a todos os itens: corrigidos e validados no ambiente previsto, cancelados com justificativa ou transferidos para outra issue vinculada com aceite do responsável. Se o escopo inclui produção, validar produção antes do encerramento; se é somente protótipo local, explicitar esse limite e vincular a continuidade real. Merge, release e deploy seguem as autorizações da seção 5.
+
+O histórico deve permitir entender cada falha, sua causa, como foi corrigida e testada e onde a correção está disponível, sem depender do chat. Agrupar é permitido; deixar uma correção sem registro não é.
 
 ## 2. Preparação: branch e plano
 
@@ -85,7 +95,7 @@ Ao terminar ou interromper uma tarefa, registrar:
 
 ## Checklist breve por demanda
 
-- [ ] Issue criada ou existente vinculada; escopo e aceite definidos.
+- [ ] Todas as correções estão identificadas em issue(s), individualmente ou agrupadas, com escopo e aceite definidos.
 - [ ] Checkout, remoto, base e ambiente conferidos; trabalho anterior preservado.
 - [ ] Branch e commits focados.
 - [ ] Testes e documentação pertinentes concluídos.
