@@ -58,7 +58,9 @@ O worker remove sessões e objetos temporários não vinculados após 24 horas; 
 
 Não implementado nesta entrega: complemento/substituição pela equipe, exclusão manual, versões históricas de substituições, expiração de 90 dias dessas versões e de 12 meses do documento atual após conclusão/cancelamento. O histórico textual seguirá a visita. Não anunciar essas políticas como limpeza já ativa.
 
-## Implantação reproduzível
+## Registro da implantação no workspace original
+
+Este procedimento documenta a montagem original da homologação; não é um comando pronto para executar em clones novos. O script exige a pasta irmã `checkin-portal-v2` e arquivos privados de configuração em `/tmp`, ausentes no GitHub. Antes de um novo deploy, é necessário adaptar e revisar as origens para os checkouts e commits aprovados, evitando capturar o portal antigo. Essa preparação faz parte da issue #34.
 
 `scripts/homologation/prepare-release.py` gera `.staging/checkin-nf-release` por lista de arquivos permitidos. Não copia `.env`, credenciais privadas nem o `apphosting.yaml` original com padrões de produção. Os dois manifests gerados possuem projeto, bucket, origens e referências Secret Manager explícitas de staging.
 
