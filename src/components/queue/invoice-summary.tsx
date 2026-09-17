@@ -167,11 +167,11 @@ export function InvoiceSummary({ visit, canAttach = false, canDelete = false, on
         }}>Cancelar seleção</button> : null}
       </div>
     </> : null}
-    <InvoiceHistory key={`${invoice.current?.id ?? "pending"}-${visit.version}`} endpoint={endpoint} visit={visit} canDelete={canDelete} onDeleted={(item) => {
-      setMessage("Exclusão em processamento. O registro textual será preservado."); onReceived?.(item);
-    }} />
     <div aria-live="polite">{busy && phase ? <><progress max={100} value={progress} aria-label="Envio da nota fiscal" /><p>{phase === "Enviando nota" ? `Enviando nota: ${progress}%` : phase}</p></> : null}</div>
     {message ? <p className="q-notice" role="status">{message}</p> : null}
     {error ? <p className="q-error" role="alert">{error}</p> : null}
+    <InvoiceHistory key={`${invoice.current?.id ?? "pending"}-${visit.version}`} endpoint={endpoint} visit={visit} canDelete={canDelete} onDeleted={(item) => {
+      setMessage("Exclusão em processamento. O registro textual será preservado."); onReceived?.(item);
+    }} />
   </section>;
 }
