@@ -11,6 +11,7 @@ const config = [
       "next-env.d.ts",
       "node_modules/**",
       "out/**",
+      "outputs/**",
       "tmp/**"
     ]
   },

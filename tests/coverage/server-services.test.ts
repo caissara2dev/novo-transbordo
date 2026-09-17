@@ -25,6 +25,7 @@ import {
 describe("public Firestore-backed administration services", () => {
   beforeEach(() => {
     inMemoryAdminDb.reset();
+    for (const uid of ["admin", "admin-1", "admin-2", "admin-3"]) inMemoryAdminDb.seed("users", uid, {role:"ADMIN", active:true, approved:true, email:"admin@example.com"});
   });
 
   it("creates, lists, renames and deactivates clients with normalized uniqueness", async () => {
@@ -103,6 +104,7 @@ describe("public Firestore-backed administration services", () => {
     const denied = await setApproval({
       targetUid: "operator-1",
       approved: false,
+      expectedVersion: 1,
       actorUid: "admin-2",
       actorEmail: "other-admin@example.com"
     });
@@ -116,13 +118,14 @@ describe("public Firestore-backed administration services", () => {
     const supervisor = await setRole({
       targetUid: "operator-1",
       role: "SUPERVISOR",
+      expectedVersion: 2,
       actorUid: "admin-1"
     });
     expect(supervisor).toMatchObject({
       role: "SUPERVISOR",
       updatedByUid: "admin-1"
     });
-    expect(await listUsers()).toHaveLength(2);
+    expect((await listUsers()).filter(user => user.id.startsWith("operator-"))).toHaveLength(2);
   });
 
   it("reports missing targets for approval and role changes", async () => {
@@ -183,7 +186,7 @@ describe("public Firestore-backed administration services", () => {
       createdAt: Timestamp.fromMillis(2)
     });
 
-    expect((await listUsers()).map((user) => user.id)).toEqual([
+    expect((await listUsers()).filter(user => ["newer", "older"].includes(user.id)).map((user) => user.id)).toEqual([
       "newer",
       "older"
     ]);

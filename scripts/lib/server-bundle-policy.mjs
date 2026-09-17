@@ -1,5 +1,5 @@
 const bundledFirebaseAdminPathPattern =
-  /(?:^|\/)node_modules_firebase-admin_lib_[^/]+\.js$/;
+  /(?:^|\/)[^/]+_firebase-admin_lib_[^/]+\.js$/;
 
 const externalFirebaseAdminPatterns = [
   /firebase-admin-[A-Za-z0-9_-]+\/(?:app|app-check|auth|firestore)\b/,

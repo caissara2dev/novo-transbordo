@@ -172,3 +172,15 @@ describe("Firestore domain collection rules", () => {
     await assertFails(getDoc(doc(db, "containerStates", "ABCU1234560")));
   });
 });
+
+describe("queue privacy rules",()=>{
+ it.each(["ANALYST","CUSTOMER"])("keeps %s access behind the scoped API",async role=>{
+  await testEnv.withSecurityRulesDisabled(async context=>{await setDoc(doc(context.firestore(),"users","queue-user"),{role,active:true,approved:true,clientId:"client-1"});});
+  const db=testEnv.authenticatedContext("queue-user").firestore();
+  await assertSucceeds(getDoc(doc(db,"users","queue-user")));
+  for(const path of ["checkins/visit","checkins/visit/revisions/revision","_checkinUniqueLocks/lock","_checkinPublicCodes/code","_checkinIntegrationRequests/request","_queueAccessAudit/audit"]){
+   await assertFails(getDoc(doc(db,path)));await assertFails(setDoc(doc(db,path),{booking:"changed"}));
+  }
+  await assertFails(updateDoc(doc(db,"users","queue-user"),{clientId:"other"}));
+ });
+});

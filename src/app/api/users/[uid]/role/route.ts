@@ -4,10 +4,13 @@ import { ensureApproved, ensureRole, requireAuth } from "@/lib/server/auth";
 import { fail, ok, parseJsonBody } from "@/lib/server/http";
 import { toPlain } from "@/lib/server/serialize";
 import { setRole } from "@/lib/server/users";
+import { accessIdentifier, expectedAccessVersion, userRoleSchema } from "@/lib/server/admin-access";
 
 const roleBodySchema = z
   .object({
-    role: z.enum(["OPERATOR", "SUPERVISOR", "DISPLAY", "ADMIN"])
+    role: userRoleSchema,
+    clientId: accessIdentifier.nullable().optional(),
+    expectedVersion: expectedAccessVersion
   })
   .strict();
 
@@ -27,6 +30,8 @@ export async function POST(
     const updated = await setRole({
       targetUid,
       role: body.role,
+      clientId: body.clientId,
+      expectedVersion: body.expectedVersion,
       actorUid: uid
     });
 

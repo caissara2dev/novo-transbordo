@@ -1,3 +1,4 @@
+import { prepareCheckinEventLink } from "@/lib/server/checkins/event-link";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpError } from "@/lib/domain/errors";
 import { adminDb } from "@/lib/firebase/admin";
@@ -81,18 +82,20 @@ export async function softDeleteEvent(
         "A linha do tempo mudou durante a exclusão. Atualize e tente novamente."
       );
     }
+    const writeCheckin = await prepareCheckinEventLink(transaction,eventId,existing,actor.uid,"DELETE");
     await reconcileEventContainerEffectsInTransaction({
       transaction,
       eventId,
       before: existing,
       after: null,
       reservedWrites:
-        2 +
+        2 + (existing.checkInId ? 2 : 0) +
         linkedAutomaticSnap.docs.filter((doc) => !doc.data().deleted).length +
         (targetAutomaticSnap?.docs.filter((doc) => !doc.data().deleted)
           .length || 0) +
         replacementEvents.length
     });
+    writeCheckin();
     transaction.update(ref, {
       deleted: true,
       deletedAt: FieldValue.serverTimestamp(),

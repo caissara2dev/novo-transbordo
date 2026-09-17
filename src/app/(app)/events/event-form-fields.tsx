@@ -180,6 +180,8 @@ export function EventFormFields({
                   form.category === "PRODUTIVO"
                     ? null
                     : form.containerStatus || "FULL",
+                checkInId: undefined,
+                expectedCheckinVersion: undefined,
                 originInput: "",
                 clientId: form.sourceContainer ? "" : form.clientId,
                 loadSourceType: "TRUCK",
@@ -222,6 +224,8 @@ export function EventFormFields({
                     startsNewContainerCycle: false,
                     blendConfirmed: false,
                     expectedContainerStateVersion: null,
+                    checkInId: undefined,
+                    expectedCheckinVersion: undefined,
                     originInput: "",
                     clientId: form.sourceContainer ? "" : form.clientId,
                     loadSourceType: "TRUCK",
@@ -305,7 +309,7 @@ export function EventFormFields({
         <select
           className="select-ui"
           onChange={(event) =>
-            setForm({ ...form, clientId: event.target.value })
+            setForm({ ...form, clientId: event.target.value, checkInId: undefined, expectedCheckinVersion: undefined })
           }
           required={rules.requiresClient}
           disabled={

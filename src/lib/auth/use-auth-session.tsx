@@ -20,6 +20,7 @@ type SessionState = {
   firebaseUser: User | null;
   profile: UserDoc | null;
   containerTransfersEnabled: boolean;
+  checkinsEnabled: boolean;
   approvalContactPhone: string | null;
   profileError: string | null;
   loading: boolean;
@@ -71,6 +72,7 @@ async function fetchWithTimeout(
 export async function fetchSessionProfile(signal: AbortSignal): Promise<{
   profile: UserDoc;
   containerTransfersEnabled?: boolean;
+  checkinsEnabled?: boolean;
   approvalContactPhone: string | null;
 }> {
   const res = await fetchWithTimeout("/api/me", {
@@ -96,6 +98,7 @@ export async function fetchSessionProfile(signal: AbortSignal): Promise<{
 }
 
 export function SessionProvider({ children }: { children: ReactNode }) {
+  const [checkinsEnabled,setCheckinsEnabled] = useState(false);
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
   const [containerTransfersEnabled, setContainerTransfersEnabled] =
     useState(false);
@@ -114,6 +117,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       profileRequests.current.cancel();
       setProfile(null);
       setContainerTransfersEnabled(false);
+      setCheckinsEnabled(false);
       setApprovalContactPhone(null);
       setProfileError(null);
       setLoading(false);
@@ -131,6 +135,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       }
 
       setProfile(payload.profile);
+      setCheckinsEnabled(payload.checkinsEnabled === true);
       setContainerTransfersEnabled(payload.containerTransfersEnabled === true);
       setApprovalContactPhone(payload.approvalContactPhone);
       setProfileError(null);
@@ -141,6 +146,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
       setProfile(null);
       setContainerTransfersEnabled(false);
+      setCheckinsEnabled(false);
       setApprovalContactPhone(null);
       setProfileError(
         error instanceof Error ? error.message : "Falha ao carregar perfil."
@@ -158,6 +164,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setFirebaseUser(user);
       setProfile(null);
       setContainerTransfersEnabled(false);
+      setCheckinsEnabled(false);
       setApprovalContactPhone(null);
       setProfileError(null);
 
@@ -177,6 +184,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         }
 
         setProfile(payload.profile);
+      setCheckinsEnabled(payload.checkinsEnabled === true);
         setContainerTransfersEnabled(
           payload.containerTransfersEnabled === true
         );
@@ -189,6 +197,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
         setProfile(null);
         setContainerTransfersEnabled(false);
+      setCheckinsEnabled(false);
         setApprovalContactPhone(null);
         setProfileError(
           error instanceof Error ? error.message : "Falha ao carregar perfil."
@@ -211,6 +220,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       firebaseUser,
       profile,
       containerTransfersEnabled,
+      checkinsEnabled,
       approvalContactPhone,
       profileError,
       loading,
@@ -221,6 +231,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       firebaseUser,
       profile,
       containerTransfersEnabled,
+      checkinsEnabled,
       approvalContactPhone,
       profileError,
       loading,

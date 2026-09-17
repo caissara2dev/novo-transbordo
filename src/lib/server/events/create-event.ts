@@ -1,3 +1,4 @@
+import { assertCheckinCreation, prepareCheckinEventLink } from "@/lib/server/checkins/event-link";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpError } from "@/lib/domain/errors";
 import { validateEventInput } from "@/lib/domain/validation";
@@ -16,6 +17,7 @@ export async function createEvent(
   actor: { uid: string; email: string }
 ) {
   const validated = validateEventInput(raw);
+  assertCheckinCreation(validated.event);
   if (validated.event.category === "INTERVALO_OPERACIONAL") {
     throw new HttpError(
       400,
@@ -75,6 +77,7 @@ export async function createEvent(
       })
     : [];
   const {
+    expectedCheckinVersion,
     expectedContainerStateVersion,
     expectedSourceContainerStateVersion,
     expectedSourceContainerCycleId,
@@ -123,6 +126,7 @@ export async function createEvent(
       );
     }
 
+    const writeCheckin = await prepareCheckinEventLink(transaction, ref.id, validated.event, actor.uid, "CREATE", expectedCheckinVersion);
     const provisionalEvent = {
       ...payload,
       containerCycleId: null,
@@ -141,8 +145,9 @@ export async function createEvent(
       expectedSourceContainerStateVersion,
       expectedSourceContainerCycleId,
       requireSourceCurrentlyOpen: true,
-      reservedWrites: autoEvents.length + 2
+      reservedWrites: autoEvents.length + 2 + (payload.checkInId ? 2 : 0)
     });
+    writeCheckin();
     transaction.set(ref, {
       ...payload,
       ...containerEffects

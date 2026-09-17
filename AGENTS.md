@@ -1,3 +1,9 @@
+## Ciclo obrigatório de mudanças
+
+Toda correção deve estar explicitamente registrada em uma issue antes da implementação, inclusive em protótipos e UI/UX. É permitido agrupar correções na mesma issue, com descrição, causa, solução, validação e estado de cada item, conforme `docs/agents/change-lifecycle.md`.
+
+Leia `docs/agents/change-lifecycle.md` antes de alterar este projeto. Toda alteração deve ligar demanda, issue, branch, PR, validação e encerramento. A autorização de staging não autoriza merge ou produção.
+
 ## Agent skills
 
 ### Issue tracker

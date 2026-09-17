@@ -13,8 +13,12 @@ import {
   PaginatedResponse
 } from "@/types/api";
 import { LoadSourceType } from "@/types/domain";
+import { formatPlateForInput } from "@/lib/domain/identifiers";
+import { useCalledVisits, type CalledVisit } from "@/components/queue/called-visits";
 
 type TransferFields = {
+  checkInId?: string;
+  expectedCheckinVersion?: number;
   originInput: string;
   loadSourceType: LoadSourceType;
   sourceContainer: string;
@@ -53,6 +57,8 @@ export function ContainerTransferFields({
   const [page, setPage] = useState<SearchPage | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const request = useRef<AbortController | null>(null);
+  const input = useRef<HTMLInputElement | null>(null);
+  const called = useCalledVisits(!isEditing);
   const kind = identifyLoadSource(fields.originInput);
   const key = JSON.stringify([
     originCode(fields.originInput),
@@ -68,9 +74,18 @@ export function ContainerTransferFields({
   const items = ready ? page.items : [];
   const error = ready ? page.error : null;
   const loading = searching && !ready;
+  const calledSearching = called.enabled && kind !== "BUFFER_CONTAINER" && !fields.checkInId;
+  const calledItems = called.items.filter(visit => originCode(visit.plate).includes(originCode(fields.originInput)));
+  const selectedVisit = called.items.find(visit => visit.id === fields.checkInId);
+  const combobox = kind === "BUFFER_CONTAINER" || called.enabled;
   const same =
     kind === "BUFFER_CONTAINER" &&
     originCode(fields.originInput) === originCode(fields.container);
+
+  useEffect(() => {
+    input.current?.setCustomValidity(called.mode === "enforce" && !isEditing && kind !== "BUFFER_CONTAINER" && !fields.checkInId
+      ? "Selecione a placa de uma visita chamada nas opções deste campo." : "");
+  }, [called.mode, fields.checkInId, isEditing, kind]);
 
   useEffect(() => {
     if (!searching) return;
@@ -185,6 +200,8 @@ export function ContainerTransferFields({
     setOpen(false);
     setActive(-1);
     onChange({
+      checkInId: undefined,
+      expectedCheckinVersion: undefined,
       originInput: item.container,
       loadSourceType: "BUFFER_CONTAINER",
       plate: "",
@@ -194,6 +211,14 @@ export function ContainerTransferFields({
       expectedSourceContainerCycleId: item.cycleId,
       clientId: item.clientId
     });
+  }
+
+  function selectVisit(visit: CalledVisit) {
+    setOpen(false);setActive(-1);
+    onChange({checkInId: visit.id, expectedCheckinVersion: visit.version,
+      originInput: formatPlateForInput(visit.plate), plate: formatPlateForInput(visit.plate), clientId: visit.clientId,
+      loadSourceType: "TRUCK", sourceContainer: "", sourceContainerEmptied: null,
+      expectedSourceContainerStateVersion: null, expectedSourceContainerCycleId: null});
   }
 
   return (
@@ -218,6 +243,7 @@ export function ContainerTransferFields({
         }}
       >
         <input
+          ref={input}
           id={id}
           className="input-ui"
           value={fields.originInput}
@@ -225,8 +251,11 @@ export function ContainerTransferFields({
             const value = event.target.value;
             const nextKind = identifyLoadSource(value);
             setActive(-1);
-            setOpen(nextKind === "BUFFER_CONTAINER");
+            // Keep intent to open while the first called-visit request is in flight.
+            setOpen(true);
             onChange({
+              checkInId: undefined,
+              expectedCheckinVersion: undefined,
               originInput: value,
               loadSourceType: nextKind || "TRUCK",
               plate: nextKind === "BUFFER_CONTAINER" ? "" : value,
@@ -241,40 +270,42 @@ export function ContainerTransferFields({
             });
           }}
           onFocus={() => {
-            if (searching) setOpen(true);
+            if (searching || calledSearching || called.loading) setOpen(true);
           }}
           onKeyDown={(event) => {
             if (event.key === "Escape") {
               setOpen(false);
               return;
             }
-            if (!searching) return;
+            if (!searching && !calledSearching) return;
+            const count = searching ? items.length : calledItems.length;
             if (event.key === "ArrowDown" || event.key === "ArrowUp") {
               event.preventDefault();
               setOpen(true);
               setActive((current) =>
-                items.length
+                count
                   ? event.key === "ArrowDown"
-                    ? Math.min(current + 1, items.length - 1)
+                    ? Math.min(current + 1, count - 1)
                     : Math.max(current - 1, 0)
                   : -1
               );
             }
             if (event.key === "Enter" && open) {
               event.preventDefault();
-              if (!loading && !error && items[active]) select(items[active]);
+              if (searching && !loading && !error && items[active]) select(items[active]);
+              if (calledSearching && calledItems[active]) selectVisit(calledItems[active]);
             }
           }}
-          role={kind === "BUFFER_CONTAINER" ? "combobox" : undefined}
+          role={combobox ? "combobox" : undefined}
           aria-expanded={
-            kind === "BUFFER_CONTAINER" ? open && searching : undefined
+            combobox ? open && (searching || calledSearching) : undefined
           }
           aria-controls={
-            kind === "BUFFER_CONTAINER" ? `${id}-options` : undefined
+            combobox ? `${id}-options` : undefined
           }
-          aria-autocomplete={kind === "BUFFER_CONTAINER" ? "list" : undefined}
+          aria-autocomplete={combobox ? "list" : undefined}
           aria-activedescendant={
-            open && searching && !loading && !error && items[active]
+            open && ((searching && !loading && !error && items[active]) || (calledSearching && calledItems[active]))
               ? `${id}-option-${active}`
               : undefined
           }
@@ -285,6 +316,17 @@ export function ContainerTransferFields({
           required
           placeholder="Placa ou código do container"
         />
+        {open && calledSearching && <div className="origin-options">
+          <div id={`${id}-options`} role="listbox" aria-label="Placas chamadas para descarga">
+            {calledItems.map((visit, index) => <button key={visit.id} id={`${id}-option-${index}`} type="button" role="option"
+              aria-selected={active === index} className={active === index ? "active" : ""}
+              onMouseDown={event => event.preventDefault()} onMouseEnter={() => setActive(index)} onClick={() => selectVisit(visit)}>
+              <span><strong>{formatPlateForInput(visit.plate)}</strong><small>{visit.clientName || "Cliente não informado"}</small></span>
+              <small>{visit.publicCode || "Chamada"}</small>
+            </button>)}
+          </div>
+          {!calledItems.length && <p role="status">Nenhuma chamada disponível para esta placa.</p>}
+        </div>}
         {open && searching ? (
           <div className="origin-options">
             <div
@@ -359,12 +401,21 @@ export function ContainerTransferFields({
       <p id={`${id}-hint`} className="origin-hint">
         {kind === "BUFFER_CONTAINER" && !enabled
           ? "Transferências entre containers estão temporariamente indisponíveis."
+          : fields.checkInId
+            ? `${selectedVisit?.publicCode || "Visita selecionada"} · A descarga começa somente quando o lançamento for salvo.`
           : selected
             ? `Origem selecionada${selectedStatus ? ` · ${selectedStatus === "BUFFER" ? "Pulmão" : "Parcial"}` : ""}`
             : kind === "BUFFER_CONTAINER"
               ? "Selecione um container Pulmão ou Parcial em aberto."
-              : "Digite a placa ou comece pelas quatro letras do container."}
+              : called.enabled
+                ? "Digite a placa e selecione a chamada, ou comece pelas quatro letras do container."
+                : "Digite a placa ou comece pelas quatro letras do container."}
       </p>
+      {(called.enabled || called.loading || called.error) && kind !== "BUFFER_CONTAINER" && <div className="mt-2">
+        {called.loading && <p role="status" className="origin-hint">Consultando chamadas…</p>}
+        {called.error && <p role="alert" className="notice error">{called.error}</p>}
+        <button className="origin-refresh" type="button" disabled={called.loading} onClick={() => {setActive(-1);called.refresh();}}>Atualizar chamadas</button>
+      </div>}
       {same ? (
         <p role="alert" className="notice error mt-2">
           Origem e destino precisam ser containers diferentes.

@@ -24,6 +24,11 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     }
   }, [loading, pathname, profile, router]);
 
+  const restrictedHome = profile?.role === "CUSTOMER" ? "/customer/checkins" : profile?.role === "ANALYST" ? "/checkins" : null;
+  useEffect(() => {
+    if (!loading && profile?.approved && restrictedHome && pathname !== restrictedHome) router.replace(restrictedHome as Route);
+  }, [loading, profile, restrictedHome, pathname, router]);
+
   if (loading) {
     return (
       <main className="auth-wrap">
@@ -86,5 +91,6 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     return null;
   }
 
+  if (restrictedHome && pathname !== restrictedHome) return null;
   return <>{children}</>;
 }

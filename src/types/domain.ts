@@ -1,4 +1,4 @@
-export type UserRole = "OPERATOR" | "SUPERVISOR" | "DISPLAY" | "ADMIN";
+export type UserRole = "OPERATOR" | "SUPERVISOR" | "DISPLAY" | "ADMIN" | "ANALYST" | "CUSTOMER";
 
 export type ShiftType = "MANHA" | "NOITE";
 
@@ -64,6 +64,8 @@ export type GapPreview = {
 };
 
 export type EventInput = {
+  checkInId?: string | null;
+  expectedCheckinVersion?: number | null;
   pump: Pump;
   shiftDate: string;
   shiftType: ShiftType;
@@ -87,6 +89,8 @@ export type EventInput = {
 };
 
 export type UserDoc = {
+  accessVersion?: number;
+  clientId?: string | null;
   email: string;
   name: string | null;
   role: UserRole;
@@ -100,6 +104,9 @@ export type UserDoc = {
 };
 
 export type ClientDoc = {
+  accessVersion?: number;
+  portalEnabled?: boolean;
+  usesSample?: boolean;
   name: string;
   nameUpper: string;
   active: boolean;
@@ -111,6 +118,7 @@ export type ClientDoc = {
 
 export type EventDoc = Omit<
   EventInput,
+  | "expectedCheckinVersion"
   | "expectedContainerStateVersion"
   | "expectedSourceContainerStateVersion"
   | "expectedSourceContainerCycleId"

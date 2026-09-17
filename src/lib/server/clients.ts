@@ -2,6 +2,9 @@ import { createHash } from "node:crypto";
 import { FieldValue } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebase/admin";
 import { HttpError } from "@/lib/domain/errors";
+import { accessIdentifier, auditAccess, readAdminProfile, requireAccessVersion } from "./admin-access";
+
+type ClientUpdate = { name?: string; active?: boolean; portalEnabled?: boolean; usesSample?: boolean; expectedVersion?: number };
 
 const CLIENT_NAME_CLAIMS_COLLECTION = "clientNameClaims";
 
@@ -113,7 +116,7 @@ function updateClientNameClaims(params: {
 }
 
 function buildClientUpdates(params: {
-  payload: { name?: string; active?: boolean };
+  payload: ClientUpdate;
   normalized: NormalizedClientName | null;
   actorUid: string;
 }): Record<string, unknown> {
@@ -127,6 +130,8 @@ function buildClientUpdates(params: {
     ...(typeof params.payload.active === "boolean"
       ? { active: params.payload.active }
       : {}),
+    ...(typeof params.payload.portalEnabled === "boolean" ? {portalEnabled: params.payload.portalEnabled} : {}),
+    ...(typeof params.payload.usesSample === "boolean" ? {usesSample: params.payload.usesSample} : {}),
     updatedAt: FieldValue.serverTimestamp(),
     updatedByUid: params.actorUid
   };
@@ -140,7 +145,8 @@ export async function listClients(includeInactive: boolean) {
   }
 
   const snap = await query.orderBy("nameUpper", "asc").get();
-  return snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  return snap.docs.map((doc) => ({ id: doc.id, ...doc.data(), accessVersion: doc.data().accessVersion ?? 0,
+    portalEnabled: doc.data().portalEnabled === true, usesSample: doc.data().usesSample !== false }));
 }
 
 export async function createClient(name: string, actorUid: string) {
@@ -149,6 +155,7 @@ export async function createClient(name: string, actorUid: string) {
   const claimRef = clientNameClaimRef(normalized.nameUpper);
 
   await adminDb.runTransaction(async (transaction) => {
+    await readAdminProfile(transaction, actorUid);
     const [claim, legacyDuplicates] = await Promise.all([
       transaction.get(claimRef),
       transaction.get(
@@ -173,11 +180,16 @@ export async function createClient(name: string, actorUid: string) {
       name: normalized.name,
       nameUpper: normalized.nameUpper,
       active: true,
+      portalEnabled: false,
+      usesSample: true,
+      accessVersion: 0,
       createdAt: FieldValue.serverTimestamp(),
       createdByUid: actorUid,
       updatedAt: FieldValue.serverTimestamp(),
       updatedByUid: actorUid
     });
+    auditAccess(transaction, {target: ref.path, actorUid, action: "CLIENT_CREATED", before: null,
+      after: {name: normalized.name, active: true, portalEnabled: false, usesSample: true}, previousVersion: 0, newVersion: 0});
   });
 
   const snap = await ref.get();
@@ -186,16 +198,17 @@ export async function createClient(name: string, actorUid: string) {
 
 export async function updateClient(
   clientId: string,
-  payload: { name?: string; active?: boolean },
+  payload: ClientUpdate,
   actorUid: string
 ) {
-  const ref = adminDb.collection("clients").doc(clientId);
+  const ref = adminDb.collection("clients").doc(accessIdentifier.parse(clientId));
   const normalized =
     typeof payload.name === "string"
       ? normalizeClientName(payload.name)
       : null;
 
   await adminDb.runTransaction(async (transaction) => {
+    await readAdminProfile(transaction, actorUid);
     const snap = await transaction.get(ref);
 
     if (!snap.exists) {
@@ -203,6 +216,7 @@ export async function updateClient(
     }
 
     const existing = snap.data() ?? {};
+    const version = requireAccessVersion(existing.accessVersion, payload.expectedVersion);
     if (normalized) {
       const claimState = await readClientNameClaimState({
         transaction,
@@ -219,10 +233,13 @@ export async function updateClient(
       });
     }
 
-    transaction.update(
-      ref,
-      buildClientUpdates({ payload, normalized, actorUid })
-    );
+    const patch = buildClientUpdates({ payload, normalized, actorUid });
+    transaction.update(ref, {...patch, accessVersion: version + 1});
+    const before = {name: existing.name, active: existing.active, portalEnabled: existing.portalEnabled === true, usesSample: existing.usesSample !== false};
+    auditAccess(transaction, {target: ref.path, actorUid, action: "CLIENT_UPDATED", before,
+      after: {name: normalized?.name ?? before.name, active: payload.active ?? before.active,
+        portalEnabled: payload.portalEnabled ?? before.portalEnabled, usesSample: payload.usesSample ?? before.usesSample},
+      previousVersion: version, newVersion: version + 1});
   });
 
   const updated = await ref.get();

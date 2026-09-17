@@ -14,10 +14,10 @@ const bundledAdminFile: BundleFile = {
 };
 
 describe("política do bundle do Firebase Admin", () => {
-  it("aceita Firebase Admin empacotado apenas no servidor", () => {
+  it.each(["node_modules", "15ja"])("aceita Firebase Admin empacotado apenas no servidor com prefixo %s", (prefix) => {
     expect(
       findServerBundleViolations({
-        serverFiles: [bundledAdminFile],
+        serverFiles: [{...bundledAdminFile,path:`.next/server/chunks/${prefix}_firebase-admin_lib_example.js`}],
         clientFiles: []
       })
     ).toEqual([]);
