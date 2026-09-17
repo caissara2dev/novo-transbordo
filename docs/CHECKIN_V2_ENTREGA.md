@@ -42,9 +42,8 @@ A cobertura inicia o Firestore Emulator na porta 8188 e executa a suíte documen
 
 ## Pendências antes de produção
 
-- Exclusão manual do documento com as permissões aprovadas. Substituição e histórico privado estão implementados nesta branch; O complemento de nota pendente está implementado nesta branch; os resultados da implantação de homologação ficam registrados na issue #33/PR #35.
-- Retenção do documento atual por 12 meses após conclusão/cancelamento. Versões substituídas recebem 90 dias e limpeza no worker; conferir evidências de implantação na issue #33. Histórico textual preservado com a visita.
-- Últimos ajustes de UI/UX, incluindo revisão da administração de acessos e das ações operacionais em relação ao protótipo aprovado.
+- Validar em homologação a exclusão manual com motivo por admin/supervisor e a retenção de 12 meses após encerramento, implementadas nesta branch. Versões substituídas mantêm 90 dias. Ver [runbook de retenção](CHECKIN_RETENCAO_RUNBOOK.md), [roteiro documental](CHECKIN_DOCUMENTOS_ROTEIRO_DESKTOP.md) e evidências atuais na issue #33/PR #35.
+- Validar o alinhamento da fila ao fluxo aprovado: pendências imediatas, administração integrada, limites, busca, WhatsApp e seleção da visita pelo campo de origem. Ver [roteiro da fila](CHECKIN_FLUXO_APROVADO.md) e issue #34. Código local e testes automatizados não representam homologação final pelo usuário.
 - Homologação completa de permissões entre empresas, concorrência, falhas de rede, GPS real, câmera/galeria/PDF e compatibilidade com lançamentos existentes.
 - Preparação de produção: bucket, identidades, segredos, origens, agendamentos e domínios. Há guardas documentais e do worker restritas à homologação; alterá-las exige uma entrega própria, não uma remoção improvisada.
 - Plano de entrada em operação para a fila aberta, backup/rollback compatível e aprovação do responsável antes de merge/deploy/release.
