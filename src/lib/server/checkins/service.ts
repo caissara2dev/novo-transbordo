@@ -14,6 +14,7 @@ import {
 } from "@/lib/domain/checkins";
 import type { CheckinGeofenceResult } from "@/lib/domain/checkins";
 import { HttpError } from "@/lib/domain/errors";
+import { documentDeadline } from "@/lib/domain/document-retention";
 import { normalizePlate } from "@/lib/domain/identifiers";
 import type {
   CheckinSource,
@@ -272,6 +273,9 @@ function expirePreRegistration(params: {
   const nextVersion = params.stored.version + 1;
   params.transaction.update(checkinRef, {
     status: "CANCELADO",
+    closedAtIso: params.nowIso,
+    documentExpiresAtIso: documentDeadline(params.nowIso),
+    documentRetentionReviewRequired: false,
     cancellationReason: "EXPIRADO",
     syncState: null,
     version: nextVersion,

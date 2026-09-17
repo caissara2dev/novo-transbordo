@@ -391,6 +391,28 @@
           "order": "DESCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "checkins",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "document.status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "documentRetentionReviewRequired",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "documentExpiresAtIso",
+          "order": "ASCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": [

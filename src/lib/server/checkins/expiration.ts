@@ -2,6 +2,7 @@ import "server-only";
 
 import { adminDb } from "@/lib/firebase/admin";
 import { HttpError } from "@/lib/domain/errors";
+import { documentDeadline } from "@/lib/domain/document-retention";
 import { isPreRegistrationExpired } from "@/lib/domain/checkins";
 import type { StoredCheckin } from "@/types/checkins";
 
@@ -58,6 +59,9 @@ async function expireCandidate(checkinId: string, nowIso: string): Promise<boole
     const nextVersion = stored.version + 1;
     transaction.update(checkinRef, {
       status: "CANCELADO",
+      closedAtIso: nowIso,
+      documentExpiresAtIso: documentDeadline(nowIso),
+      documentRetentionReviewRequired: false,
       cancellationReason: "EXPIRADO",
       syncState: null,
       version: nextVersion,

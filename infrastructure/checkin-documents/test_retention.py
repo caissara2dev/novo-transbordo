@@ -47,6 +47,9 @@ class Ref:
                 raise AssertionError('Firestore transactions must read before writing')
         return Snapshot(self)
 
+    def collection(self, name):
+        return Query(self.db, f'{self.path}/{name}')
+
     def update(self, patch):
         value = self.db.rows[self.path]
         for path, data in patch.items():
@@ -72,8 +75,14 @@ class Query:
 
     def stream(self):
         def matches(value, condition):
-            actual = value.get(condition.field_path)
-            return actual in condition.value if condition.op_string == 'in' else actual is not None and actual <= condition.value
+            actual = value
+            for part in condition.field_path.split('.'):
+                actual = actual.get(part) if isinstance(actual, dict) else None
+            if condition.op_string == 'in':
+                return actual in condition.value
+            if condition.op_string == '==':
+                return actual == condition.value
+            return actual is not None and actual <= condition.value
         rows = [Snapshot(Ref(self.db, path)) for path, value in list(self.db.rows.items())
                 if path.startswith(self.name + '/') and all(matches(value, f) for f in self.filters)]
         return iter(rows[:self.row_limit])
@@ -86,6 +95,13 @@ class Transaction:
     def update(self, ref, value):
         self.written = True
         ref.update(value)
+
+
+    def create(self, ref, value):
+        if ref.path in ref.db.rows:
+            raise AssertionError('Duplicate create')
+        self.written = True
+        ref.db.rows[ref.path] = copy.deepcopy(value)
 
 
 class Database:
@@ -150,7 +166,7 @@ class Bucket:
         return Blob(self, name, generation)
 
 
-class RetentionTests(unittest.TestCase):
+class WorkerFixture(unittest.TestCase):
     def setUp(self):
         self.db, self.bucket, self.timestamp = Database(), Bucket(), EXPIRES
         self.patches = [patch.object(worker, 'db', self.db), patch.object(worker, 'bucket', self.bucket),
@@ -177,6 +193,8 @@ class RetentionTests(unittest.TestCase):
     def job(self, state='pending'):
         return {'state': state, 'visitId': VISIT, 'documentId': DOC, 'object': ORIGINAL, 'generation': '11', 'attempts': 0}
 
+
+class RetentionTests(WorkerFixture):
     def test_before_90_days_keeps_both_files_and_metadata(self):
         self.timestamp = EXPIRES - 1
         self.assertEqual(worker.clean_replaced_versions(), 0)

@@ -16,6 +16,8 @@ import type {
 import type { StoredCheckin } from "@/types/checkins";
 import type { UserDoc } from "@/types/domain";
 import { correctInternalCheckin } from "./corrections";
+import { documentDeadline, documentHasExpired } from "@/lib/domain/document-retention";
+import { documentBlocksCall } from "@/lib/domain/checkin-document";
 
 export type QueueActor = { uid: string; profile: UserDoc };
 type RecordData = StoredCheckin &
@@ -154,6 +156,9 @@ function dto(data: RecordData, id: string, customer?: QueueClient): QueueVisit {
     driverLicense: data.driverLicense,
     driverPhone: data.driverPhone,
     ...(data.document?{document:data.document}:{}),
+    ...(data.closedAtIso ? { closedAtIso: data.closedAtIso } : {}),
+    ...(data.documentExpiresAtIso ? { documentExpiresAtIso: data.documentExpiresAtIso } : {}),
+    ...(data.documentRetentionReviewRequired ? { documentRetentionReviewRequired: true } : {}),
   };
   return customer ? publicCustomerVisit(value) : value;
 }
@@ -282,7 +287,7 @@ export async function mutateQueue(actor: QueueActor, id: string, raw: unknown) {
       );
     if (stored.pendingOfficialMutation || stored.status === "PRE_CADASTRO")
       throw new HttpError(409, "A visita ainda não tem check-in confirmado.");
-    if(command.kind === "TRANSITION" && ["AGUARDANDO_CHAMADA","CHAMADO"].includes(command.toStatus) && stored.document && (stored.document.status!=="received" || !stored.document.current))
+    if(command.kind === "TRANSITION" && ["AGUARDANDO_CHAMADA","CHAMADO"].includes(command.toStatus) && (documentBlocksCall(stored.document) || documentHasExpired(stored)))
       throw new HttpError(409,"A Line precisa receber a nota fiscal antes de liberar ou chamar esta visita.");
     const before = dto(stored, id);
     if (
@@ -319,7 +324,9 @@ export async function mutateQueue(actor: QueueActor, id: string, raw: unknown) {
               sample: after.sample,
               observation: after.observation,
             }
-          : { status: after.status };
+          : { status: after.status, ...(after.status === "CONCLUIDO" ? {
+              closedAtIso: now, documentExpiresAtIso: documentDeadline(now), documentRetentionReviewRequired: false,
+            } : {}) };
     const changedFields = Object.keys(patch).filter(
       (k) =>
         JSON.stringify(stored[k as keyof RecordData]) !==
