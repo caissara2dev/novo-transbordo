@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { DriverCheckinForm } from "@/lib/domain/checkins";
-import { closedVisit, queueLabels, queueMatchesSearch, queueIssueAction } from "@/lib/domain/queue";
+import { closedVisit, queueLabels, queueMatchesSearch, queueIssueAction, driverCallWhatsapp } from "@/lib/domain/queue";
 import type {
   QueueClient,
   QueueCommand as DomainCommand,
@@ -102,6 +102,10 @@ function VisitEditor({
       }
       if (command.kind === "ISSUE_ADD") setNewIssue("");
       if (command.kind === "ISSUE_DELETE") setDeletingIssue(null);
+      if (command.kind === "TRANSITION" && command.toStatus === "CHAMADO") {
+        const url = driverCallWhatsapp(updated);
+        if (url) { const popup = window.open("about:blank", "_blank"); if (popup) { popup.opener = null; popup.location.href = url; } }
+      }
       setMessage(queueIssueAction(command) ? "Pendência salva. Outros campos em edição não foram alterados." : "Alterações salvas.");
     } catch (error) {
       setError(
@@ -464,6 +468,10 @@ function VisitEditor({
             visit.status === "AGUARDANDO_CHAMADA" ? "Carga liberada. A próxima ação é chamar o motorista." :
             visit.status === "CHAMADO" ? "A descarga começa após salvar o lançamento para esta placa." : visit.status === "EM_DESCARGA" ? "Operação em andamento. Conclua ao finalizar a descarga." : "Visita encerrada."}</span>
         </div>
+        {!customer && visit.status === "CHAMADO" && <div className="q-whatsapp">
+          {driverCallWhatsapp(visit) ? <a className="btn-soft" href={driverCallWhatsapp(visit)!} target="_blank" rel="noreferrer">Abrir conversa no WhatsApp</a> : <p className="q-help">Confira o telefone do motorista. A chamada está registrada.</p>}
+          <p className="q-help">A mensagem fica preparada. O envio é feito por você no WhatsApp.</p>
+        </div>}
         <div className="q-savebar">
           {!readOnly && (
             <button

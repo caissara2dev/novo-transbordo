@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { DriverCheckinForm } from "@/lib/domain/checkins";
-import { closedVisit, queueLabels, sharedFieldLimits, queueMatchesSearch, queueIssueAction } from "@/lib/domain/queue";
+import { closedVisit, queueLabels, sharedFieldLimits, queueMatchesSearch, driverCallWhatsapp, queueIssueAction } from "@/lib/domain/queue";
 import type {
   QueueClient,
   QueueCommand,
@@ -74,6 +74,7 @@ function VisitEditor({
   const [shared, setShared] = useState(() => sharedFields(visit));
   const issues = visit.issues ?? [];
   const [deletingIssue, setDeletingIssue] = useState<string | null>(null);
+  const [whatsappNotice, setWhatsappNotice] = useState("");
   const inFlight = useRef(false);
   const [newIssue, setNewIssue] = useState("");
   const [message, setMessage] = useState("");
@@ -105,6 +106,18 @@ function VisitEditor({
   }
   const staleDraft = visit.version > baseline.version;
   const openIssues = issues.filter((issue) => !issue.resolved).length;
+  function openWhatsapp(current: QueueVisit) {
+    const url = driverCallWhatsapp(current);
+    if (!url) {
+      setWhatsappNotice("Chamada registrada. O telefone do motorista é inválido ou está ausente. Confira o número e faça o contato com ele; a chamada continua registrada.");
+      return;
+    }
+    const popup = window.open("about:blank", "_blank");
+    if (popup) { popup.opener = null; popup.location.href = url; }
+    setWhatsappNotice(popup
+      ? "Conversa aberta com a mensagem preparada. Confira e envie pelo WhatsApp."
+      : "Chamada registrada. O navegador bloqueou a abertura do WhatsApp. Use Abrir conversa no WhatsApp para continuar.");
+  }
   async function run(command: QueueCommand) {
     if (inFlight.current) return null;
     inFlight.current = true;
@@ -124,6 +137,7 @@ function VisitEditor({
         resetForm(saved);
         setMessage("Alterações salvas.");
       }
+      if (command.kind === "TRANSITION" && command.toStatus === "CHAMADO") openWhatsapp(saved);
       return saved;
     } catch (error) {
       setError(
@@ -523,6 +537,12 @@ function VisitEditor({
               : "A entrada em descarga será registrada quando o operador salvar o lançamento vinculado."}
           </p>
         )}
+        {!customer && visit.status === "CHAMADO" && <div className="q-whatsapp">
+          {driverCallWhatsapp(visit) ? <a className="btn-soft" href={driverCallWhatsapp(visit)!} target="_blank" rel="noreferrer">Abrir conversa no WhatsApp</a>
+            : <p className="q-help">Confira o telefone do motorista para abrir a conversa. A chamada está registrada.</p>}
+          <p className="q-help">A mensagem fica preparada. O envio é feito por você no WhatsApp.</p>
+          {whatsappNotice && <p className="q-notice" role="status">{whatsappNotice}</p>}
+        </div>}
         <p className="q-last">
           Última alteração: {visit.updatedBy || "Sistema"} ·{" "}
           {date(visit.updatedAtIso)}

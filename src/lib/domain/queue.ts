@@ -190,6 +190,13 @@ export function queueMatchesSearch(visit: QueueVisit, query: string) {
   const plate = visit.plate.replace(/[-\s]/g, "").toLocaleLowerCase("pt-BR");
   return text.includes(search) || Boolean(plateQuery && plate.includes(plateQuery));
 }
+export function driverCallWhatsapp(visit: Pick<QueueVisit, "driverPhone" | "driverName" | "plate">) {
+  let phone = (visit.driverPhone ?? "").replace(/\D/g, "");
+  if (phone.length === 10 || phone.length === 11) phone = `55${phone}`;
+  if (!/^55[1-9][0-9](?:[2-5][0-9]{7}|9[0-9]{8})$/.test(phone)) return null;
+  const text = `Olá, ${visit.driverName}. Aqui é da Line Transportes. O veículo ${visit.plate} foi chamado. Por favor, apresente-se à equipe da Line para receber as orientações de descarga.`;
+  return `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
+}
 export function queueIssueAction(command: QueueCommand) {
   if (command.kind === "ISSUE_ADD") return "Pendência adicionada";
   if (command.kind === "ISSUE_DELETE") return "Pendência excluída";

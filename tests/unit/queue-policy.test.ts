@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyQueueCommand, assertSharedFieldLimits, queueMatchesSearch, type QueueVisit } from "@/lib/domain/queue";
+import { applyQueueCommand, assertSharedFieldLimits, driverCallWhatsapp, queueMatchesSearch, type QueueVisit } from "@/lib/domain/queue";
 const visit = {
   id: "visit", plate: "ABC-1D23", driverName: "Motorista Demo", publicCode: "DEMO-01", booking: "BK TESTE",
   sample: "", observation: "", product: "Glicerina", clientName: "ALLOG", clientId: "allog", status: "AGUARDANDO_LIBERACAO",
@@ -35,5 +35,15 @@ describe("queue policy", () => {
   });
   it("does not permit customer issue commands", () => {
     expect(() => applyQueueCommand(visit, { kind: "ISSUE_DELETE", issueId: "old" }, clients, clients[0])).toThrow(/não pode/);
+  });
+  it("opens only a conversation with the approved message and valid Brazilian phone", () => {
+    const result = driverCallWhatsapp({ ...visit, driverPhone: "+55 (13) 99652-4561" });
+    const url = new URL(result!);
+    expect(url.origin + url.pathname).toBe("https://wa.me/5513996524561");
+    expect(url.searchParams.get("text")).toBe("Olá, Motorista Demo. Aqui é da Line Transportes. O veículo ABC-1D23 foi chamado. Por favor, apresente-se à equipe da Line para receber as orientações de descarga.");
+    expect(driverCallWhatsapp({ ...visit, driverPhone: "13996524561" })).toBe(result);
+    expect(driverCallWhatsapp({ ...visit, driverPhone: "1323456789" })).toContain("551323456789");
+    expect(driverCallWhatsapp({ ...visit, driverPhone: "00000000000" })).toBeNull();
+    expect(driverCallWhatsapp(visit)).toBeNull();
   });
 });

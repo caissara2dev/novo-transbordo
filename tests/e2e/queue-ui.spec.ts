@@ -243,3 +243,33 @@ test("plate search accepts separators and short shared-field counters preserve c
   await page.locator(".q-toolbar select").nth(1).selectOption("CHAMADO");
   await expect(page.getByRole("heading", { name: "ABC-1D23", exact: true })).toHaveCount(0);
 });
+
+test("WhatsApp opens only after a saved call, and a blocked popup keeps the call with a manual link", async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as any).whatsappOpens = [];
+    window.open = ((...args: unknown[]) => { (window as any).whatsappOpens.push(args); return null; }) as typeof window.open;
+  });
+  const state = await interactiveQueue(page, { status: "AGUARDANDO_CHAMADA" });
+  state.fail(true);
+  await page.getByRole("button", { name: "Chamar motorista", exact: true }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "Não foi possível salvar" })).toBeVisible();
+  expect(await page.evaluate(() => (window as any).whatsappOpens.length)).toBe(0);
+  state.fail(false);
+  await page.getByRole("button", { name: "Chamar motorista", exact: true }).click();
+  await expect(page.getByRole("status").filter({ hasText: "navegador bloqueou" })).toBeVisible();
+  expect(state.get().status).toBe("CHAMADO");
+  expect(await page.evaluate(() => (window as any).whatsappOpens.length)).toBe(1);
+  const link = page.getByRole("link", { name: "Abrir conversa no WhatsApp", exact: true });
+  const url = new URL((await link.getAttribute("href"))!);
+  expect(url.origin + url.pathname).toBe("https://wa.me/5513996524561");
+  expect(url.searchParams.get("text")).toBe("Olá, Motorista demonstração. Aqui é da Line Transportes. O veículo ABC-1D23 foi chamado. Por favor, apresente-se à equipe da Line para receber as orientações de descarga.");
+});
+
+test("an invalid phone gives guidance after the call without opening WhatsApp or reverting status", async ({ page }) => {
+  await page.addInitScript(() => { window.open = (() => { throw new Error("Should not open"); }) as typeof window.open; });
+  const state = await interactiveQueue(page, { status: "AGUARDANDO_CHAMADA", driverPhone: "000000" });
+  await page.getByRole("button", { name: "Chamar motorista", exact: true }).click();
+  await expect(page.getByRole("status").filter({ hasText: "telefone do motorista é inválido" })).toBeVisible();
+  expect(state.get().status).toBe("CHAMADO");
+  await expect(page.getByRole("link", { name: "Abrir conversa no WhatsApp", exact: true })).toHaveCount(0);
+});

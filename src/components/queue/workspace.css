@@ -633,3 +633,4 @@
 .q-issue-confirm { flex-basis: 100%; padding: 12px; background: #f2f7f6; border: 1px solid #c9d7d7; border-radius: 6px; }
 .q-issue-confirm p { margin: 0 0 10px; }
 .q-issue-confirm button + button { margin-left: 8px; }
+.q-whatsapp { margin: 14px 0; }
