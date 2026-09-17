@@ -7,6 +7,7 @@ import {
   applyQueueCommand,
   publicCustomerVisit,
   closedVisit,
+  queueIssueAction,
 } from "@/lib/domain/queue";
 import type {
   QueueClient,
@@ -29,16 +30,9 @@ const idSchema = z
   .regex(/^[^/]+$/);
 const sharedSchema = z
   .object({
-    booking: z.string().max(1000),
-    sample: z.string().max(500),
-    observation: z.string().max(2000),
-  })
-  .strict();
-const issueSchema = z
-  .object({
-    id: idSchema,
-    description: z.string().trim().min(1).max(500),
-    resolved: z.boolean(),
+    booking: z.string(),
+    sample: z.string(),
+    observation: z.string(),
   })
   .strict();
 const correctionSchema = z
@@ -64,15 +58,11 @@ export const queueCommandSchema = z
           kind: z.literal("CLASSIFY"),
           clientId: z.union([idSchema, z.literal("")]),
           shared: sharedSchema,
-          issues: z
-            .array(issueSchema)
-            .max(50)
-            .refine(
-              (items) => new Set(items.map((i) => i.id)).size === items.length,
-              "Pendências duplicadas.",
-            ),
         })
         .strict(),
+      z.object({ kind: z.literal("ISSUE_ADD"), issue: z.object({ id: idSchema, description: z.string().trim().min(1).max(500) }).strict() }).strict(),
+      z.object({ kind: z.literal("ISSUE_SET_STATE"), issueId: idSchema, resolved: z.boolean() }).strict(),
+      z.object({ kind: z.literal("ISSUE_DELETE"), issueId: idSchema }).strict(),
       z.object({ kind: z.literal("SHARED"), shared: sharedSchema }).strict(),
       z
         .object({
@@ -315,7 +305,6 @@ export async function mutateQueue(actor: QueueActor, id: string, raw: unknown) {
             booking: after.booking,
             sample: after.sample,
             observation: after.observation,
-            issues: after.issues ?? [],
             usesSample: after.usesSample,
           }
         : command.kind === "SHARED"
@@ -324,9 +313,11 @@ export async function mutateQueue(actor: QueueActor, id: string, raw: unknown) {
               sample: after.sample,
               observation: after.observation,
             }
-          : { status: after.status, ...(after.status === "CONCLUIDO" ? {
-              closedAtIso: now, documentExpiresAtIso: documentDeadline(now), documentRetentionReviewRequired: false,
-            } : {}) };
+          : command.kind === "ISSUE_ADD" || command.kind === "ISSUE_SET_STATE" || command.kind === "ISSUE_DELETE"
+            ? { issues: after.issues ?? [] }
+            : { status: after.status, ...(after.status === "CONCLUIDO" ? {
+                closedAtIso: now, documentExpiresAtIso: documentDeadline(now), documentRetentionReviewRequired: false,
+              } : {}) };
     const changedFields = Object.keys(patch).filter(
       (k) =>
         JSON.stringify(stored[k as keyof RecordData]) !==
@@ -347,11 +338,11 @@ export async function mutateQueue(actor: QueueActor, id: string, raw: unknown) {
       action:
         command.kind === "TRANSITION"
           ? "Status alterado"
-          : "Informações atualizadas",
+          : queueIssueAction(command) ?? "Informações atualizadas",
       actor: actorName,
       actorUid: actor.uid,
       actorRole: profile.role,
-      changedFields,
+      changedFields: queueIssueAction(command) ? [...changedFields, `Pendência: ${command.kind === "ISSUE_ADD" ? command.issue.description : before.issues?.find((issue) => "issueId" in command && issue.id === command.issueId)?.description ?? ""}`] : changedFields,
       previousVersion: stored.version,
       newVersion: stored.version + 1,
       createdAtIso: now,

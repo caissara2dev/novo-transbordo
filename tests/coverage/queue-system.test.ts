@@ -292,9 +292,6 @@ describe("customer boundaries and audited collaboration", () => {
         kind: "CLASSIFY",
         clientId: "allog",
         shared,
-        issues: [
-          { id: "doc", description: "Documento pendente", resolved: false },
-        ],
       },
     });
     expect(db.read("checkins", id)?.status).toBe("AGUARDANDO_LIBERACAO");
@@ -309,7 +306,7 @@ describe("customer boundaries and audited collaboration", () => {
     seed();
     await mutateQueue(analyst, id, {
       expectedVersion: 2,
-      command: { kind: "CLASSIFY", clientId: "other", shared, issues: [] },
+      command: { kind: "CLASSIFY", clientId: "other", shared },
     });
     expect(db.read("checkins", id)).toMatchObject({
       clientId: "other",
@@ -572,5 +569,47 @@ it("paginates equal-timestamp visits without missing or repeating a row", async 
   );
   await expect(listQueuePage(customer, "missing")).rejects.toMatchObject({
     status: 400,
+  });
+});
+
+describe("immediate issue commands and short shared fields", () => {
+  it("persists add, resolve, reopen and delete with author/description while preserving shared fields", async () => {
+    seed();
+    const added = await mutateQueue(analyst, id, { expectedVersion: 2, command: { kind: "ISSUE_ADD", issue: { id: "nf2", description: "Solicitar outra nota" } } });
+    expect(added).toMatchObject({ version: 3, booking: "BK", status: "AGUARDANDO_LIBERACAO" });
+    expect(added.issues).toHaveLength(2);
+    expect(added.revisions![0]).toMatchObject({ action: "Pendência adicionada", actor: "ANALYST", fields: ["issues", "Pendência: Solicitar outra nota"] });
+    const resolved = await mutateQueue(analyst, id, { expectedVersion: 3, command: { kind: "ISSUE_SET_STATE", issueId: "nf2", resolved: true } });
+    expect(resolved.issues!.find((item) => item.id === "nf2")?.resolved).toBe(true);
+    const reopened = await mutateQueue(analyst, id, { expectedVersion: 4, command: { kind: "ISSUE_SET_STATE", issueId: "nf2", resolved: false } });
+    expect(reopened.issues!.find((item) => item.id === "nf2")?.resolved).toBe(false);
+    const deleted = await mutateQueue(analyst, id, { expectedVersion: 5, command: { kind: "ISSUE_DELETE", issueId: "nf2" } });
+    expect(deleted.issues).toHaveLength(1);
+    expect(deleted.revisions!.find((item) => item.action === "Pendência excluída")?.fields).toContain("Pendência: Solicitar outra nota");
+    expect(deleted.booking).toBe("BK");
+  });
+  it("rejects stale issue writes, customer deletes and classification issue arrays", async () => {
+    seed();
+    await expect(mutateQueue(analyst, id, { expectedVersion: 1, command: { kind: "ISSUE_DELETE", issueId: "doc" } })).rejects.toMatchObject({ status: 409 });
+    await expect(mutateQueue(customer, id, { expectedVersion: 2, command: { kind: "ISSUE_DELETE", issueId: "doc" } })).rejects.toMatchObject({ status: 403 });
+    expect(queueCommandSchema.safeParse({ expectedVersion: 2, command: { kind: "CLASSIFY", clientId: "allog", shared, issues: [] } }).success).toBe(false);
+    expect(db.read("checkins", id)?.issues).toHaveLength(1);
+    expect(db.read("checkins", id)?.version).toBe(2);
+  });
+  it("enforces new limits server-side but leaves unchanged legacy data intact", async () => {
+    const legacy = { booking: "b".repeat(120), sample: "s".repeat(150), observation: "o".repeat(500) };
+    seed(legacy);
+    await mutateQueue(analyst, id, { expectedVersion: 2, command: { kind: "SHARED", shared: { ...legacy, sample: "OK" } } });
+    expect(db.read("checkins", id)).toMatchObject({ ...legacy, sample: "OK", version: 3 });
+    await expect(mutateQueue(analyst, id, { expectedVersion: 3, command: { kind: "SHARED", shared: { ...legacy, sample: "OK", booking: "new".repeat(34) } } })).rejects.toMatchObject({ status: 409 });
+    expect(db.read("checkins", id)?.booking).toBe(legacy.booking);
+  });
+  it("records an explicit closing date and document deadline without exposing them to customer", async () => {
+    seed({ status: "EM_DESCARGA", issues: [] });
+    const result = await mutateQueue(analyst, id, { expectedVersion: 2, command: { kind: "TRANSITION", toStatus: "CONCLUIDO" } });
+    expect(result.closedAtIso).toBeTruthy(); expect(result.documentExpiresAtIso).toBeTruthy();
+    expect(db.read("checkins", id)?.documentRetentionReviewRequired).toBe(false);
+    const customerView = await getQueueVisit(customer, id);
+    expect(customerView).not.toHaveProperty("closedAtIso"); expect(customerView).not.toHaveProperty("documentExpiresAtIso");
   });
 });

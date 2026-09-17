@@ -2,16 +2,15 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { DriverCheckinForm } from "@/lib/domain/checkins";
-import { closedVisit, queueLabels } from "@/lib/domain/queue";
+import { closedVisit, queueLabels, queueMatchesSearch, queueIssueAction } from "@/lib/domain/queue";
 import type {
   QueueClient,
   QueueCommand as DomainCommand,
-  QueueIssue,
   QueueVisit,
 } from "@/lib/domain/queue";
 import "../src/components/queue/workspace.css";
 import "./workspace.css";
-export type PrototypeCommand = DomainCommand | { kind: "ISSUES"; issues: QueueIssue[] };
+export type PrototypeCommand = DomainCommand;
 
 type Props = {
   renderVisitSupplement?: (visit: QueueVisit) => ReactNode;
@@ -62,6 +61,7 @@ function VisitEditor({
   });
   const issues = visit.issues ?? [];
   const [newIssue, setNewIssue] = useState("");
+  const [deletingIssue, setDeletingIssue] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
@@ -100,8 +100,9 @@ function VisitEditor({
         setShared({ booking: updated.booking, sample: updated.sample, observation: updated.observation });
         setClientId(updated.clientId ?? "");
       }
-      if (command.kind === "ISSUES") setNewIssue("");
-      setMessage(command.kind === "ISSUES" ? "Pendência salva. Outros campos em edição não foram alterados." : "Alterações salvas.");
+      if (command.kind === "ISSUE_ADD") setNewIssue("");
+      if (command.kind === "ISSUE_DELETE") setDeletingIssue(null);
+      setMessage(queueIssueAction(command) ? "Pendência salva. Outros campos em edição não foram alterados." : "Alterações salvas.");
     } catch (error) {
       setError(
         error instanceof Error
@@ -116,7 +117,7 @@ function VisitEditor({
     run(
       customer
         ? { kind: "SHARED", shared }
-        : { kind: "CLASSIFY", clientId, shared, issues },
+        : { kind: "CLASSIFY", clientId, shared },
     );
   return (
     <section
@@ -229,28 +230,26 @@ function VisitEditor({
             <h3>
               Pendências internas <span>{openIssues} em aberto</span>
             </h3>
-            <p className="q-help q-issue-hint">Adicionar ou marcar como resolvida salva a pendência na hora.</p>
+            <p className="q-help q-issue-hint">Adicionar, resolver, reabrir e excluir salva a pendência na hora.</p>
             <div className="q-issues">
               {issues.map((issue) => (
-                <label
-                  key={issue.id}
-                  className={`q-issue ${issue.resolved ? "q-resolved" : ""}`}
-                >
-                  <input
-                    type="checkbox"
-                    disabled={pending}
-                    checked={issue.resolved}
-                    onChange={(e) =>
-                      void run({ kind: "ISSUES", issues: issues.map((item) =>
-                          item.id === issue.id
-                            ? { ...item, resolved: e.target.checked }
-                            : item,
-                        ) })
-                    }
-                  />
-                  <span>{issue.description}</span>
+                <div key={issue.id} className={`q-issue ${issue.resolved ? "q-resolved" : ""}`}>
+                  <label>
+                    <input type="checkbox" checked={issue.resolved} disabled={pending}
+                      aria-label={`${issue.resolved ? "Reabrir" : "Resolver"} pendência: ${issue.description}`}
+                      onChange={(e) => void run({ kind: "ISSUE_SET_STATE", issueId: issue.id, resolved: e.target.checked })} />
+                    <span>{issue.description}</span>
+                  </label>
                   <small>{issue.resolved ? "Resolvida" : "Em aberto"}</small>
-                </label>
+                  <button type="button" className="q-link" disabled={pending}
+                    aria-label={`Excluir pendência: ${issue.description}`}
+                    onClick={() => { setDeletingIssue(issue.id); setError(""); setMessage(""); }}>Excluir</button>
+                  {deletingIssue === issue.id && <div className="q-issue-confirm" role="group" aria-label="Confirmar exclusão da pendência">
+                    <p>Excluir “{issue.description}”? O registro desta alteração ficará no histórico.</p>
+                    <button type="button" disabled={pending} onClick={() => void run({ kind: "ISSUE_DELETE", issueId: issue.id })}>Confirmar exclusão</button>
+                    <button type="button" className="btn-soft" disabled={pending} onClick={() => setDeletingIssue(null)}>Cancelar</button>
+                  </div>}
+                </div>
               ))}
               {!issues.length && (
                 <p className="q-help">Nenhuma pendência registrada.</p>
@@ -261,9 +260,7 @@ function VisitEditor({
               onSubmit={(e) => {
                 e.preventDefault();
                 if (newIssue.trim()) {
-                  void run({ kind: "ISSUES", issues: [...issues, {
-                    id: crypto.randomUUID(), description: newIssue.trim(), resolved: false,
-                  }] });
+                  void run({ kind: "ISSUE_ADD", issue: { id: crypto.randomUUID(), description: newIssue.trim() } });
                 }
               }}
             >
@@ -535,18 +532,8 @@ export function QueueWorkspace({
   const filtered = useMemo(
     () =>
       visits.filter((v) => {
-        const text = [
-          v.plate,
-          v.driverName,
-          v.publicCode,
-          v.booking,
-          v.clientName,
-          v.product,
-        ]
-          .join(" ")
-          .toLocaleLowerCase("pt-BR");
         return (
-          text.includes(query.trim().toLocaleLowerCase("pt-BR")) &&
+          queueMatchesSearch(v, query) &&
           (!clientFilter || v.clientId === clientFilter) &&
           (!status || v.status === status) &&
           (tab === "HISTORY"

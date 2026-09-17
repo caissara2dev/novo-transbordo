@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { DriverCheckinForm } from "@/lib/domain/checkins";
-import { closedVisit, queueLabels } from "@/lib/domain/queue";
+import { closedVisit, queueLabels, sharedFieldLimits, queueMatchesSearch, queueIssueAction } from "@/lib/domain/queue";
 import type {
   QueueClient,
   QueueCommand,
-  QueueIssue,
   QueueVisit,
 } from "@/lib/domain/queue";
 import "./workspace.css";
@@ -58,7 +57,7 @@ const correctionFields = (visit: QueueVisit): Partial<DriverCheckinForm> => ({
 // to any business field must retain the old version for optimistic concurrency.
 const formSource = (visit: QueueVisit) => JSON.stringify({
   clientId: visit.clientId, status: visit.status, shared: sharedFields(visit),
-  issues: visit.issues ?? [], correction: correctionFields(visit),
+  correction: correctionFields(visit),
 });
 
 function VisitEditor({
@@ -73,7 +72,9 @@ function VisitEditor({
   const [observedVisit, setObservedVisit] = useState(visit);
   const [clientId, setClientId] = useState(visit.clientId ?? "");
   const [shared, setShared] = useState(() => sharedFields(visit));
-  const [issues, setIssues] = useState<QueueIssue[]>(visit.issues ?? []);
+  const issues = visit.issues ?? [];
+  const [deletingIssue, setDeletingIssue] = useState<string | null>(null);
+  const inFlight = useRef(false);
   const [newIssue, setNewIssue] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -85,15 +86,13 @@ function VisitEditor({
   const client = clients.find((item) => item.id === clientId);
   const dirty =
     clientId !== (baseline.clientId ?? "") ||
-    JSON.stringify(shared) !== JSON.stringify(sharedFields(baseline)) ||
-    JSON.stringify(issues) !== JSON.stringify(baseline.issues ?? []);
+    JSON.stringify(shared) !== JSON.stringify(sharedFields(baseline));
   const hasDraft = dirty || Boolean(newIssue || reason) ||
     JSON.stringify(correction) !== JSON.stringify(correctionFields(baseline));
   function resetForm(current: QueueVisit) {
     setBaseline(current);
     setClientId(current.clientId ?? "");
     setShared(sharedFields(current));
-    setIssues(current.issues ?? []);
     setCorrection(correctionFields(current));
     setReason("");
   }
@@ -107,29 +106,44 @@ function VisitEditor({
   const staleDraft = visit.version > baseline.version;
   const openIssues = issues.filter((issue) => !issue.resolved).length;
   async function run(command: QueueCommand) {
+    if (inFlight.current) return null;
+    inFlight.current = true;
     setPending(true);
     setError("");
     setMessage("");
     try {
-      const saved = await onCommand(visit.id, baseline.version, command);
-      resetForm(saved);
-      setMessage("Alterações salvas.");
+      const immediate = Boolean(queueIssueAction(command));
+      const saved = await onCommand(visit.id, immediate ? visit.version : baseline.version, command);
+      if (immediate) {
+        // These actions persist only issues, never the analyst's unsaved classification.
+        if (formSource(saved) === formSource(baseline)) setBaseline(saved);
+        if (command.kind === "ISSUE_ADD") setNewIssue("");
+        if (command.kind === "ISSUE_DELETE") setDeletingIssue(null);
+        setMessage(`${queueIssueAction(command)}. Os demais campos em edição foram mantidos.`);
+      } else {
+        resetForm(saved);
+        setMessage("Alterações salvas.");
+      }
+      return saved;
     } catch (error) {
       setError(
         error instanceof Error
           ? error.message
           : "Não foi possível salvar. Seu preenchimento foi mantido.",
       );
+      return null;
     } finally {
-      setPending(false);
+      inFlight.current = false; setPending(false);
     }
   }
   const save = () =>
     run(
       customer
         ? { kind: "SHARED", shared }
-        : { kind: "CLASSIFY", clientId, shared, issues },
+        : { kind: "CLASSIFY", clientId, shared },
     );
+  const invalidShared = (Object.keys(sharedFieldLimits) as (keyof typeof sharedFieldLimits)[])
+    .some((field) => shared[field] !== baseline[field] && shared[field].length > sharedFieldLimits[field]);
   return (
     <section
       className="q-detail"
@@ -334,19 +348,24 @@ function VisitEditor({
             <label>
               Booking
               <input
-                maxLength={1000}
+                aria-label="Booking"
+                aria-describedby="q-booking-count"
+                maxLength={100}
                 value={shared.booking}
                 onChange={(e) =>
                   setShared({ ...shared, booking: e.target.value })
                 }
                 placeholder="Informe o booking"
               />
+              <small id="q-booking-count" className="q-field-count">{shared.booking.length}/100 caracteres</small>
             </label>
             {(!customer || customer.usesSample) && (
               <label>
                 Amostra
                 <input
-                  maxLength={500}
+                  aria-label="Amostra"
+                  aria-describedby="q-sample-count"
+                  maxLength={100}
                   value={shared.sample}
                   onChange={(e) =>
                     setShared({ ...shared, sample: e.target.value })
@@ -357,13 +376,15 @@ function VisitEditor({
                       : "Ex.: OK"
                   }
                 />
+                <small id="q-sample-count" className="q-field-count">{shared.sample.length}/100 caracteres</small>
               </label>
             )}
             <label className="q-wide">
               Observação
               <textarea
                 aria-label="Observação"
-                maxLength={2000}
+                aria-describedby="q-observation-count"
+                maxLength={300}
                 rows={3}
                 value={shared.observation}
                 onChange={(e) =>
@@ -371,8 +392,10 @@ function VisitEditor({
                 }
                 placeholder="Informações sobre esta carga"
               />
+              <small id="q-observation-count" className="q-field-count">{shared.observation.length}/300 caracteres</small>
             </label>
           </fieldset>
+          {invalidShared && <p className="q-error" role="alert">Ao alterar um valor antigo, use até 100 caracteres em Booking/Amostra e 300 em Observação. Valores antigos mantidos sem alteração podem ser salvos.</p>}
           {(!customer || customer.usesSample) && (
             <p className="q-help">
               Amostra “OK” indica aprovação da amostra. A liberação é uma
@@ -390,28 +413,26 @@ function VisitEditor({
             <h3>
               Pendências internas <span>{openIssues} em aberto</span>
             </h3>
+            <p className="q-help">Adicionar, resolver, reabrir e excluir salva a pendência na hora.</p>
             <div className="q-issues">
               {issues.map((issue) => (
-                <label
-                  key={issue.id}
-                  className={`q-issue ${issue.resolved ? "q-resolved" : ""}`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={issue.resolved}
-                    onChange={(e) =>
-                      setIssues(
-                        issues.map((item) =>
-                          item.id === issue.id
-                            ? { ...item, resolved: e.target.checked }
-                            : item,
-                        ),
-                      )
-                    }
-                  />
-                  <span>{issue.description}</span>
+                <div key={issue.id} className={`q-issue ${issue.resolved ? "q-resolved" : ""}`}>
+                  <label>
+                    <input type="checkbox" checked={issue.resolved} disabled={pending}
+                      aria-label={`${issue.resolved ? "Reabrir" : "Resolver"} pendência: ${issue.description}`}
+                      onChange={(e) => void run({ kind: "ISSUE_SET_STATE", issueId: issue.id, resolved: e.target.checked })} />
+                    <span>{issue.description}</span>
+                  </label>
                   <small>{issue.resolved ? "Resolvida" : "Em aberto"}</small>
-                </label>
+                  <button type="button" className="q-link" disabled={pending}
+                    aria-label={`Excluir pendência: ${issue.description}`}
+                    onClick={() => { setDeletingIssue(issue.id); setError(""); setMessage(""); }}>Excluir</button>
+                  {deletingIssue === issue.id && <div className="q-issue-confirm" role="group" aria-label="Confirmar exclusão da pendência">
+                    <p>Excluir “{issue.description}”? O registro desta alteração ficará no histórico.</p>
+                    <button type="button" disabled={pending} onClick={() => void run({ kind: "ISSUE_DELETE", issueId: issue.id })}>Confirmar exclusão</button>
+                    <button type="button" className="btn-soft" disabled={pending} onClick={() => setDeletingIssue(null)}>Cancelar</button>
+                  </div>}
+                </div>
               ))}
               {!issues.length && (
                 <p className="q-help">Nenhuma pendência registrada.</p>
@@ -421,17 +442,9 @@ function VisitEditor({
               className="q-add-issue"
               onSubmit={(e) => {
                 e.preventDefault();
-                if (newIssue.trim()) {
-                  setIssues([
-                    ...issues,
-                    {
-                      id: crypto.randomUUID(),
-                      description: newIssue.trim(),
-                      resolved: false,
-                    },
-                  ]);
-                  setNewIssue("");
-                }
+                if (newIssue.trim()) void run({ kind: "ISSUE_ADD", issue: {
+                  id: crypto.randomUUID(), description: newIssue.trim(),
+                } });
               }}
             >
               <input
@@ -461,7 +474,7 @@ function VisitEditor({
           {!readOnly && (
             <button
               className="q-primary"
-              disabled={pending || !dirty}
+              disabled={pending || !dirty || invalidShared}
               onClick={() => void save()}
             >
               {pending ? "Salvando…" : "Salvar alterações"}
@@ -479,7 +492,7 @@ function VisitEditor({
           )}
           {!customer && visit.status === "AGUARDANDO_CHAMADA" && (
             <button
-              disabled={pending || dirty || openIssues > 0}
+              disabled={pending || dirty || openIssues > 0 || isReleaseBlocked?.(visit)}
               onClick={() =>
                 void run({ kind: "TRANSITION", toStatus: "CHAMADO" })
               }
@@ -561,18 +574,8 @@ export function QueueWorkspace({
   const filtered = useMemo(
     () =>
       visits.filter((v) => {
-        const text = [
-          v.plate,
-          v.driverName,
-          v.publicCode,
-          v.booking,
-          v.clientName,
-          v.product,
-        ]
-          .join(" ")
-          .toLocaleLowerCase("pt-BR");
         return (
-          text.includes(query.trim().toLocaleLowerCase("pt-BR")) &&
+          queueMatchesSearch(v, query) &&
           (!clientFilter || v.clientId === clientFilter) &&
           (!status || v.status === status) &&
           (tab === "HISTORY"

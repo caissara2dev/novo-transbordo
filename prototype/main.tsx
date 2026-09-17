@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { QueueWorkspace, type PrototypeCommand } from "./workspace";
 import {
   applyQueueCommand,
+  queueIssueAction,
   publicCustomerVisit,
   queueCsv,
 } from "../src/lib/domain/queue";
@@ -148,8 +149,7 @@ function Demo() {
         "Outra pessoa alterou esta visita. Seu preenchimento foi mantido. Use Atualizar para carregar a versão atual e reaplicar sua alteração.",
       );
     if (action.kind === "TRANSITION" && ["AGUARDANDO_CHAMADA", "CHAMADO"].includes(action.toStatus) && !invoices.hasDocument(id)) throw new Error("Documento pendente: anexe a nota antes de liberar ou chamar.");
-    if (action.kind === "ISSUES" && customer) throw new Error("Pendências são exclusivas da Line.");
-    const updated = action.kind === "ISSUES" ? {...before, issues: action.issues} : applyQueueCommand(before, action, clients, customer);
+    const updated = applyQueueCommand(before, action, clients, customer);
     const now = new Date().toISOString();
     database.current = database.current.map((v) =>
       v.id !== id
@@ -165,13 +165,13 @@ function Demo() {
                 action:
                   action.kind === "TRANSITION"
                     ? "Status alterado"
-                    : action.kind === "ISSUES" ? "Pendências atualizadas" : "Informações atualizadas",
+                    : queueIssueAction(action) ?? "Informações atualizadas",
                 actor: customer ? customer.name : "Analista Line",
                 at: now,
                 fields:
                   action.kind === "SHARED"
                     ? ["Booking", "Amostra", "Observação"]
-                    : [action.kind === "ISSUES" ? "Pendências internas" : action.kind],
+                    : [queueIssueAction(action) ? `Pendência: ${action.kind === "ISSUE_ADD" ? action.issue.description : before.issues?.find((issue) => "issueId" in action && issue.id === action.issueId)?.description ?? ""}` : action.kind],
               },
               ...(v.revisions ?? []),
             ],
