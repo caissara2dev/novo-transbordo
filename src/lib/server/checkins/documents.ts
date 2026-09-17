@@ -19,6 +19,7 @@ export const documentCommandSchema = z.discriminatedUnion("action", [
 export type DocumentCommand = z.infer<typeof documentCommandSchema>;
 type Attempt = { id:string; object:string; name:string; size:number; state:"starting"|"uploading"|"failed"|"received"; uploadUrl?:string };
 type Session = {
+  purpose?: string;
   identityHash:string; operation:"confirm"|"walk-in"; publicCode:string|null;
   createdAt:number; expiresAt:number; state:"open"|"linked"|"deleting"|"deleted";
   failures:number; attempts:Record<string,Attempt>; current:VisitDocument["current"];
@@ -40,7 +41,7 @@ function fingerprint(identity:z.infer<typeof identitySchema>,secret:string) {
   return createHmac("sha256",secret).update(JSON.stringify(normalizeIdentityInput(identity))).digest("hex");
 }
 function requireOpen(s:Session|undefined) {
-  if (!s || s.state !== "open" || s.expiresAt <= Date.now()) throw new HttpError(409,"Sessão da nota expirada ou já utilizada. Inicie um novo envio.");
+  if (!s || s.purpose || s.state !== "open" || s.expiresAt <= Date.now()) throw new HttpError(409,"Sessão da nota expirada ou já utilizada. Inicie um novo envio.");
   return s;
 }
 function summary(id:string,s:Session,attempt?:Attempt) {

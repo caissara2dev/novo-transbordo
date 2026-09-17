@@ -22,6 +22,7 @@ A pasta `src` do sistema foi comparada com o snapshot local utilizado no último
 - Confirmação de chegada gravada no sistema, sem dependência obrigatória de Excel.
 - GPS pontual e registro documental por visita; original privado, prévia de imagem, consulta/download pela Line.
 - Exceção documental após falhas verificadas e bloqueio de liberação/chamada quando falta documento.
+- Complemento real de nota pendente pela Line, com envio privado, auditoria e rascunho de classificação preservado. Ver [contrato e homologação do complemento](CHECKIN_ANEXO_INTERNO.md).
 - Vínculo com lançamento salvo para iniciar descarga; CSV filtrado independente da confirmação.
 - Portal público com código/sem código, recuperação/consulta e ajustes feitos após o feedback Android.
 
@@ -41,7 +42,7 @@ A cobertura inicia o Firestore Emulator na porta 8188 e executa a suíte documen
 
 ## Pendências antes de produção
 
-- Complemento/substituição do documento pela Line e exclusão manual com as permissões aprovadas. A exceção sem nota não tem ainda um fluxo interno completo para resolver o bloqueio.
+- Substituição do documento pela Line e exclusão manual com as permissões aprovadas. O complemento de nota pendente está implementado nesta branch; os resultados da implantação de homologação ficam registrados na issue #33/PR #35.
 - Retenção: versões substituídas por 90 dias e documento atual por 12 meses após conclusão/cancelamento; histórico textual preservado com a visita.
 - Últimos ajustes de UI/UX, incluindo revisão da administração de acessos e das ações operacionais em relação ao protótipo aprovado.
 - Homologação completa de permissões entre empresas, concorrência, falhas de rede, GPS real, câmera/galeria/PDF e compatibilidade com lançamentos existentes.

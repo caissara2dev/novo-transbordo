@@ -40,7 +40,15 @@ export function LiveQueue({ customer = false }: { customer?: boolean }) {
           );
         if (cursor) seen.add(cursor);
       } while (cursor);
-      setVisits([...new Map(items.map((v) => [v.id, v])).values()]);
+      setVisits((current) => [...new Map(items.map((v) => {
+        const existing = current.find((item) => item.id === v.id);
+        if (existing && existing.version > v.version) return [v.id, existing];
+        // Lists may omit private detail fields already inspected at this version.
+        return [v.id, existing?.version === v.version ? {
+          ...v, revisions: v.revisions ?? existing.revisions,
+          location: v.location ?? existing.location, document: v.document ?? existing.document,
+        } : v];
+      })).values()]);
       setClients(choices);
     },
     [base],
@@ -84,7 +92,12 @@ export function LiveQueue({ customer = false }: { customer?: boolean }) {
         body: JSON.stringify({ expectedVersion: version, command }),
       },
     );
-    setVisits((list) => list.map((v) => (v.id === item.id ? item : v)));
+    setVisits((list) => list.map((v) => (v.id === item.id && item.version >= v.version ? item : v)));
+    return item;
+  }
+  function documentReceived(item: QueueVisit) {
+    ++request.current;
+    setVisits((list) => list.map((v) => v.id === item.id && item.version >= v.version ? item : v));
   }
   const ownClient = customer
     ? clients.find((c) => c.id === profile?.clientId)
@@ -113,7 +126,12 @@ export function LiveQueue({ customer = false }: { customer?: boolean }) {
   return (
     <QueueWorkspace
       visits={visits}
-      renderVisitSupplement={customer?undefined:(visit)=><InvoiceSummary key={visit.id} visit={visit} />}
+      renderVisitSupplement={customer ? undefined : (visit) => <InvoiceSummary
+        key={visit.id}
+        visit={visit}
+        canAttach={Boolean(profile && ["ADMIN", "SUPERVISOR", "ANALYST"].includes(profile.role))}
+        onReceived={documentReceived}
+      />}
       isReleaseBlocked={(visit)=>documentBlocksCall(visit.document)}
       clients={clients}
       customer={ownClient}

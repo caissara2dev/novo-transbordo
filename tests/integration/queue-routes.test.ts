@@ -16,6 +16,7 @@ import {
   POST as grantAccess,
 } from "@/app/api/queue-access/route";
 import { GET as listCalled } from "@/app/api/checkins/called/route";
+import { POST as attachDocument } from "@/app/api/checkins/[id]/document/route";
 const req = (path: string, uid: string, body?: unknown) =>
   new NextRequest(`http://localhost${path}`, {
     method: body === undefined ? "GET" : "POST",
@@ -86,6 +87,21 @@ beforeEach(() => {
   });
 });
 describe("authenticated queue API", () => {
+  it.each(["customer", "operator", "display", "pending"])("denies %s internal invoice upload with a private error response", async(uid) => {
+    const id="66a2f3e0-22fb-4be5-9b87-5f927fbd8d63";
+    const response=await attachDocument(req(`/api/checkins/${id}/document`,uid,{action:"begin",operationId:"50d639aa-b2ba-4384-8846-c21585a504a7",expectedVersion:2,name:"demo.pdf",size:100}),{params:Promise.resolve({id})});
+    expect(response.status).toBe(403);
+    expect(response.headers.get("Cache-Control")).toContain("no-store");
+    expect(JSON.stringify(await response.json())).not.toContain("uploadUrl");
+  });
+  it("requires valid upload input and enabled queue before starting storage work", async()=>{
+    const id="66a2f3e0-22fb-4be5-9b87-5f927fbd8d63";
+    const context={params:Promise.resolve({id})};
+    expect((await attachDocument(req(`/api/checkins/${id}/document`,"analyst",{action:"delete"}),context)).status).toBe(400);
+    vi.stubEnv("CHECKIN_SYSTEM_RECORD_ENABLED","false");
+    const response=await attachDocument(req(`/api/checkins/${id}/document`,"analyst",{}),context);
+    expect(response.status).toBe(503);expect(response.headers.get("Cache-Control")).toContain("no-store");
+  });
   it("scopes a customer response and prevents private fields reaching the browser", async () => {
     const response = await listCustomer(
       req("/api/customer/checkins", "customer"),

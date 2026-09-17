@@ -5,6 +5,12 @@ Todas as alterações relevantes deste projeto serão registradas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o projeto usa
 [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## Não publicado — complemento interno de nota fiscal
+
+- Admin, supervisor e analista podem anexar foto/PDF à visita confirmada com nota pendente, preservando original privado, histórico e status operacional.
+- Envio retomável com validação no servidor, controle de concorrência e confirmação idempotente. A classificação em edição permanece preenchida ao receber o documento.
+- Homologação exclusiva do sistema acompanhada na issue #33/PR #35; substituição, exclusão e retenção continuam em etapas posteriores. Sem nova versão estável.
+
 ## Não publicado — consolidação do check-in V2
 
 - Fila e área do cliente, registro oficial no sistema e documentos por visita versionados para homologação.

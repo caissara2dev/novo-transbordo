@@ -22,7 +22,7 @@ type Props = {
     id: string,
     version: number,
     command: QueueCommand,
-  ) => Promise<void>;
+  ) => Promise<QueueVisit>;
   onInspect?: (id: string) => Promise<void>;
   onRefresh: () => Promise<void>;
   onExport: (visits: QueueVisit[]) => Promise<void>;
@@ -44,6 +44,23 @@ function Badge({ visit }: { visit: QueueVisit }) {
   );
 }
 
+const sharedFields = (visit: QueueVisit) => ({
+  booking: visit.booking, sample: visit.sample, observation: visit.observation,
+});
+const correctionFields = (visit: QueueVisit): Partial<DriverCheckinForm> => ({
+  driverName: visit.driverName, plate: visit.plate, carrierName: visit.carrierName,
+  product: visit.product, originPlant: visit.originPlant, vehicleType: visit.vehicleType,
+  originInvoiceNumbers: visit.originInvoiceNumbers, remittanceInvoiceNumber: visit.remittanceInvoiceNumber,
+  ...(visit.driverLicense ? { driverLicense: visit.driverLicense } : {}),
+  ...(visit.driverPhone ? { driverPhone: visit.driverPhone } : {}),
+});
+// Document/audit-only updates may advance the draft's version safely. A change
+// to any business field must retain the old version for optimistic concurrency.
+const formSource = (visit: QueueVisit) => JSON.stringify({
+  clientId: visit.clientId, status: visit.status, shared: sharedFields(visit),
+  issues: visit.issues ?? [], correction: correctionFields(visit),
+});
+
 function VisitEditor({
   visit,
   clients,
@@ -52,49 +69,50 @@ function VisitEditor({
   renderVisitSupplement,
   isReleaseBlocked,
 }: Pick<Props, "clients" | "customer" | "onCommand" | "renderVisitSupplement" | "isReleaseBlocked"> & { visit: QueueVisit }) {
+  const [baseline, setBaseline] = useState(visit);
+  const [observedVisit, setObservedVisit] = useState(visit);
   const [clientId, setClientId] = useState(visit.clientId ?? "");
-  const [shared, setShared] = useState({
-    booking: visit.booking,
-    sample: visit.sample,
-    observation: visit.observation,
-  });
+  const [shared, setShared] = useState(() => sharedFields(visit));
   const [issues, setIssues] = useState<QueueIssue[]>(visit.issues ?? []);
   const [newIssue, setNewIssue] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
   const [showLocation, setShowLocation] = useState(false);
-  const [correction, setCorrection] = useState<Partial<DriverCheckinForm>>({
-    driverName: visit.driverName,
-    plate: visit.plate,
-    carrierName: visit.carrierName,
-    product: visit.product,
-    originPlant: visit.originPlant,
-    vehicleType: visit.vehicleType,
-    originInvoiceNumbers: visit.originInvoiceNumbers,
-    remittanceInvoiceNumber: visit.remittanceInvoiceNumber,
-    ...(visit.driverLicense ? { driverLicense: visit.driverLicense } : {}),
-    ...(visit.driverPhone ? { driverPhone: visit.driverPhone } : {}),
-  });
+  const [correction, setCorrection] = useState(() => correctionFields(visit));
   const [reason, setReason] = useState("");
   const readOnly = Boolean(customer && closedVisit(visit.status));
   const client = clients.find((item) => item.id === clientId);
   const dirty =
-    clientId !== (visit.clientId ?? "") ||
-    JSON.stringify(shared) !==
-      JSON.stringify({
-        booking: visit.booking,
-        sample: visit.sample,
-        observation: visit.observation,
-      }) ||
-    JSON.stringify(issues) !== JSON.stringify(visit.issues ?? []);
+    clientId !== (baseline.clientId ?? "") ||
+    JSON.stringify(shared) !== JSON.stringify(sharedFields(baseline)) ||
+    JSON.stringify(issues) !== JSON.stringify(baseline.issues ?? []);
+  const hasDraft = dirty || Boolean(newIssue || reason) ||
+    JSON.stringify(correction) !== JSON.stringify(correctionFields(baseline));
+  function resetForm(current: QueueVisit) {
+    setBaseline(current);
+    setClientId(current.clientId ?? "");
+    setShared(sharedFields(current));
+    setIssues(current.issues ?? []);
+    setCorrection(correctionFields(current));
+    setReason("");
+  }
+  if (observedVisit !== visit) {
+    setObservedVisit(visit);
+    if (visit.version > baseline.version) {
+      if (formSource(visit) === formSource(baseline)) setBaseline(visit);
+      else if (!hasDraft) resetForm(visit);
+    }
+  }
+  const staleDraft = visit.version > baseline.version;
   const openIssues = issues.filter((issue) => !issue.resolved).length;
   async function run(command: QueueCommand) {
     setPending(true);
     setError("");
     setMessage("");
     try {
-      await onCommand(visit.id, visit.version, command);
+      const saved = await onCommand(visit.id, baseline.version, command);
+      resetForm(saved);
       setMessage("Alterações salvas.");
     } catch (error) {
       setError(
@@ -127,6 +145,12 @@ function VisitEditor({
         <Badge visit={visit} />
       </header>
       <div className="q-detail-body">
+        {staleDraft && <div className="q-notice" role="alert">
+          <p>Outra pessoa alterou os dados desta visita. Seu preenchimento foi mantido e não substituirá essas alterações sem revisão.</p>
+          <button type="button" className="q-link" disabled={pending} onClick={() => {
+            resetForm(visit); setNewIssue(""); setError("");
+          }}>Descartar rascunho e usar dados atuais</button>
+        </div>}
         {!customer && (
           <section className="q-section">
             <h3>Classificação</h3>
@@ -570,7 +594,7 @@ export function QueueWorkspace({
           e instanceof Error ? e.message : "Falha ao carregar detalhes.",
         ),
       );
-  }, [selected?.id, onInspect]);
+  }, [selected?.id, selected?.version, onInspect]);
   const tabs = customer
     ? [
         ["ACTIVE", "Em andamento"],
@@ -777,7 +801,7 @@ export function QueueWorkspace({
         )}
         {selected ? (
           <VisitEditor
-            key={`${customer?.id ?? "line"}:${selected.id}:${selected.version}`}
+            key={`${customer?.id ?? "line"}:${selected.id}`}
             visit={selected}
             clients={clients}
             customer={customer}
