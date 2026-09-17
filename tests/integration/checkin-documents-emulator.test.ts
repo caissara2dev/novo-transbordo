@@ -1,16 +1,17 @@
 import {beforeEach,describe,expect,it,vi} from "vitest";
 import {randomUUID,createHash} from "node:crypto";
-const {files,storageFaults}=vi.hoisted(()=>({files:new Map<string,Buffer>(),storageFaults:{prepare:false}}));
+const {files,storageFaults,signedReads}=vi.hoisted(()=>({files:new Map<string,Buffer>(),storageFaults:{prepare:false},signedReads:[] as {object:string;options:Record<string,unknown>}[]}));
 vi.mock("firebase-admin/storage",()=>({getStorage:()=>({bucket:()=>({file:(object:string)=>({
   createResumableUpload:async()=>{if(storageFaults.prepare)throw new Error("Preparation failed");return [`https://storage.googleapis.com/upload/storage/v1/b/demo/o?upload_id=${object}`]},
   exists:async()=>[files.has(object)],
   getMetadata:async()=>[{size:String(files.get(object)?.length??0),generation:"1"}],
   download:async()=>[files.get(object)],
+  getSignedUrl:async(options:Record<string,unknown>)=>{signedReads.push({object,options});return ["https://storage.example.test/private-test-document"]},
 })})})}));
 import {adminDb} from "@/lib/firebase/admin";
 import {runDocumentCommand,documentConfirmedReplay} from "@/lib/server/checkins/documents";
 import {confirmCheckin,createOrRecoverPreRegistration} from "@/lib/server/checkins/service";
-import {getDocumentDownload} from "@/lib/server/checkins/document-access";
+import {getDocumentDownload,listDocumentVersions} from "@/lib/server/checkins/document-access";
 import {runInternalDocumentCommand} from "@/lib/server/checkins/internal-documents";
 import {mutateQueue} from "@/lib/server/checkins/queue-service";
 import type {QueueActor} from "@/lib/server/checkins/queue-service";
@@ -33,7 +34,7 @@ describe.skipIf(!enabled)("document confirmation on real local Firestore transac
   vi.stubEnv("CHECKIN_DOCUMENTS_ENABLED","true");vi.stubEnv("CHECKIN_DOCUMENT_BUCKET","demo-private");vi.stubEnv("CHECKIN_PORTAL_ORIGIN","https://portal.example.test");vi.stubEnv("CHECKIN_INDEX_HMAC_SECRET",secret);
   vi.stubEnv("CHECKIN_DOCUMENT_INTERNAL_ORIGIN","https://line.example.test");
   vi.stubGlobal("fetch",vi.fn(async()=>new Response(null,{status:499})));
-  storageFaults.prepare=false;files.clear();for(const ref of await adminDb.listCollections()) await adminDb.recursiveDelete(ref);
+  storageFaults.prepare=false;files.clear();signedReads.length=0;for(const ref of await adminDb.listCollections()) await adminDb.recursiveDelete(ref);
  });
  it("reuses an opaque session, validates original, atomically binds it and replays the same visit",async()=>{
   const operationId=randomUUID();const session=await open(operationId);expect((await open(operationId)).sessionId).toBe(session.sessionId);
@@ -237,5 +238,207 @@ describe.skipIf(!enabled)("document confirmation on real local Firestore transac
   const quotaId=`internal_${createHash("sha256").update(actor.uid).digest("hex")}`;
   await adminDb.collection("_checkinDocumentQuotas").doc(quotaId).set({count:60,until:Date.now()+60_000});
   await expect(runInternalDocumentCommand(actor,visit.id,beginInput())).rejects.toMatchObject({status:429});
+ });
+
+ async function receivedInternal(role="ANALYST") {
+  const context=await pendingInternal(role);
+  const input=beginInput();
+  const session=await runInternalDocumentCommand(context.actor,context.visit.id,input);
+  await putInternal(session.sessionId);
+  const response=await runInternalDocumentCommand(context.actor,context.visit.id,{action:"finalize",sessionId:session.sessionId});
+  return {...context,original:response.item!.document!.current!,attachmentSession:session.sessionId};
+ }
+ async function beginReplacement(context:Awaited<ReturnType<typeof receivedInternal>>,name="nota-corrigida.pdf",bytes=pdf) {
+  const stored=(await context.visit.ref.get()).data()!;
+  const input={...beginInput(bytes.length),name,expectedVersion:stored.version,replaceDocumentId:stored.document.current.id};
+  return {input,response:await runInternalDocumentCommand(context.actor,context.visit.id,input)};
+ }
+ async function finishReplacement(context:Awaited<ReturnType<typeof receivedInternal>>,name="nota-corrigida.pdf",bytes=pdf) {
+  const {input,response}=await beginReplacement(context,name,bytes);
+  await putInternal(response.sessionId,bytes);
+  const result=await runInternalDocumentCommand(context.actor,context.visit.id,{action:"finalize",sessionId:response.sessionId});
+  return {input,response,result};
+ }
+
+ it.each(["ANALYST","SUPERVISOR","ADMIN"])("allows %s to replace an original atomically, retain its 90-day history and preserve operational data",async(role)=>{
+  const context=await receivedInternal(role);const {actor,visit,original}=context;
+  const issues=[{id:"sample-check",description:"Amostra pendente",resolved:false}];
+  await visit.ref.update({status:"CHAMADO",booking:"BK-INTACTO",sample:"Em análise",observation:"Conferir com motorista",issues});
+  const bytes=Buffer.from("%PDF-1.7\nNota corrigida de teste\n%%EOF\n");
+  const {response}=await beginReplacement(context,"nota-corrigida.pdf",bytes);
+  expect((await visit.ref.get()).data()!.document.current).toEqual(original);
+  expect((await adminDb.collection("_checkinDocumentVersions").get()).empty).toBe(true);
+  await putInternal(response.sessionId,bytes);const before=Date.now();
+  const result=await runInternalDocumentCommand(actor,visit.id,{action:"finalize",sessionId:response.sessionId});const after=Date.now();
+  const current=result.item!.document!.current!;
+  expect(current.id).not.toBe(original.id);
+  expect(current.sha256).toBe(createHash("sha256").update(bytes).digest("hex"));
+  expect(result.item).toMatchObject({version:4,status:"CHAMADO",booking:"BK-INTACTO",sample:"Em análise",observation:"Conferir com motorista",issues});
+  expect(files.get(original.object)).toEqual(pdf);expect(files.get(current.object)).toEqual(bytes);
+  const archived=(await adminDb.collection("_checkinDocumentVersions").doc(original.id).get()).data()!;
+  expect(archived).toMatchObject({visitId:visit.id,document:original,state:"available",actorUid:actor.uid,replacedBy:"Pessoa Line teste",replacementDocumentId:current.id});
+  expect(Date.parse(archived.replacedAtIso)).toBeGreaterThanOrEqual(before);expect(Date.parse(archived.replacedAtIso)).toBeLessThanOrEqual(after);
+  expect(archived.expiresAt-Date.parse(archived.replacedAtIso)).toBe(90*24*60*60*1000);
+  const history=await visit.ref.collection("revisions").where("action","==","Nota fiscal substituída").get();
+  expect(history.size).toBe(1);
+  expect(history.docs[0].data()).toMatchObject({actor:"Pessoa Line teste",actorUid:actor.uid,actorRole:role,documentId:current.id,changedFields:[original.name,"nota-corrigida.pdf"],previousVersion:3,newVersion:4});
+  const listed=await listDocumentVersions(actor,visit.id);
+  expect(listed.items).toHaveLength(1);expect(listed.items[0]).toMatchObject({id:original.id,name:original.name,size:original.size,contentType:"application/pdf",replacedBy:"Pessoa Line teste",state:"available",available:true});
+  expect(listed.items[0].expiresAtIso).toBe(new Date(archived.expiresAt).toISOString());
+ });
+ it("cannot replace without naming the current document, even with the current visit version",async()=>{
+  const context=await receivedInternal();const {actor,visit}=context;
+  await expect(runInternalDocumentCommand(actor,visit.id,{...beginInput(),expectedVersion:3})).rejects.toMatchObject({status:409});
+  await expect(runInternalDocumentCommand(actor,visit.id,{...beginInput(),expectedVersion:3,replaceDocumentId:randomUUID()})).rejects.toMatchObject({status:409});
+  await expect(runInternalDocumentCommand(actor,visit.id,{...beginInput(),expectedVersion:2,replaceDocumentId:context.original.id})).rejects.toMatchObject({status:409});
+  await expect(runInternalDocumentCommand(actor,visit.id,{...beginInput(),expectedVersion:3,replaceDocumentId:"../not-a-document"})).rejects.toThrow();
+  expect((await adminDb.collection("_checkinDocumentVersions").get()).empty).toBe(true);
+  expect((await visit.ref.get()).data()!.document.current.id).toBe(context.original.id);
+ });
+ it("does not accept a replacement marker for a visit still missing its document",async()=>{
+  const {actor,visit}=await pendingInternal();
+  await expect(runInternalDocumentCommand(actor,visit.id,{...beginInput(),replaceDocumentId:randomUUID()})).rejects.toMatchObject({status:409});
+  expect((await visit.ref.get()).data()!.document.status).toBe("pending");
+ });
+ it("keeps the old original readable when a replacement is incomplete or invalid",async()=>{
+  const context=await receivedInternal();const {actor,visit,original}=context;
+  const {response}=await beginReplacement(context);
+  await expect(runInternalDocumentCommand(actor,visit.id,{action:"finalize",sessionId:response.sessionId})).rejects.toMatchObject({status:409});
+  await putInternal(response.sessionId,Buffer.alloc(pdf.length,65));
+  await expect(runInternalDocumentCommand(actor,visit.id,{action:"finalize",sessionId:response.sessionId})).rejects.toMatchObject({status:422});
+  const stored=(await visit.ref.get()).data()!;expect(stored.version).toBe(3);expect(stored.document.current).toEqual(original);
+  expect((await adminDb.collection("_checkinDocumentVersions").get()).empty).toBe(true);
+  expect((await visit.ref.collection("revisions").where("action","==","Nota fiscal substituída").get()).empty).toBe(true);
+  expect((await getDocumentDownload(actor,visit.id)).name).toBe(original.name);
+  expect(signedReads.at(-1)).toMatchObject({object:original.object,options:{queryParams:{generation:original.generation}}});
+ });
+ it("serializes competing replacements so exactly one wins and the other cannot overwrite it",async()=>{
+  const context=await receivedInternal();const a=await beginReplacement(context,"nota-a.pdf");const b=await beginReplacement(context,"nota-b.pdf");
+  await putInternal(a.response.sessionId);await putInternal(b.response.sessionId);
+  const results=await Promise.allSettled([a,b].map(s=>runInternalDocumentCommand(context.actor,context.visit.id,{action:"finalize",sessionId:s.response.sessionId})));
+  expect(results.filter(r=>r.status==="fulfilled")).toHaveLength(1);
+  const loser=results.find(r=>r.status==="rejected") as PromiseRejectedResult;expect(loser.reason).toMatchObject({status:409});
+  expect((await context.visit.ref.get()).data()!.version).toBe(4);
+  expect((await adminDb.collection("_checkinDocumentVersions").get()).size).toBe(1);
+  expect((await context.visit.ref.collection("revisions").where("action","==","Nota fiscal substituída").get()).size).toBe(1);
+ },20_000);
+ it("replays old attachment and replacement receipts after a later replacement without restoring earlier originals",async()=>{
+  const context=await receivedInternal();const first=await finishReplacement(context,"primeira-troca.pdf");const second=await finishReplacement(context,"segunda-troca.pdf");
+  await adminDb.collection("_checkinDocumentSessions").doc(first.response.sessionId).update({expiresAt:0});
+  const current=second.result.item!.document!.current!;
+  for(const sessionId of [context.attachmentSession,first.response.sessionId]) {
+   const replay=await runInternalDocumentCommand(context.actor,context.visit.id,{action:"finalize",sessionId});
+   expect(replay.received).toBe(true);expect(replay.item?.document?.current?.id).toBe(current.id);
+  }
+  const repeated=await runInternalDocumentCommand(context.actor,context.visit.id,first.input);
+  expect(repeated.received).toBe(true);expect(repeated.item?.document?.current?.id).toBe(current.id);
+  expect((await context.visit.ref.get()).data()!.version).toBe(5);
+  expect((await adminDb.collection("_checkinDocumentVersions").get()).size).toBe(2);
+  expect((await context.visit.ref.collection("revisions").where("action","==","Nota fiscal substituída").get()).size).toBe(2);
+  await expect(runInternalDocumentCommand(context.actor,context.visit.id,{...beginInput(),expectedVersion:5,replaceDocumentId:context.original.id})).rejects.toMatchObject({status:409});
+ });
+ it("binds replacement intent to the operation and refuses public or other-actor finalization",async()=>{
+  const context=await receivedInternal();const {input,response}=await beginReplacement(context);const {actor,visit}=context;
+  await expect(runInternalDocumentCommand(actor,visit.id,{...input,replaceDocumentId:randomUUID()})).rejects.toMatchObject({status:409});
+  const withoutReplacement={...input} as Record<string,unknown>;delete withoutReplacement.replaceDocumentId;
+  await expect(runInternalDocumentCommand(actor,visit.id,withoutReplacement)).rejects.toMatchObject({status:409});
+  await putInternal(response.sessionId);
+  const other={...actor,uid:"different-line-user"};await adminDb.collection("users").doc(other.uid).set(other.profile);
+  await expect(runInternalDocumentCommand(other,visit.id,{action:"finalize",sessionId:response.sessionId})).rejects.toMatchObject({status:404});
+  await expect(runDocumentCommand({action:"finalize",sessionId:response.sessionId,attemptId:context.original.id})).rejects.toThrow();
+  expect((await visit.ref.get()).data()!.document.current.id).toBe(context.original.id);
+ });
+ it.each([{active:false},{approved:false},{role:"CUSTOMER"}])("rechecks revoked access %j before accepting a replacement",async(profileChange)=>{
+  const context=await receivedInternal();const {response}=await beginReplacement(context);await putInternal(response.sessionId);
+  await adminDb.collection("users").doc(context.actor.uid).update(profileChange);
+  await expect(runInternalDocumentCommand(context.actor,context.visit.id,{action:"finalize",sessionId:response.sessionId})).rejects.toMatchObject({status:403});
+  expect((await context.visit.ref.get()).data()!.document.current.id).toBe(context.original.id);
+  expect((await adminDb.collection("_checkinDocumentVersions").get()).empty).toBe(true);
+ });
+ it("denies customer, operator and display access to previous originals without creating signed URLs",async()=>{
+  const context=await receivedInternal();await finishReplacement(context);
+  for(const role of ["CUSTOMER","OPERATOR","DISPLAY"]) {
+   const actor={...context.actor,profile:{...context.actor.profile,role} as QueueActor["profile"]};
+   await expect(listDocumentVersions(actor,context.visit.id)).rejects.toMatchObject({status:403});
+   await expect(getDocumentDownload(actor,context.visit.id,false,context.original.id)).rejects.toMatchObject({status:403});
+  }
+  expect(signedReads).toHaveLength(0);
+ });
+ it.each(["ANALYST","SUPERVISOR","ADMIN"])("allows %s to read only unexpired previous originals belonging to the requested visit",async(role)=>{
+  const context=await receivedInternal(role);await finishReplacement(context);
+  const result=await getDocumentDownload(context.actor,context.visit.id,false,context.original.id);
+  expect(result.name).toBe(context.original.name);expect(result.expiresInSeconds).toBeGreaterThan(0);expect(result.expiresInSeconds).toBeLessThanOrEqual(60);
+  expect(signedReads).toHaveLength(1);
+  expect(signedReads[0]).toMatchObject({object:context.original.object,options:{queryParams:{generation:context.original.generation},responseType:"application/pdf"}});
+  expect(Number(signedReads[0].options.expires)).toBeGreaterThan(Date.now());
+  expect(Number(signedReads[0].options.expires)).toBeLessThanOrEqual(Date.now()+60_000);
+  const secondVisitId=randomUUID();await adminDb.collection("checkins").doc(secondVisitId).set({...((await context.visit.ref.get()).data()!),publicCode:"LT-TESTONLY"});
+  await expect(getDocumentDownload(context.actor,secondVisitId,false,context.original.id)).rejects.toMatchObject({status:404});
+  await expect(getDocumentDownload(context.actor,context.visit.id,false,randomUUID())).rejects.toMatchObject({status:404});
+  expect(signedReads).toHaveLength(1);
+ });
+ it("caps an old document's signed access at its retention deadline and pins preview generations",async()=>{
+  const context=await receivedInternal();
+  await context.visit.ref.update({"document.current.previewStatus":"ready","document.current.previewObject":"private/old-preview.jpg","document.current.previewGeneration":"23"});
+  await finishReplacement(context);
+  const expiresAt=Date.now()+10_000;
+  await adminDb.collection("_checkinDocumentVersions").doc(context.original.id).update({expiresAt});
+  await getDocumentDownload(context.actor,context.visit.id,false,context.original.id);
+  await getDocumentDownload(context.actor,context.visit.id,true,context.original.id);
+  expect(signedReads).toHaveLength(2);
+  expect(signedReads[0]).toMatchObject({object:context.original.object,options:{expires:expiresAt,queryParams:{generation:context.original.generation}}});
+  expect(signedReads[1]).toMatchObject({object:"private/old-preview.jpg",options:{expires:expiresAt,queryParams:{generation:"23"},responseType:"image/jpeg"}});
+ });
+ it("replaces a PDF with a photo and queues the new preview without changing the archived original",async()=>{
+  const context=await receivedInternal();const photo=Buffer.from([255,216,255,224,0,2,255,217]);
+  const replacement=await finishReplacement(context,"foto-corrigida.jpg",photo);const current=replacement.result.item!.document!.current!;
+  expect(current).toMatchObject({name:"foto-corrigida.jpg",contentType:"image/jpeg",previewStatus:"pending"});
+  expect((await adminDb.collection("_checkinPreviewJobs").doc(current.id).get()).data()).toMatchObject({visitId:context.visit.id,documentId:current.id,object:current.object,generation:current.generation,state:"pending"});
+  expect((await adminDb.collection("_checkinDocumentVersions").doc(context.original.id).get()).data()!.document).toEqual(context.original);
+  expect(replacement.result.item!.status).toBe("AGUARDANDO_LIBERACAO");
+ });
+ it("stops authorizing expired versions exactly at their deadline and keeps the textual substitution history",async()=>{
+  const context=await receivedInternal();await finishReplacement(context);
+  const archived=adminDb.collection("_checkinDocumentVersions").doc(context.original.id);
+  const deadline=Date.now()-1;await archived.update({expiresAt:deadline});
+  const list=await listDocumentVersions(context.actor,context.visit.id);
+  expect(list.items[0]).toMatchObject({id:context.original.id,available:false});
+  await expect(getDocumentDownload(context.actor,context.visit.id,false,context.original.id)).rejects.toMatchObject({status:410});
+  expect(signedReads).toHaveLength(0);
+  // Expiration/deletion of bytes must not cascade into the visit's permanent audit trail.
+  files.delete(context.original.object);await archived.update({state:"deleted"});
+  const audit=await context.visit.ref.collection("revisions").where("action","==","Nota fiscal substituída").get();
+  expect(audit.size).toBe(1);expect(audit.docs[0].data().changedFields).toEqual([context.original.name,"nota-corrigida.pdf"]);
+  expect((await listDocumentVersions(context.actor,context.visit.id)).items[0].available).toBe(false);
+  expect((await context.visit.ref.get()).data()!.document.status).toBe("received");
+ });
+ it("rechecks current profile for both history and original download after access was revoked",async()=>{
+  const context=await receivedInternal();await finishReplacement(context);
+  await adminDb.collection("users").doc(context.actor.uid).update({active:false});
+  await expect(listDocumentVersions(context.actor,context.visit.id)).rejects.toMatchObject({status:403});
+  await expect(getDocumentDownload(context.actor,context.visit.id,false,context.original.id)).rejects.toMatchObject({status:403});
+  await expect(getDocumentDownload(context.actor,context.visit.id)).rejects.toMatchObject({status:403});
+  expect(signedReads).toHaveLength(0);
+ });
+ it("paginates previous documents without leaking object paths or other visits",async()=>{
+  const context=await receivedInternal();const otherVisit=randomUUID();const created=Date.now();const ids:string[]=[];
+  const batch=adminDb.batch();
+  for(let index=0;index<27;index++) {
+   const id=randomUUID();ids.push(id);
+   batch.set(adminDb.collection("_checkinDocumentVersions").doc(id),{visitId:context.visit.id,document:{...context.original,id,name:`anterior-${index}.pdf`,object:`private/${id}`},state:"available",replacedAtIso:new Date(created-index*1000).toISOString(),expiresAt:created+90*24*60*60*1000,replacedBy:"Pessoa Line teste",actorUid:context.actor.uid,replacementDocumentId:context.original.id});
+  }
+  const foreignId=randomUUID();batch.set(adminDb.collection("_checkinDocumentVersions").doc(foreignId),{visitId:otherVisit,document:{...context.original,id:foreignId},state:"available",replacedAtIso:new Date(created).toISOString(),expiresAt:created+100_000,replacedBy:"Outra pessoa",actorUid:context.actor.uid,replacementDocumentId:context.original.id});
+  await batch.commit();
+  let page=await listDocumentVersions(context.actor,context.visit.id);expect(page.nextCursor).toBeTruthy();
+  const collected=[...page.items];const cursors=new Set<string>();
+  while(page.nextCursor) {
+   expect(cursors.has(page.nextCursor)).toBe(false);cursors.add(page.nextCursor);
+   page=await listDocumentVersions(context.actor,context.visit.id,page.nextCursor);collected.push(...page.items);
+  }
+  expect(collected.map(v=>v.id)).toEqual(ids);
+  expect(new Set(collected.map(v=>v.id)).size).toBe(27);expect(collected.map(v=>v.id)).not.toContain(foreignId);
+  for(const version of collected) {expect(version).not.toHaveProperty("object");expect(version).not.toHaveProperty("generation");expect(version).not.toHaveProperty("actorUid");expect(version).not.toHaveProperty("document");}
+  const first=await listDocumentVersions(context.actor,context.visit.id);
+  await expect(listDocumentVersions(context.actor,otherVisit,first.nextCursor!)).rejects.toThrow();
  });
 });

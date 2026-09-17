@@ -2,6 +2,7 @@
 export const DOCUMENT_MAX_BYTES = 10_000_000;
 export const DOCUMENT_SESSION_MS = 60 * 60 * 1000;
 export const DOCUMENT_TEMP_MS = 24 * 60 * 60 * 1000;
+export const DOCUMENT_REPLACED_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
 export type DocumentReceipt = { sessionId: string; skip: boolean };
 export type VisitDocument = {
   status: "pending" | "received";
@@ -10,9 +11,25 @@ export type VisitDocument = {
     id: string; object: string; generation: string; name: string; size: number;
     contentType: string; sha256: string; receivedAtIso: string;
     previewStatus: "pending" | "ready" | "failed" | "not-applicable";
-    previewObject?: string;
+    previewObject?: string; previewGeneration?: string;
   };
 };
+export type DocumentVersion = {
+  visitId: string;
+  document: NonNullable<VisitDocument["current"]>;
+  state: "available" | "deleting" | "deleted";
+  replacedAtIso: string;
+  expiresAt: number;
+  replacedBy: string;
+  actorUid: string;
+  replacementDocumentId: string;
+};
+export type DocumentHistoryItem = {
+  id: string; name: string; size: number; contentType: string;
+  replacedAtIso: string; expiresAtIso: string; replacedBy: string;
+  state: DocumentVersion["state"]; available: boolean;
+};
+export type DocumentHistoryPage = { items: DocumentHistoryItem[]; nextCursor: string | null };
 export function detectDocumentType(bytes: Uint8Array): string | null {
   const at = (start: number, end: number) => String.fromCharCode(...bytes.slice(start, end));
   if (bytes.length>=5 && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255 && bytes[bytes.length-2]===255 && bytes[bytes.length-1]===217) return "image/jpeg";

@@ -16,7 +16,7 @@ import {
   POST as grantAccess,
 } from "@/app/api/queue-access/route";
 import { GET as listCalled } from "@/app/api/checkins/called/route";
-import { POST as attachDocument } from "@/app/api/checkins/[id]/document/route";
+import { POST as attachDocument, GET as readDocument } from "@/app/api/checkins/[id]/document/route";
 const req = (path: string, uid: string, body?: unknown) =>
   new NextRequest(`http://localhost${path}`, {
     method: body === undefined ? "GET" : "POST",
@@ -93,6 +93,23 @@ describe("authenticated queue API", () => {
     expect(response.status).toBe(403);
     expect(response.headers.get("Cache-Control")).toContain("no-store");
     expect(JSON.stringify(await response.json())).not.toContain("uploadUrl");
+  });
+  it.each(["customer", "operator", "display", "pending"])("denies %s private document history and version download", async(uid) => {
+    const id="66a2f3e0-22fb-4be5-9b87-5f927fbd8d63";
+    for (const query of ["history=true", "version=50d639aa-b2ba-4384-8846-c21585a504a7"]) {
+      const response=await readDocument(req(`/api/checkins/${id}/document?${query}`,uid),{params:Promise.resolve({id})});
+      expect(response.status).toBe(403);
+      expect(response.headers.get("Cache-Control")).toContain("no-store");
+      expect(JSON.stringify(await response.json())).not.toMatch(/uploadUrl|sha256|storage.googleapis/);
+    }
+  });
+  it("serves private version history through the authenticated route", async()=>{
+    const id="66a2f3e0-22fb-4be5-9b87-5f927fbd8d63";
+    db.seed("checkins",id,{...visit,id});
+    const response=await readDocument(req(`/api/checkins/${id}/document?history=true`,"analyst"),{params:Promise.resolve({id})});
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toContain("no-store");
+    expect((await response.json()).data).toEqual({items:[],nextCursor:null});
   });
   it("requires valid upload input and enabled queue before starting storage work", async()=>{
     const id="66a2f3e0-22fb-4be5-9b87-5f927fbd8d63";
