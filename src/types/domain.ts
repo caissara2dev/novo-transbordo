@@ -89,6 +89,7 @@ export type EventInput = {
 };
 
 export type UserDoc = {
+  accessVersion?: number;
   clientId?: string | null;
   email: string;
   name: string | null;
@@ -103,6 +104,7 @@ export type UserDoc = {
 };
 
 export type ClientDoc = {
+  accessVersion?: number;
   portalEnabled?: boolean;
   usesSample?: boolean;
   name: string;

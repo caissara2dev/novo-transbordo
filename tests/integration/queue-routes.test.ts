@@ -233,7 +233,7 @@ describe("administrator grants explicit participation", () => {
     expect(db.read("users", "pending")).toMatchObject({
       role: "CUSTOMER",
       clientId: "disabled",
-      approved: true,
+      approved: false,
     });
     expect(db.entries("_queueAccessAudit")).toHaveLength(2);
     expect(
@@ -243,6 +243,7 @@ describe("administrator grants explicit participation", () => {
             ...command,
             role: "ANALYST",
             clientId: null,
+            expectedVersion: 1,
           }),
         )
       ).status,
@@ -271,6 +272,7 @@ describe("administrator grants explicit participation", () => {
             uid: "admin",
             role: "ANALYST",
             clientId: null,
+            expectedVersion: 1,
           }),
         )
       ).status,

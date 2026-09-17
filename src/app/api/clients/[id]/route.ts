@@ -4,11 +4,15 @@ import { ensureApproved, ensureRole, requireAuth } from "@/lib/server/auth";
 import { fail, ok, parseJsonBody } from "@/lib/server/http";
 import { toPlain } from "@/lib/server/serialize";
 import { updateClient } from "@/lib/server/clients";
+import { expectedAccessVersion } from "@/lib/server/admin-access";
 
 const updateClientBodySchema = z
   .object({
     name: z.string().optional(),
-    active: z.boolean().optional()
+    active: z.boolean().optional(),
+    portalEnabled: z.boolean().optional(),
+    usesSample: z.boolean().optional(),
+    expectedVersion: expectedAccessVersion
   })
   .strict();
 

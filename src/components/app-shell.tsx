@@ -17,13 +17,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const previousPathname = useRef(pathname);
 
   const nav: Array<{
-    href: "/dashboard" | "/events" | "/containers" | "/reports" | "/display" | "/clients" | "/users" | "/settings" | "/checkins" | "/customer/checkins" | "/queue-access";
+    href: "/dashboard" | "/events" | "/containers" | "/reports" | "/display" | "/clients" | "/users" | "/settings" | "/checkins" | "/customer/checkins";
     label: string;
   }> = profile?.role === "CUSTOMER" ? [{ href: "/customer/checkins", label: "Minhas cargas" }] : profile?.role === "ANALYST" ? [{ href: "/checkins", label: "Fila de check-ins" }] : [
     { href: "/dashboard" as const, label: "Dashboard" },
     { href: "/events" as const, label: "Lançamentos" },
     ...(profile?.role === "SUPERVISOR" || profile?.role === "ADMIN" ? [{ href: "/checkins" as const, label: "Fila de check-ins" }] : []),
-    ...(profile?.role === "ADMIN" ? [{ href: "/queue-access" as const, label: "Acessos da fila" }] : []),
     { href: "/containers" as const, label: "Containers" },
     ...(profile?.role === "SUPERVISOR" || profile?.role === "ADMIN"
       ? [{ href: "/reports" as const, label: "Relatórios" }]

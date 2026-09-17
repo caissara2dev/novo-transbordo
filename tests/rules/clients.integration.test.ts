@@ -25,8 +25,10 @@ describe("client name uniqueness", () => {
   beforeEach(async () => {
     await Promise.all([
       clearCollection("clients"),
-      clearCollection("clientNameClaims")
+      clearCollection("clientNameClaims"),
+      clearCollection("_queueAccessAudit")
     ]);
+    for (const uid of ["admin", "admin-1", "admin-2"]) await adminModule.adminDb.collection("users").doc(uid).set({role:"ADMIN", active:true, approved:true, email:"admin@example.test"});
   });
 
   it("allows only one concurrent create for the same normalized name", async () => {
@@ -90,5 +92,31 @@ describe("client name uniqueness", () => {
       name: "Original",
       nameUpper: "ORIGINAL"
     });
+  });
+  it("allows only one administrator to change the same client configuration version", async () => {
+    const created = await clientsService.createClient("Versioned client", "admin");
+    const results = await Promise.allSettled([
+      clientsService.updateClient(created.id, {portalEnabled: true, expectedVersion: 0}, "admin-1"),
+      clientsService.updateClient(created.id, {usesSample: false, expectedVersion: 0}, "admin-2")
+    ]);
+    expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+    expect(results.find(result => result.status === "rejected")).toMatchObject({reason: expect.objectContaining({status: 409})});
+    expect((await adminModule.adminDb.collection("clients").doc(created.id).get()).data()?.accessVersion).toBe(1);
+    const audit = await adminModule.adminDb.collection("_queueAccessAudit").where("action", "==", "CLIENT_UPDATED").get();
+    expect(audit.size).toBe(1);
+  });
+  it("does not let concurrent role and approval changes bypass the user's access version", async () => {
+    const users = await import("@/lib/server/users");
+    await adminModule.adminDb.collection("users").doc("ux04-pending").set({role: "OPERATOR", approved: false, active: true});
+    const results = await Promise.allSettled([
+      users.setRole({targetUid: "ux04-pending", role: "ANALYST", actorUid: "admin-1", expectedVersion: 0}),
+      users.setApproval({targetUid: "ux04-pending", approved: true, actorUid: "admin-2", actorEmail: "admin@example.test", expectedVersion: 0})
+    ]);
+    expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+    expect(results.find(result => result.status === "rejected")).toMatchObject({reason: expect.objectContaining({status: 409})});
+    const stored = (await adminModule.adminDb.collection("users").doc("ux04-pending").get()).data()!;
+    expect(stored.accessVersion).toBe(1);
+    if (stored.role === "ANALYST") expect(stored.approved).toBe(false);
+    expect((await adminModule.adminDb.collection("_queueAccessAudit").get()).size).toBe(1);
   });
 });
