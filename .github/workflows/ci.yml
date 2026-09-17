@@ -56,3 +56,20 @@ jobs:
 
       - name: Verificação completa
         run: npm run verify
+
+  document-worker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: infrastructure/checkin-documents/requirements.txt
+      - name: Dependências do processador
+        run: python -m pip install --only-binary=:all: -r infrastructure/checkin-documents/requirements.txt
+      - name: Prévias e retenção de versões
+        run: python -m unittest discover -s infrastructure/checkin-documents -p 'test_*.py'
