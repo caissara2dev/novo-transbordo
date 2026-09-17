@@ -22,7 +22,7 @@ A pasta `src` do sistema foi comparada com o snapshot local utilizado no último
 - Confirmação de chegada gravada no sistema, sem dependência obrigatória de Excel.
 - GPS pontual e registro documental por visita; original privado, prévia de imagem, consulta/download pela Line.
 - Exceção documental após falhas verificadas e bloqueio de liberação/chamada quando falta documento.
-- Complemento real de nota pendente pela Line, com envio privado, auditoria e rascunho de classificação preservado. Ver [contrato e homologação do complemento](CHECKIN_ANEXO_INTERNO.md).
+- Complemento real de nota pendente e substituição da nota recebida pela Line, com envio privado, auditoria e rascunho de classificação preservado. Ver [contrato e homologação do complemento](CHECKIN_ANEXO_INTERNO.md).
 - Vínculo com lançamento salvo para iniciar descarga; CSV filtrado independente da confirmação.
 - Portal público com código/sem código, recuperação/consulta e ajustes feitos após o feedback Android.
 
@@ -35,15 +35,15 @@ npm ci
 npm run verify
 npm run build:prototype
 # Em ambiente Python isolado, com requirements do worker instalados:
-python -m unittest discover -s infrastructure/checkin-documents -p test_preview.py
+python -m unittest discover -s infrastructure/checkin-documents -p 'test_*.py'
 ```
 
 A cobertura inicia o Firestore Emulator na porta 8188 e executa a suíte documental com projeto `demo-checkin-nf`; o runner recusa outro destino. `npm test` sem o emulador pode indicar os casos documentais como ignorados: isso não é evidência de que passaram. O gate completo é `npm run verify`, que inclui a cobertura com emulador. Protótipos possuem `npm run test:prototype` com servidor Vite próprio. Nenhum script administrativo de `scripts/homologation` deve ser executado para rodar testes locais.
 
 ## Pendências antes de produção
 
-- Substituição do documento pela Line e exclusão manual com as permissões aprovadas. O complemento de nota pendente está implementado nesta branch; os resultados da implantação de homologação ficam registrados na issue #33/PR #35.
-- Retenção: versões substituídas por 90 dias e documento atual por 12 meses após conclusão/cancelamento; histórico textual preservado com a visita.
+- Exclusão manual do documento com as permissões aprovadas. Substituição e histórico privado estão implementados nesta branch; O complemento de nota pendente está implementado nesta branch; os resultados da implantação de homologação ficam registrados na issue #33/PR #35.
+- Retenção do documento atual por 12 meses após conclusão/cancelamento. Versões substituídas recebem 90 dias e limpeza no worker; conferir evidências de implantação na issue #33. Histórico textual preservado com a visita.
 - Últimos ajustes de UI/UX, incluindo revisão da administração de acessos e das ações operacionais em relação ao protótipo aprovado.
 - Homologação completa de permissões entre empresas, concorrência, falhas de rede, GPS real, câmera/galeria/PDF e compatibilidade com lançamentos existentes.
 - Preparação de produção: bucket, identidades, segredos, origens, agendamentos e domínios. Há guardas documentais e do worker restritas à homologação; alterá-las exige uma entrega própria, não uma remoção improvisada.
