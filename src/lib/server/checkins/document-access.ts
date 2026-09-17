@@ -2,6 +2,7 @@ import "server-only";
 import { z } from "zod";
 import { adminDb } from "@/lib/firebase/admin";
 import { HttpError } from "@/lib/domain/errors";
+import { documentHasExpired } from "@/lib/domain/document-retention";
 import type { DocumentHistoryPage, DocumentVersion } from "@/lib/domain/checkin-document";
 import type { QueueActor } from "./queue-service";
 import { assertQueueActor } from "./queue-service";
@@ -45,6 +46,9 @@ export async function listDocumentVersions(actor: QueueActor, id: string, cursor
         id: row.id, name: value.document.name, size: value.document.size, contentType: value.document.contentType,
         replacedAtIso: value.replacedAtIso, expiresAtIso: new Date(value.expiresAt).toISOString(),
         replacedBy: value.replacedBy, state: value.state,
+        kind: value.kind ?? "replacement",
+        ...(value.deletedAtIso ? {deletedAtIso: value.deletedAtIso} : {}),
+        ...(value.deletion ? {deletion: {requestedAtIso: value.deletion.requestedAtIso, actorName: value.deletion.actorName, reason: value.deletion.reason, source: value.deletion.source}} : {}),
         available: value.state === "available" && value.expiresAt > now,
       };
     }),
@@ -56,6 +60,8 @@ export async function getDocumentDownload(actor: QueueActor, id: string, preview
   const {visit, profile} = await confirmedVisit(actor, id);
   let current = visit.document?.current;
   let expires = Date.now() + 60_000;
+  if (!versionId && documentHasExpired(visit)) throw new HttpError(410, "O prazo documental desta visita terminou. O histórico textual foi preservado.");
+  if (!versionId && visit.documentExpiresAtIso && Number.isFinite(Date.parse(visit.documentExpiresAtIso))) expires = Math.min(expires, Date.parse(visit.documentExpiresAtIso));
   if (versionId) {
     if (!z.string().uuid().safeParse(versionId).success) throw new HttpError(404, "Versão da nota não encontrada.");
     const archived = (await adminDb.collection("_checkinDocumentVersions").doc(versionId).get()).data() as DocumentVersion | undefined;

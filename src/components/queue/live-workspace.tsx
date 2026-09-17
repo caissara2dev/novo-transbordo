@@ -4,6 +4,7 @@ import { apiFetch } from "@/lib/auth/api-fetch";
 import { useAuthSession } from "@/lib/auth/use-auth-session";
 import { InvoiceSummary } from "./invoice-summary";
 import { documentBlocksCall } from "@/lib/domain/checkin-document";
+import { documentHasExpired } from "@/lib/domain/document-retention";
 import { QueueWorkspace } from "./workspace";
 import { queueCsv } from "@/lib/domain/queue";
 import type { QueueClient, QueueVisit, QueueCommand } from "@/lib/domain/queue";
@@ -130,9 +131,10 @@ export function LiveQueue({ customer = false }: { customer?: boolean }) {
         key={visit.id}
         visit={visit}
         canAttach={Boolean(profile && ["ADMIN", "SUPERVISOR", "ANALYST"].includes(profile.role))}
+        canDelete={Boolean(profile && ["ADMIN", "SUPERVISOR"].includes(profile.role))}
         onReceived={documentReceived}
       />}
-      isReleaseBlocked={(visit)=>documentBlocksCall(visit.document)}
+      isReleaseBlocked={(visit)=>documentBlocksCall(visit.document) || documentHasExpired(visit)}
       clients={clients}
       customer={ownClient}
       onCommand={command}

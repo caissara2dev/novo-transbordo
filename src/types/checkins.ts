@@ -44,6 +44,9 @@ export type PreRegistrationResult = PublicCheckinState & {
 };
 
 export type StoredCheckin = DriverCheckinForm & {
+  closedAtIso?: string | null;
+  documentExpiresAtIso?: string | null;
+  documentRetentionReviewRequired?: boolean;
   document?: import("@/lib/domain/checkin-document").VisitDocument;
   environment?: "homologation";
   id: string;

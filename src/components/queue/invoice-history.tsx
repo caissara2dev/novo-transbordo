@@ -2,6 +2,8 @@
 import { useRef, useState } from "react";
 import { apiFetch, ApiRequestError } from "@/lib/auth/api-fetch";
 import type { DocumentHistoryItem, DocumentHistoryPage } from "@/lib/domain/checkin-document";
+import type { QueueVisit } from "@/lib/domain/queue";
+import { InvoiceDelete } from "./invoice-delete";
 
 const date = (value: string) => new Intl.DateTimeFormat("pt-BR", {
   dateStyle: "short", timeStyle: "short",
@@ -9,7 +11,9 @@ const date = (value: string) => new Intl.DateTimeFormat("pt-BR", {
 const size = (bytes: number) => new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 2 }).format(bytes / 1_000_000);
 
 /** Private version metadata is only requested when Line opens the history. */
-export function InvoiceHistory({ endpoint }: { endpoint: string }) {
+export function InvoiceHistory({ endpoint, visit, canDelete = false, onDeleted }: {
+  endpoint: string; visit?: QueueVisit; canDelete?: boolean; onDeleted?: (visit: QueueVisit) => void;
+}) {
   const [items, setItems] = useState<DocumentHistoryItem[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -20,15 +24,15 @@ export function InvoiceHistory({ endpoint }: { endpoint: string }) {
   const loading = useRef(false);
   const downloadingRef = useRef(false);
 
-  async function load() {
+  async function load(refresh = false) {
     if (loading.current) return;
     loading.current = true; setBusy(true); setError("");
     try {
       const query = new URLSearchParams({ history: "true" });
-      if (loaded && cursor) query.set("cursor", cursor);
+      if (!refresh && loaded && cursor) query.set("cursor", cursor);
       const result = await apiFetch<DocumentHistoryPage>(`${endpoint}?${query}`, { cache: "no-store" });
       setItems((previous) => {
-        const versions = new Map(previous.map((item) => [item.id, item]));
+        const versions = new Map((refresh ? [] : previous).map((item) => [item.id, item]));
         for (const item of result.items) versions.set(item.id, item);
         return [...versions.values()];
       });
@@ -56,21 +60,24 @@ export function InvoiceHistory({ endpoint }: { endpoint: string }) {
     if (event.currentTarget.open && !loaded) void load();
   }}>
     <summary>Histórico dos documentos</summary>
-    <p className="q-help">Versões substituídas ficam disponíveis por 90 dias após a troca. O registro da alteração permanece após a remoção do arquivo.</p>
+    <p className="q-help">O documento atual vence 12 meses após conclusão ou cancelamento. Versões substituídas ficam disponíveis por 90 dias após a troca. O registro textual permanece após a remoção.</p>
     {items.length ? <ol>{items.map((item) => <li key={item.id}>
       <div className="q-invoice-file"><strong>{item.contentType === "application/pdf" ? "PDF anterior" : "Foto anterior"}</strong><span>{size(item.size)} MB</span>
         <span className="q-invoice-filename">{item.name}</span></div>
-      <p>Substituída por {item.replacedBy} em {date(item.replacedAtIso)}.</p>
+      <p>{item.kind === "manual-deletion" ? "Exclusão solicitada" : item.kind === "current-expiration" ? "Prazo documental encerrado" : "Substituída"} por {item.replacedBy} em {date(item.replacedAtIso)}.</p>
+      {item.deletion ? <p className="q-help">{item.deletion.actorName} · {date(item.deletion.requestedAtIso)} · {item.deletion.reason}</p> : null}
       {item.available ? <>
         <p className="q-help">Disponível até {date(item.expiresAtIso)}.</p>
         <button className="btn-soft" type="button" disabled={Boolean(downloading)} onClick={() => void download(item)}>
           {downloading === item.id ? "Preparando download…" : "Baixar versão anterior"}
         </button>
-      </> : <p className="q-help">Arquivo indisponível. O registro da substituição foi preservado.</p>}
+        {canDelete && visit ? <InvoiceDelete visit={visit} documentId={item.id} name={item.name} disabled={Boolean(downloading)} onDeleted={onDeleted} /> : null}
+      </> : <p className="q-help">Arquivo indisponível. {item.state === "deletion-requested" || item.state === "deleting" ? "Exclusão em processamento." : item.state === "deleted" ? "Arquivo excluído." : "Prazo encerrado; remoção em processamento."} O registro textual foi preservado.{item.deletedAtIso ? ` Removido em ${date(item.deletedAtIso)}.` : ""}</p>}
     </li>)}</ol> : loaded ? <p className="q-help">Ainda não há versões anteriores desta nota.</p> : null}
     {busy ? <p role="status">Carregando histórico…</p> : null}
     {error ? <p className="q-error" role="alert">{error}</p> : null}
     {downloadError ? <p className="q-error" role="alert">{downloadError}</p> : null}
+    {loaded ? <button className="q-link" type="button" disabled={busy} onClick={() => void load(true)}>Atualizar histórico dos documentos</button> : null}
     {error || cursor ? <button type="button" className="btn-soft" disabled={busy} onClick={() => void load()}>
       {error ? "Tentar carregar histórico novamente" : "Carregar mais documentos"}
     </button> : null}

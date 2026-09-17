@@ -381,3 +381,67 @@ test("history errors retry without losing records and expired downloads become u
   await expect(page.getByRole("button", { name: "Baixar versão anterior", exact: true })).toHaveCount(0);
   await expect(page.locator(".q-invoice > .q-invoice-file")).toContainText(filename);
 });
+
+test("NF deletion requires a reason, can be cancelled and preserves unsaved classification and both histories", async ({ page }) => {
+  const state = await setup(page, "SUPERVISOR", complete(initial));
+  const commands: any[] = [];
+  await page.route("**/api/checkins/invoice-demo/document**", (route) => {
+    if (route.request().method() === "GET") return route.fulfill(json({ items: [{ ...oldVersion, kind: "manual-deletion", state: "deletion-requested", available: false,
+      deletion: { actorName: "Supervisor Demo", requestedAtIso: oldVersion.replacedAtIso, reason: "Teste de remoção", source: "manual" } }], nextCursor: null }));
+    const body = route.request().postDataJSON(); commands.push(body);
+    state.set({ ...state.get(), version: 4, document: { ...state.get().document!, status: "pending", current: null },
+      revisions: [{ id: "delete-request", action: "Exclusão de nota solicitada", actor: "Supervisor Demo", at: oldVersion.replacedAtIso, fields: [filename, body.reason] }] });
+    return route.fulfill(json({ item: state.get(), deletionRequested: true }));
+  });
+  await page.getByLabel("Booking", { exact: true }).fill("RASCUNHO-EXCLUSAO");
+  await page.getByRole("button", { name: "Excluir arquivo…", exact: true }).click();
+  const confirmation = page.getByRole("group", { name: "Confirmar exclusão da nota" });
+  await expect(confirmation).toContainText("DEMO-NF-01 · ABC1D23");
+  await expect(confirmation).toContainText(filename);
+  await expect(confirmation.getByRole("button", { name: "Confirmar exclusão", exact: true })).toBeDisabled();
+  await confirmation.getByRole("button", { name: "Cancelar", exact: true }).click();
+  expect(commands).toHaveLength(0);
+  await expect(page.getByRole("button", { name: "Baixar original", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Excluir arquivo…", exact: true }).click();
+  await page.getByLabel("Motivo para excluir NF", { exact: true }).fill("Teste de remoção");
+  await page.getByRole("button", { name: "Confirmar exclusão", exact: true }).click();
+  await expect(page.getByRole("status").filter({ hasText: "Exclusão em processamento" })).toBeVisible();
+  await expect(page.getByLabel("Booking", { exact: true })).toHaveValue("RASCUNHO-EXCLUSAO");
+  await expect(page.getByRole("button", { name: "Baixar original", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Liberar para chamada", exact: true })).toBeDisabled();
+  expect(commands[0]).toMatchObject({ action: "delete", documentId: "document-demo", expectedVersion: 3, reason: "Teste de remoção" });
+  await page.getByText("Histórico dos documentos", { exact: true }).click();
+  await expect(page.locator(".q-invoice-history")).toContainText("Exclusão em processamento");
+  await expect(page.locator(".q-invoice-history")).toContainText("Teste de remoção");
+  await page.getByText("Histórico de alterações", { exact: true }).click();
+  await expect(page.locator(".q-history")).toContainText("Exclusão de nota solicitada");
+  expect(state.get().status).toBe("AGUARDANDO_LIBERACAO");
+});
+
+test("lost deletion response retries the exact receipt and a conflict preserves the reason", async ({ page }) => {
+  const state = await setup(page, "ADMIN", complete(initial));
+  const commands: any[] = [];
+  await page.route("**/api/checkins/invoice-demo/document", (route) => {
+    commands.push(route.request().postDataJSON());
+    if (commands.length === 1) return route.abort("failed");
+    return route.fulfill(json("A visita mudou. Atualize e confira o documento antes de excluir.", 409));
+  });
+  await page.getByRole("button", { name: "Excluir arquivo…", exact: true }).click();
+  await page.getByLabel("Motivo para excluir NF", { exact: true }).fill("Motivo preservado");
+  await page.getByRole("button", { name: "Confirmar exclusão", exact: true }).click();
+  await page.getByRole("button", { name: "Consultar / tentar novamente", exact: true }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "A visita mudou" })).toBeVisible();
+  await expect(page.getByLabel("Motivo para excluir NF", { exact: true })).toHaveValue("Motivo preservado");
+  expect(commands).toHaveLength(2); expect(commands[0]).toEqual(commands[1]);
+  expect(state.get().document?.current?.id).toBe("document-demo");
+});
+
+test("analyst cannot delete and an expired current NF cannot be downloaded or replaced", async ({ page }) => {
+  const state = await setup(page, "ANALYST", complete(initial));
+  await expect(page.getByRole("button", { name: "Excluir arquivo…", exact: true })).toHaveCount(0);
+  state.set({ ...state.get(), version: 4, documentExpiresAtIso: "2001-01-01T00:00:00.000Z" });
+  await page.getByRole("button", { name: "Atualizar", exact: true }).click();
+  await expect(page.getByText("Prazo documental encerrado.", { exact: false })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Baixar original", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Substituir documento", exact: true })).toHaveCount(0);
+});

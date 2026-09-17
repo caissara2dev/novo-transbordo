@@ -15,6 +15,9 @@ export type QueueRevision = {
   fields: string[];
 };
 export type QueueVisit = {
+  closedAtIso?: string | null;
+  documentExpiresAtIso?: string | null;
+  documentRetentionReviewRequired?: boolean;
   document?: import("./checkin-document").VisitDocument;
   id: string;
   publicCode: string;

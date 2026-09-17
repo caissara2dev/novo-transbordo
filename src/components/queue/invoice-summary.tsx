@@ -5,6 +5,8 @@ import { apiFetch, ApiRequestError } from "@/lib/auth/api-fetch";
 import type { QueueVisit } from "@/lib/domain/queue";
 import { uploadInvoice, validateInvoiceFile } from "./invoice-upload";
 import { InvoiceHistory } from "./invoice-history";
+import { InvoiceDelete } from "./invoice-delete";
+import { documentHasExpired } from "@/lib/domain/document-retention";
 import "./invoice-summary.css";
 
 type Reply = { sessionId: string; uploadUrl?: string; received: boolean; item?: QueueVisit };
@@ -14,9 +16,10 @@ type Operation = {
 const formats = ".jpg,.jpeg,.png,.heic,.heif,.pdf,image/jpeg,image/png,image/heic,image/heif,application/pdf";
 const size = (bytes: number) => new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 2 }).format(bytes / 1_000_000);
 
-export function InvoiceSummary({ visit, canAttach = false, onReceived }: {
+export function InvoiceSummary({ visit, canAttach = false, canDelete = false, onReceived }: {
   visit: QueueVisit;
   canAttach?: boolean;
+  canDelete?: boolean;
   onReceived?: (item: QueueVisit) => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -33,8 +36,9 @@ export function InvoiceSummary({ visit, canAttach = false, onReceived }: {
   const inFlight = useRef(false);
   const invoice = visit.document;
   if (!invoice) return null;
-  const mayAttach = canAttach && invoice.status === "pending" && !invoice.current;
-  const mayReplace = canAttach && invoice.status === "received" && Boolean(invoice.current);
+  const expired = documentHasExpired(visit);
+  const mayAttach = canAttach && !expired && invoice.status === "pending" && !invoice.current;
+  const mayReplace = canAttach && !expired && invoice.status === "received" && Boolean(invoice.current);
   const visiblePreview = preview?.documentId === invoice.current?.id ? preview : null;
   const endpoint = `/api/checkins/${encodeURIComponent(visit.id)}/document`;
 
@@ -72,7 +76,7 @@ export function InvoiceSummary({ visit, canAttach = false, onReceived }: {
     setPreview(null); setSelected(null); setTarget(null); setRetry(false); operation.current = null;
   }
   async function send() {
-    if (!selected || !target || !canAttach || inFlight.current) return;
+    if (!selected || !target || !canAttach || expired || inFlight.current) return;
     inFlight.current = true;
     setBusy(true); setError(""); setMessage(""); setPhase("Preparando envio…");
     const active = operation.current ?? {
@@ -120,7 +124,7 @@ export function InvoiceSummary({ visit, canAttach = false, onReceived }: {
 
   return <section className="q-section q-invoice" aria-label="Nota fiscal" aria-busy={busy}>
     <h3>Nota fiscal <span>Somente Line</span></h3>
-    {invoice.status === "pending" ? <>
+    {expired ? <p className="q-notice">Prazo documental encerrado. Downloads e novos anexos estão bloqueados. O registro da visita e o histórico permanecem disponíveis.</p> : invoice.status === "pending" ? <>
       <p>Documento pendente. A liberação e a chamada estão bloqueadas até o recebimento da nota.</p>
     </> : <>
       <p className="q-invoice-file"><strong>Documento recebido</strong><span>{size(invoice.current?.size ?? 0)} MB</span>
@@ -129,10 +133,13 @@ export function InvoiceSummary({ visit, canAttach = false, onReceived }: {
         <button className="btn-soft" type="button" disabled={busy} onClick={() => void open(false)}>Baixar original</button>
         {invoice.current?.previewStatus === "ready" ? <button className="btn-soft" type="button" disabled={busy} onClick={() => void open(true)}>Visualizar nota</button> : null}
       </div>
+      {canDelete && invoice.current ? <InvoiceDelete visit={visit} documentId={invoice.current.id} name={invoice.current.name} current disabled={busy || Boolean(selected)} onDeleted={(item) => {
+        setPreview(null); setMessage("Exclusão em processamento. Novos downloads foram bloqueados; a etapa da visita foi mantida."); onReceived?.(item);
+      }} /> : null}
       {invoice.current?.previewStatus !== "ready" && invoice.current?.previewStatus !== "not-applicable" ? <p className="q-help">Prévia {invoice.current?.previewStatus === "failed" ? "indisponível; original preservado" : "em processamento"}.</p> : null}
       {visiblePreview ? <a href={visiblePreview.url} target="_blank" rel="noreferrer"><img src={visiblePreview.url} alt="Prévia da nota fiscal desta visita" /></a> : null}
     </>}
-    {mayAttach || mayReplace || (canAttach && selected) ? <>
+    {mayAttach || mayReplace || (canAttach && !expired && selected) ? <>
       {mayAttach ? <p className="q-help">Anexe a foto ou o PDF recebido do motorista, de até 10 MB. O documento ficará vinculado somente a esta visita.</p> : null}
       <input ref={picker} aria-label="Arquivo da nota fiscal" type="file" accept={formats} hidden
         onChange={(event) => { choose(event.target.files?.[0]); event.target.value = ""; }} />
@@ -160,7 +167,9 @@ export function InvoiceSummary({ visit, canAttach = false, onReceived }: {
         }}>Cancelar seleção</button> : null}
       </div>
     </> : null}
-    <InvoiceHistory key={invoice.current?.id ?? "pending"} endpoint={endpoint} />
+    <InvoiceHistory key={`${invoice.current?.id ?? "pending"}-${visit.version}`} endpoint={endpoint} visit={visit} canDelete={canDelete} onDeleted={(item) => {
+      setMessage("Exclusão em processamento. O registro textual será preservado."); onReceived?.(item);
+    }} />
     <div aria-live="polite">{busy && phase ? <><progress max={100} value={progress} aria-label="Envio da nota fiscal" /><p>{phase === "Enviando nota" ? `Enviando nota: ${progress}%` : phase}</p></> : null}</div>
     {message ? <p className="q-notice" role="status">{message}</p> : null}
     {error ? <p className="q-error" role="alert">{error}</p> : null}

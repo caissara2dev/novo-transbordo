@@ -13,6 +13,7 @@ import {runDocumentCommand,documentConfirmedReplay} from "@/lib/server/checkins/
 import {confirmCheckin,createOrRecoverPreRegistration} from "@/lib/server/checkins/service";
 import {getDocumentDownload,listDocumentVersions} from "@/lib/server/checkins/document-access";
 import {runInternalDocumentCommand} from "@/lib/server/checkins/internal-documents";
+import {requestDocumentDeletion} from "@/lib/server/checkins/document-deletion";
 import {mutateQueue} from "@/lib/server/checkins/queue-service";
 import type {QueueActor} from "@/lib/server/checkins/queue-service";
 const enabled=process.env.FIRESTORE_EMULATOR_HOST==="127.0.0.1:8188" && process.env.FIREBASE_PROJECT_ID==="demo-checkin-nf";
@@ -144,7 +145,7 @@ describe.skipIf(!enabled)("document confirmation on real local Firestore transac
   expect((await runInternalDocumentCommand(actor,visit.id,command)).item?.version).toBe(3);
   expect((await runInternalDocumentCommand(actor,visit.id,input)).received).toBe(true);
   expect((await visit.ref.collection("revisions").where("action","==","Nota fiscal anexada").get()).size).toBe(1);
- });
+ },20_000); // Intentional transaction contention can trigger Firestore SDK retry backoff.
  it("serializes two separate uploads and cannot replace the winning document",async()=>{
   const {actor,visit}=await pendingInternal();
   const a=await runInternalDocumentCommand(actor,visit.id,beginInput());const b=await runInternalDocumentCommand(actor,visit.id,beginInput());
@@ -440,5 +441,80 @@ describe.skipIf(!enabled)("document confirmation on real local Firestore transac
   for(const version of collected) {expect(version).not.toHaveProperty("object");expect(version).not.toHaveProperty("generation");expect(version).not.toHaveProperty("actorUid");expect(version).not.toHaveProperty("document");}
   const first=await listDocumentVersions(context.actor,context.visit.id);
   await expect(listDocumentVersions(context.actor,otherVisit,first.nextCursor!)).rejects.toThrow();
+ });
+
+ const deletion=(documentId:string,expectedVersion=3)=>({action:"delete",operationId:randomUUID(),documentId,expectedVersion,reason:"Documento fictício para teste de exclusão"});
+ it.each(["ADMIN","SUPERVISOR"])("allows %s to request exact deletion once and keeps status and saved events",async(role)=>{
+  const {actor,visit,original}=await receivedInternal(role);
+  await visit.ref.update({status:"EM_DESCARGA",linkedEventId:"saved-event",booking:"INTACTO"});
+  const input=deletion(original.id);
+  const first=await requestDocumentDeletion(actor,visit.id,input);
+  expect(first.item).toMatchObject({status:"EM_DESCARGA",version:4,booking:"INTACTO",document:{status:"pending",current:null}});
+  expect((await visit.ref.get()).data()?.linkedEventId).toBe("saved-event");
+  expect(files.has(original.object)).toBe(true); // Worker, not the web request, owns physical deletion.
+  const archive=(await adminDb.collection("_checkinDocumentVersions").doc(original.id).get()).data()!;
+  expect(archive).toMatchObject({kind:"manual-deletion",state:"deletion-requested",document:original,deletion:{reason:input.reason,actorRole:role,source:"manual"}});
+  await expect(getDocumentDownload(actor,visit.id)).rejects.toMatchObject({status:404});
+  await expect(getDocumentDownload(actor,visit.id,false,original.id)).rejects.toMatchObject({status:410});
+  expect((await requestDocumentDeletion(actor,visit.id,input)).item.version).toBe(4);
+  expect((await visit.ref.collection("revisions").where("action","==","Exclusão de nota solicitada").get()).size).toBe(1);
+  const fresh=await runInternalDocumentCommand(actor,visit.id,{...beginInput(),expectedVersion:4});await putInternal(fresh.sessionId);
+  const received=await runInternalDocumentCommand(actor,visit.id,{action:"finalize",sessionId:fresh.sessionId});
+  const replay=await requestDocumentDeletion(actor,visit.id,input);
+  expect(replay.item.document?.current?.id).toBe(received.item?.document?.current?.id);
+  await expect(requestDocumentDeletion(actor,visit.id,{...input,documentId:replay.item.document!.current!.id})).rejects.toMatchObject({status:409});
+ });
+ it.each(["ANALYST","CUSTOMER","OPERATOR","DISPLAY"])("refuses NF deletion by %s",async(role)=>{
+  const context=await receivedInternal("ADMIN");
+  const actor={...context.actor,profile:{...context.actor.profile,role} as QueueActor["profile"]};
+  await expect(requestDocumentDeletion(actor,context.visit.id,deletion(context.original.id))).rejects.toMatchObject({status:403});
+  expect((await context.visit.ref.get()).data()?.document.current.id).toBe(context.original.id);
+ });
+ it("requires reason, exact target/version and current permission even when replaying",async()=>{
+  const {actor,visit,original}=await receivedInternal("ADMIN");const input=deletion(original.id);
+  await expect(requestDocumentDeletion(actor,visit.id,{...input,reason:"  "})).rejects.toThrow();
+  await expect(requestDocumentDeletion(actor,visit.id,{...input,expectedVersion:2})).rejects.toMatchObject({status:409});
+  await expect(requestDocumentDeletion(actor,visit.id,{...input,documentId:randomUUID()})).rejects.toMatchObject({status:404});
+  await visit.ref.update({pendingOfficialMutation:{id:"busy"}});
+  await expect(requestDocumentDeletion(actor,visit.id,input)).rejects.toMatchObject({status:409});
+  await visit.ref.update({pendingOfficialMutation:null});
+  await requestDocumentDeletion(actor,visit.id,input);
+  await adminDb.collection("users").doc(actor.uid).update({role:"ANALYST"});
+  await expect(requestDocumentDeletion(actor,visit.id,input)).rejects.toMatchObject({status:403});
+ });
+ it("deletes an archived version without changing current document or its 90-day expiry",async()=>{
+  const context=await receivedInternal("SUPERVISOR");const latest=await finishReplacement(context);
+  const archiveRef=adminDb.collection("_checkinDocumentVersions").doc(context.original.id);
+  const before=(await archiveRef.get()).data()!;
+  const result=await requestDocumentDeletion(context.actor,context.visit.id,deletion(context.original.id,4));
+  expect(result.item.document?.current).toEqual(latest.result.item?.document?.current);
+  expect((await archiveRef.get()).data()).toMatchObject({expiresAt:before.expiresAt,state:"deletion-requested"});
+  expect((await listDocumentVersions(context.actor,context.visit.id)).items[0]).toMatchObject({available:false,deletion:{source:"manual"}});
+  expect((await getDocumentDownload(context.actor,context.visit.id)).name).toBe("nota-corrigida.pdf");
+ });
+ it("serializes deletion against replacement and never deletes the winning replacement",async()=>{
+  const context=await receivedInternal("ADMIN");const replacement=await beginReplacement(context);await putInternal(replacement.response.sessionId);
+  const results=await Promise.allSettled([
+   requestDocumentDeletion(context.actor,context.visit.id,deletion(context.original.id)),
+   runInternalDocumentCommand(context.actor,context.visit.id,{action:"finalize",sessionId:replacement.response.sessionId}),
+  ]);
+  expect(results.filter(item=>item.status==="fulfilled")).toHaveLength(1);
+  expect((await context.visit.ref.get()).data()?.version).toBe(4);
+ },20_000);
+ it("preserves the closure deadline on replacement and blocks current download and upload after expiry",async()=>{
+  const context=await receivedInternal("ADMIN");
+  const expiresAt=new Date(Date.now()+50_000).toISOString();
+  await context.visit.ref.update({status:"CONCLUIDO",closedAtIso:"2025-09-17T10:00:00.000Z",documentExpiresAtIso:expiresAt});
+  await finishReplacement(context);
+  expect((await context.visit.ref.get()).data()?.documentExpiresAtIso).toBe(expiresAt);
+  await getDocumentDownload(context.actor,context.visit.id);
+  expect(signedReads.at(-1)?.options.expires).toBe(Date.parse(expiresAt));
+  const upload=await beginReplacement(context);await putInternal(upload.response.sessionId);
+  await context.visit.ref.update({documentExpiresAtIso:new Date(Date.now()-1).toISOString()});
+  await expect(getDocumentDownload(context.actor,context.visit.id)).rejects.toMatchObject({status:410});
+  await expect(beginReplacement(context)).rejects.toMatchObject({status:410});
+  await expect(runInternalDocumentCommand(context.actor,context.visit.id,{action:"finalize",sessionId:upload.response.sessionId})).rejects.toMatchObject({status:410});
+  // Earlier replaced files retain their own independently calculated 90-day deadline.
+  expect((await getDocumentDownload(context.actor,context.visit.id,false,context.original.id)).name).toBe(context.original.name);
  });
 });

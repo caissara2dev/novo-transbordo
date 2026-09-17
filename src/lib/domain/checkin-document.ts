@@ -17,17 +17,28 @@ export type VisitDocument = {
 export type DocumentVersion = {
   visitId: string;
   document: NonNullable<VisitDocument["current"]>;
-  state: "available" | "deleting" | "deleted";
+  state: "available" | "deletion-requested" | "deleting" | "deleted";
+  kind?: "replacement" | "manual-deletion" | "current-expiration";
+  deletion?: {
+    operationId: string; requestedAtIso: string; actorUid: string; actorRole: string;
+    actorName: string; reason: string; source: "manual" | "expiration";
+  };
+  closedAtIso?: string;
+  documentExpiresAtIso?: string;
+  deletedAtIso?: string;
   replacedAtIso: string;
   expiresAt: number;
   replacedBy: string;
   actorUid: string;
-  replacementDocumentId: string;
+  replacementDocumentId: string | null;
 };
 export type DocumentHistoryItem = {
   id: string; name: string; size: number; contentType: string;
   replacedAtIso: string; expiresAtIso: string; replacedBy: string;
   state: DocumentVersion["state"]; available: boolean;
+  kind?: DocumentVersion["kind"];
+  deletion?: Pick<NonNullable<DocumentVersion["deletion"]>, "requestedAtIso" | "actorName" | "reason" | "source">;
+  deletedAtIso?: string;
 };
 export type DocumentHistoryPage = { items: DocumentHistoryItem[]; nextCursor: string | null };
 export function detectDocumentType(bytes: Uint8Array): string | null {

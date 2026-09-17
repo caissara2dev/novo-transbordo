@@ -3,6 +3,7 @@ import { createHash, createHmac, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { adminDb } from "@/lib/firebase/admin";
 import { HttpError } from "@/lib/domain/errors";
+import { documentHasExpired } from "@/lib/domain/document-retention";
 import { detectDocumentType, DOCUMENT_MAX_BYTES, DOCUMENT_SESSION_MS, DOCUMENT_REPLACED_RETENTION_MS, type DocumentVersion, type VisitDocument } from "@/lib/domain/checkin-document";
 import type { StoredCheckin } from "@/types/checkins";
 import type { UserDoc } from "@/types/domain";
@@ -51,6 +52,7 @@ function requireSession(value: Session | undefined, actor: QueueActor, visitId: 
 }
 function editableVisit(value: StoredCheckin | undefined, expectedVersion: number, replaceDocumentId?: string) {
   if (!value?.confirmedAtIso) throw new HttpError(404, "Visita confirmada não encontrada.");
+  if (documentHasExpired(value)) throw new HttpError(410, "O prazo documental desta visita terminou. Novos anexos não são permitidos.");
   if (value.version !== expectedVersion || value.pendingOfficialMutation)
     throw new HttpError(409, "A visita foi alterada. Atualize e confira os dados antes de enviar a nota.");
   if (replaceDocumentId) {
