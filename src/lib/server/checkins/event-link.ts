@@ -4,6 +4,8 @@ import { HttpError } from "@/lib/domain/errors";
 import { normalizePlate } from "@/lib/domain/identifiers";
 import type { EventInput } from "@/types/domain";
 import type { StoredCheckin } from "@/types/checkins";
+import { documentBlocksCall } from "@/lib/domain/checkin-document";
+import { documentHasExpired } from "@/lib/domain/document-retention";
 import type { QueueIssue } from "@/lib/domain/queue";
 
 type EventIdentity = Pick<
@@ -27,7 +29,7 @@ export function assertCheckinCreation(event: EventIdentity) {
   )
     throw new HttpError(
       409,
-      "Selecione uma visita chamada para este lançamento.",
+      "Selecione a placa de uma visita chamada no campo de origem deste lançamento.",
     );
 }
 /** Read before any transaction writes; execute the returned writer with the event write. */
@@ -77,7 +79,9 @@ export async function prepareCheckinEventLink(
       stored.status !== "CHAMADO" ||
       stored.activeProductiveEventId ||
       stored.pendingOfficialMutation ||
-      stored.issues?.some((issue) => !issue.resolved)
+      stored.issues?.some((issue) => !issue.resolved) ||
+      documentBlocksCall(stored.document) ||
+      documentHasExpired(stored)
     )
       throw new HttpError(
         409,

@@ -23,6 +23,7 @@ import {
   restoreEvent,
   previewEventRestore,
 } from "@/lib/server/events";
+import { prepareCheckinEventLink } from "@/lib/server/checkins/event-link";
 import { previewEventGap, prepareDeletionGap } from "@/lib/server/gaps";
 const now = "2026-09-10T12:00:00.000Z";
 const id = "11111111-1111-4111-8111-111111111111";
@@ -611,5 +612,27 @@ describe("immediate issue commands and short shared fields", () => {
     expect(db.read("checkins", id)?.documentRetentionReviewRequired).toBe(false);
     const customerView = await getQueueVisit(customer, id);
     expect(customerView).not.toHaveProperty("closedAtIso"); expect(customerView).not.toHaveProperty("documentExpiresAtIso");
+  });
+});
+
+
+describe("event linkage checks document availability at commit", () => {
+  it.each(["CREATE", "RESTORE"] as const)("blocks %s when the document is pending or expired, without writing a discharge", async (action) => {
+    for (const patch of [{ document: { status: "pending", current: null, sessionId: "pending" } }, { documentExpiresAtIso: "2020-01-01T00:00:00.000Z" }]) {
+      seed({ status: "CHAMADO", issues: [], ...patch });
+      await expect(db.runTransaction(async (tx) => {
+        const write = await prepareCheckinEventLink(tx as any, "new-event", eventInput() as any, "operator", action, 2);
+        write();
+      })).rejects.toMatchObject({ status: 409 });
+      expect(db.read("checkins", id)?.status).toBe("CHAMADO");
+    }
+  });
+  it("still permits unlinking a deleted event when its document has expired", async () => {
+    seed({ status: "EM_DESCARGA", activeProductiveEventId: "event", issues: [], documentExpiresAtIso: "2020-01-01T00:00:00.000Z", document: { status: "pending", current: null } });
+    await db.runTransaction(async (tx) => {
+      const write = await prepareCheckinEventLink(tx as any, "event", eventInput() as any, "operator", "DELETE");
+      write();
+    });
+    expect(db.read("checkins", id)).toMatchObject({ status: "CHAMADO", activeProductiveEventId: null });
   });
 });

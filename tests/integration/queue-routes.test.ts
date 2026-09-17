@@ -279,3 +279,23 @@ describe("administrator grants explicit participation", () => {
     ).toBe(409);
   });
 });
+
+
+describe("called visits expose only available operations", () => {
+  it("omits pending or expired documents and unfinished mutations, preserving integration off", async () => {
+    const cases = [
+      { document: { status: "pending", current: null, sessionId: "pending" } },
+      { documentExpiresAtIso: "2020-01-01T00:00:00.000Z" },
+      { activeProductiveEventId: "event" },
+      { pendingOfficialMutation: { id: "mutation" } },
+    ];
+    for (const patch of cases) {
+      db.seed("checkins", "visit", { ...visit, status: "CHAMADO", issues: [], ...patch });
+      const response = await listCalled(req("/api/checkins/called", "operator"));
+      expect((await response.json()).data.items).toEqual([]);
+    }
+    vi.stubEnv("CHECKIN_INTEGRATION_MODE", "off");
+    const disabled = await listCalled(req("/api/checkins/called", "operator"));
+    expect((await disabled.json()).data).toEqual({ enabled: false, mode: "off", items: [] });
+  });
+});
