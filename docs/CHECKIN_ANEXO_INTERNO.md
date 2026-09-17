@@ -2,7 +2,7 @@
 
 Tracks [#33](https://github.com/caissara2dev/novo-transbordo/issues/33), com os registros de implementação e validação de cada etapa; [PR #35](https://github.com/caissara2dev/novo-transbordo/pull/35). Esta etapa pertence à branch V2 de homologação. Não autoriza merge nem produção.
 
-A etapa de exclusão manual e expiração do documento atual está **implementada localmente e em validação**, sem evidência de implantação desta etapa ainda. A disponibilidade em homologação deve ser confirmada pela revisão implantada, não por este documento.
+A etapa de exclusão manual e expiração do documento atual foi implantada em homologação em 17/09/2026: sistema `build-2026-09-17-003` e worker `checkin-document-worker-00005-nrh`, código `c8a2e3d`. Os resultados e limites de validação são mantidos na issue #33/PR #35; implantação não equivale a aceite operacional nem a publicação em produção.
 
 ## Uso na fila
 

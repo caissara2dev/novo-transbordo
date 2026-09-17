@@ -1,6 +1,6 @@
 # Runbook documental: retenção, exclusão e recuperação operacional
 
-Tracks [issue #33](https://github.com/caissara2dev/novo-transbordo/issues/33) e [PR #35](https://github.com/caissara2dev/novo-transbordo/pull/35). Estado da etapa nova: implementação local em validação. Este documento não comprova homologação, merge ou deploy.
+Tracks [issue #33](https://github.com/caissara2dev/novo-transbordo/issues/33) e [PR #35](https://github.com/caissara2dev/novo-transbordo/pull/35). Etapa implantada em homologação em 17/09/2026; consultar esses registros para as evidências e limitações atuais. Merge, release e produção continuam separados.
 
 ## Política e execução
 

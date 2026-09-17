@@ -1,6 +1,6 @@
 # Check-in V2 — consolidação do código de homologação
 
-Tracks [#32](https://github.com/caissara2dev/novo-transbordo/issues/32). Esta entrega publica código e documentação para revisão; não implanta recursos nem promove o check-in para produção.
+Consolidação inicial acompanhada em [#32](https://github.com/caissara2dev/novo-transbordo/issues/32). As evoluções de documentos e fila seguem em #33/#34 e foram autorizadas somente para homologação. A branch e o PR não autorizam merge nem produção.
 
 ## Componentes e origem
 
@@ -14,6 +14,12 @@ Tracks [#32](https://github.com/caissara2dev/novo-transbordo/issues/32). Esta en
 Base de integração: main `df04b85`, v2.5.1. Preservadas as alterações do display, lançamentos e versão do Next.js dessa base. O PR #16 mantém a proposta histórica da V1/Excel e não representa esta versão V2. Não foi apagado ou mergeado.
 
 A pasta `src` do sistema foi comparada com o snapshot local utilizado no último deploy da homologação antes da integração; nenhuma divergência foi encontrada. O portal foi importado com código, assets e testes, excluindo builds, relatórios gerados e credenciais. Documentos de validação antigos são históricos; os testes desta consolidação serão registrados no PR.
+
+## Implantação de 17/09/2026
+
+Código `c8a2e3d`: sistema `build-2026-09-17-003`, worker `checkin-document-worker-00005-nrh`, ambos prontos com o tráfego direcionado à revisão nova. CPU por requisição, recursos, escala, IAM e agendamento preservados; portal não alterado. Índice novo de retenção pronto. Backfill não encontrou visitas encerradas elegíveis e não alterou dados.
+
+[CI completo](https://github.com/caissara2dev/novo-transbordo/actions/runs/35246533804) e [CodeQL](https://github.com/caissara2dev/novo-transbordo/actions/runs/35246531402) aprovados. Resultados dos testes reais e limitações são registrados nas issues #33/#34 e no PR #35, sem publicar documentos, credenciais ou logs privados. Testes físicos em telefones foram adiados pelo responsável. Preparação de produção e aprovação de publicação permanecem pendentes.
 
 ## Capacidades presentes
 

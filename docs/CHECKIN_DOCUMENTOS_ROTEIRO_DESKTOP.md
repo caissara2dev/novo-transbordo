@@ -1,6 +1,6 @@
 # Roteiro desktop: documentos da fila
 
-Estado desta nova etapa: implementação local em validação. Executar em homologação somente depois de confirmar a revisão implantada. Use visitas fictícias próprias; não substitua/exclua arquivos enviados pelo responsável em seus testes anteriores.
+Roteiro da etapa implantada em homologação em 17/09/2026. Conferir a revisão e os resultados atuais na issue #33/PR #35 antes de executar. Use visitas fictícias próprias; não substitua/exclua arquivos enviados pelo responsável em seus testes anteriores. Testes físicos em telefones permanecem adiados.
 
 ## Complementar e substituir
 
