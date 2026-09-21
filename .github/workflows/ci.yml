@@ -77,7 +77,8 @@ jobs:
           cache-dependency-path: infrastructure/checkin-documents/requirements.txt
 
       - name: Dependências do worker
-        run: python -m pip install --only-binary=:all: -r infrastructure/checkin-documents/requirements.txt
+        run: >-
+          python -m pip install --only-binary=:all: -r infrastructure/checkin-documents/requirements.txt
 
       - name: Testes de prévias, retenção e exclusão
         run: python -m unittest discover -v -s infrastructure/checkin-documents -p 'test_*.py'
