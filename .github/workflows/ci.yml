@@ -56,10 +56,6 @@ jobs:
       - name: Chromium
         run: npx playwright install --with-deps chromium
 
-      - name: Diagnose confirmation contention (#42)
-        run: >-
-          npx firebase emulators:exec --config firebase.documents-test.json --project demo-checkin-nf --only firestore "node scripts/diagnose-confirmation-contention.mjs"
-
       - name: Verificação completa
         run: npm run verify
 
