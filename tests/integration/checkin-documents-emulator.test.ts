@@ -80,8 +80,13 @@ describe.skipIf(!enabled)("document confirmation on real local Firestore transac
  it("serializes duplicate confirmation and produces one visit and one original",async()=>{
   const session=await open();await upload(session.sessionId);const registration=await prereg();
   const results=await Promise.all([confirm(registration.publicCode,session.sessionId),confirm(registration.publicCode,session.sessionId)]);
-  expect(results[0].publicCode).toBe(results[1].publicCode);expect((await adminDb.collection("checkins").get()).size).toBe(1);expect(files.size).toBe(1);
- });
+  expect(results[0].publicCode).toBe(results[1].publicCode);
+  const visits=await adminDb.collection("checkins").get();expect(visits.size).toBe(1);
+  const visit=visits.docs[0];expect(visit.data()).toMatchObject({status:"AGUARDANDO_LIBERACAO",version:2,document:{status:"received",sessionId:session.sessionId}});
+  expect((await adminDb.collection("_checkinDocumentSessions").doc(session.sessionId).get()).data()).toMatchObject({state:"linked",visitId:visit.id});
+  expect((await visit.ref.collection("revisions").where("action","==","CHECKIN_CONFIRMED").get()).size).toBe(1);
+  expect(files.size).toBe(1);
+ },20_000); // Real lock contention and SDK retry backoff are intentional; this is not a latency SLA.
  it("keeps documents isolated across two visits of the same plate",async()=>{
   const first=await open();await upload(first.sessionId);const firstRegistration=await prereg();await confirm(firstRegistration.publicCode,first.sessionId);
   const row=(await adminDb.collection("checkins").get()).docs[0];await row.ref.update({status:"CONCLUIDO"});
