@@ -629,6 +629,7 @@ export function QueueWorkspace({
         ["AGUARDANDO_LIBERACAO", "Em análise"],
         ["AGUARDANDO_CHAMADA", "Liberadas"],
         ["CHAMADO", "Chamadas"],
+        ["EM_DESCARGA", "Em descarga"],
         ["HISTORY", "Histórico"],
       ];
   async function refresh() {
