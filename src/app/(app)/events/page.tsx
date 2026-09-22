@@ -98,6 +98,7 @@ export default function EventsPage() {
   const [clients, setClients] = useState<ClientApiItem[]>([]);
   const [events, setEvents] = useState<EventApiItem[]>([]);
   const [form, setForm] = useState<EventFormState>(makeInitialForm);
+  const [createFormVersion, setCreateFormVersion] = useState(0);
   const [editForm, setEditForm] = useState<EventFormState | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
   const [editAutomatic, setEditAutomatic] = useState(false);
@@ -278,6 +279,8 @@ export default function EventsPage() {
           : "Lançamento salvo com sucesso."
       );
       setForm(makeInitialForm());
+      // Reset child lookups so a consumed called visit cannot remain in the next form.
+      setCreateFormVersion(value => value + 1);
 
       try {
         await loadEvents(appliedFiltersRef.current);
@@ -572,6 +575,7 @@ export default function EventsPage() {
       <section className="panel space-y-3">
         <h2 className="panel-title text-2xl">Novo lançamento</h2>
         <EventFormFields
+          key={createFormVersion}
           containerTransfersEnabled={containerTransfersEnabled}
           clients={clients}
           form={form}

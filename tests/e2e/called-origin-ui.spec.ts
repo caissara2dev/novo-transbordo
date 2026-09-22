@@ -5,18 +5,18 @@ const app=initializeApp({projectId:"demo-transbordo-e2e"},"called-origin-ui");
 const auth=getAuth(app),email="called.origin.e2e@example.test",password="local-emulator-only";
 let uid="";
 const json=(data:unknown,status=200)=>({status,contentType:"application/json",body:JSON.stringify(status===200?{ok:true,data}:{ok:false,error:{code:"CONFLICT",message:data}})});
-async function setup(page:Page,mode:"off"|"observe"|"enforce"="observe") {
+async function setup(page:Page,mode:"off"|"observe"|"enforce"="observe",options:{saveSucceeds?:boolean;failHistoryAfterSave?:boolean}={}) {
   const profile={email,name:"Operação teste",role:"ADMIN",active:true,approved:true};
-  const submitted:Record<string,unknown>[]=[];let calledQueries=0;
+  const submitted:Record<string,unknown>[]=[];let calledQueries=0,saved=false;
   await page.route("**/api/me",r=>r.fulfill(json({profile,checkinsEnabled:mode!=="off",containerTransfersEnabled:true,approvalContactPhone:null})));
   await page.route("**/api/auth/sync",r=>r.fulfill(json({profile})));
   await page.route("**/api/clients*",r=>r.fulfill(json({items:[{id:"allog",name:"ALLOG",active:true},{id:"other",name:"Outro cliente",active:true}]})));
-  await page.route("**/api/events?*",r=>r.fulfill(json({items:[],nextCursor:null,incomplete:false})));
+  await page.route("**/api/events?*",r=>r.fulfill(saved&&options.failHistoryAfterSave?json("Histórico indisponível",503):json({items:[],nextCursor:null,incomplete:false})));
   await page.route("**/api/events/gap-preview",r=>r.fulfill(json({toleranceMinutes:10,gapVersion:"gap-current",uncoveredSegments:[],uncoveredMinutes:0,requiresJustification:false,reconciliations:[]})));
-  await page.route("**/api/events",r=>{submitted.push(r.request().postDataJSON());return r.fulfill(json("Falha de teste ao salvar. Os dados foram preservados.",409));});
+  await page.route("**/api/events",r=>{submitted.push(r.request().postDataJSON());if(options.saveSucceeds){saved=true;return r.fulfill(json({item:{warnings:[]}}));}return r.fulfill(json("Falha de teste ao salvar. Os dados foram preservados.",409));});
   await page.route("**/api/containers/lookup?*",r=>r.fulfill(json({current:null,availableStatuses:["FULL","PARTIAL","BUFFER"],requiresNewCycleConfirmation:false})));
   await page.route("**/api/containers?*",r=>r.fulfill(json({items:[{container:"TSTU 250001-9",status:"BUFFER",clientId:"allog",clientNameSnapshot:"ALLOG",version:7,cycleId:"source-cycle"}],nextCursor:null,incomplete:false})));
-  await page.route("**/api/checkins/called",r=>{calledQueries++;return r.fulfill(json({enabled:mode!=="off",mode,items:mode==="off"?[]:[{id:"visit-called",publicCode:"LT-DEMO1234",plate:"ABC1D23",clientId:"allog",clientName:"ALLOG",version:7}]}));});
+  await page.route("**/api/checkins/called",r=>{calledQueries++;return r.fulfill(json({enabled:mode!=="off",mode,items:mode==="off"?[]:saved?[{id:"visit-next",publicCode:"LT-NEXT5678",plate:"DEF4G56",clientId:"other",clientName:"Outro cliente",version:2}]:[{id:"visit-called",publicCode:"LT-DEMO1234",plate:"ABC1D23",clientId:"allog",clientName:"ALLOG",version:7}]}));});
   await page.goto("/login");await page.getByLabel("Email").fill(email);await page.getByLabel("Senha").fill(password);await page.getByRole("button",{name:"Entrar",exact:true}).click();await expect(page).toHaveURL(/\/dashboard$/);
   await page.goto("/events");const form=page.getByRole("heading",{name:"Novo lançamento"}).locator("..");
   await form.getByLabel("Horário início").fill("06:00");await form.getByLabel("Horário fim").fill("06:20");await form.getByLabel("Container de destino *").fill("TSTU2500024");
@@ -27,19 +27,45 @@ test.beforeAll(async()=>{const old=await auth.getUserByEmail(email).catch(()=>nu
 test.afterAll(async()=>{if(uid)await auth.deleteUser(uid);await deleteApp(app);});
 
 test("one origin field selects the called plate and keeps the visit after a failed save",async({page})=>{
-  const {form,submitted}=await setup(page,"enforce");const origin=form.getByLabel("Placa ou container de origem *");
+  const {form,submitted,queries}=await setup(page,"enforce");const origin=form.getByLabel("Placa ou container de origem *");
   await expect(page.getByLabel("Visita chamada")).toHaveCount(0);
   await origin.fill("abc-1");await expect(form.getByRole("option",{name:/ABC-1D23.*ALLOG.*LT-DEMO1234/})).toBeVisible();
   await origin.press("ArrowDown");await origin.press("Enter");
   await expect(origin).toHaveValue("ABC-1D23");await expect(form.getByLabel("Cliente *")).toHaveValue("allog");
   expect(submitted).toHaveLength(0);
   await expect(form.getByText(/descarga começa somente quando o lançamento for salvo/)).toBeVisible();
+  const queriesBeforeSave=queries();
   await form.getByRole("button",{name:"Salvar lançamento"}).click();
   await expect.poll(()=>submitted.length).toBe(1);
   expect(submitted[0]).toMatchObject({checkInId:"visit-called",expectedCheckinVersion:7,plate:"ABC-1D23",clientId:"allog",loadSourceType:"TRUCK"});
   await expect(page.getByText("Falha de teste ao salvar. Os dados foram preservados.",{exact:true})).toBeVisible();
   await expect(origin).toHaveValue("ABC-1D23");
+  await expect(form.getByLabel("Cliente *")).toHaveValue("allog");
+  await expect(form.getByLabel("Container de destino *")).toHaveValue("TSTU 250002-4");
+  expect(queries()).toBe(queriesBeforeSave);
 });
+
+for (const failHistoryAfterSave of [false,true]) {
+  test(`successful save renews called plates without manual refresh (history failure: ${failHistoryAfterSave})`,async({page})=>{
+    const {form,submitted,queries}=await setup(page,"enforce",{saveSucceeds:true,failHistoryAfterSave});
+    const origin=form.getByLabel("Placa ou container de origem *");
+    await origin.fill("ABC");await form.getByRole("option",{name:/LT-DEMO1234/}).click();
+    const queriesBeforeSave=queries();
+    await form.getByRole("button",{name:"Salvar lançamento"}).click();
+    await expect.poll(()=>submitted.length).toBe(1);
+    await expect(page.getByText("Lançamento salvo com sucesso.",{exact:true})).toBeVisible();
+    await expect(origin).toHaveValue("");
+    await expect(form.getByLabel("Cliente *")).toHaveValue("");
+    await expect(form.getByLabel("Container de destino *")).toHaveValue("");
+    await expect.poll(queries).toBeGreaterThan(queriesBeforeSave);
+    await origin.click();
+    await expect(form.getByRole("option",{name:/LT-DEMO1234/})).toHaveCount(0);
+    await form.getByRole("option",{name:/LT-NEXT5678/}).click();
+    await expect(origin).toHaveValue("DEF-4G56");
+    await expect(form.getByLabel("Cliente *")).toHaveValue("other");
+    if(failHistoryAfterSave)await expect(page.getByText(/histórico está temporariamente indisponível/)).toBeVisible();
+  });
+}
 
 test("changing the plate or client clears its hidden link while observe allows a manual truck",async({page})=>{
   const {form,submitted}=await setup(page);const origin=form.getByLabel("Placa ou container de origem *");
