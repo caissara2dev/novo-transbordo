@@ -500,6 +500,22 @@ describe("public event command service", () => {
     }
   );
 
+  it("preserves the automatic-idle restriction before the manual correction guidance", async () => {
+    const created = await createEvent(eventInput(), actor);
+    inMemoryAdminDb.seed("events", created.id, {
+      ...inMemoryAdminDb.read("events", created.id), origin: "AUTO_GAP"
+    });
+    vi.stubEnv("CHECKIN_SYSTEM_RECORD_ENABLED", "true");
+    vi.stubEnv("CHECKIN_INTEGRATION_MODE", "enforce");
+    await expect(updateEvent(created.id, eventInput({
+      category: "PRODUTIVO", clientId: "client-1", plate: "ABC1234",
+      container: "ABCU1234560", notes: null
+    }), { ...actor, role: "ADMIN" })).rejects.toMatchObject({
+      status: 400, message: "Uma ociosidade automática não pode ser convertida em produtivo."
+    });
+    expect(inMemoryAdminDb.entries(`events/${created.id}/revisions`)).toHaveLength(0);
+  });
+
   it("rejects buffer-to-truck conversion without a visit", async () => {
     const created = await createEvent(eventInput(), actor);
     inMemoryAdminDb.seed("events", created.id, {
