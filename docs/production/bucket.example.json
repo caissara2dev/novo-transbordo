@@ -1,0 +1,17 @@
+{
+  "name": "__DOCUMENT_BUCKET__",
+  "location": "__REGION__",
+  "storageClass": "STANDARD",
+  "iamConfiguration": {
+    "uniformBucketLevelAccess": { "enabled": true },
+    "publicAccessPrevention": "enforced"
+  },
+  "versioning": { "enabled": false },
+  "softDeletePolicy": { "retentionDurationSeconds": "0" },
+  "cors": [{
+    "origin": ["__PORTAL_ORIGIN__", "__SYSTEM_ORIGIN__"],
+    "method": ["PUT"],
+    "responseHeader": ["Content-Type", "Content-Range", "Range", "ETag", "x-goog-generation"],
+    "maxAgeSeconds": 3600
+  }]
+}

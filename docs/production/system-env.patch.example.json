@@ -1,0 +1,18 @@
+{
+  "env": [
+    { "variable": "CHECKIN_SYSTEM_RECORD_ENABLED", "value": "false", "availability": ["RUNTIME"] },
+    { "variable": "CHECKIN_INTEGRATION_MODE", "value": "off", "availability": ["RUNTIME"] },
+    { "variable": "CHECKIN_ENFORCE_ROLLOUT_APPROVED", "value": "false", "availability": ["RUNTIME"] },
+    { "variable": "CHECKIN_INTEGRATION_KEY_ID", "value": "__INTEGRATION_KEY_ID__", "availability": ["RUNTIME"] },
+    { "variable": "CHECKIN_INTEGRATION_HMAC_SECRET", "secret": "__INTEGRATION_SECRET_VERSION__", "availability": ["RUNTIME"] },
+    { "variable": "CHECKIN_INDEX_HMAC_SECRET", "secret": "__INDEX_SECRET_VERSION__", "availability": ["RUNTIME"] },
+    { "variable": "CHECKIN_GEOFENCE_CENTER_LAT", "value": "__APPROVED_LATITUDE__", "availability": ["RUNTIME"] },
+    { "variable": "CHECKIN_GEOFENCE_CENTER_LNG", "value": "__APPROVED_LONGITUDE__", "availability": ["RUNTIME"] },
+    { "variable": "CHECKIN_GEOFENCE_RADIUS_METERS", "value": "__APPROVED_RADIUS_METERS__", "availability": ["RUNTIME"] },
+    { "variable": "CHECKIN_DOCUMENTS_ENABLED", "value": "false", "availability": ["RUNTIME"] },
+    { "variable": "CHECKIN_DOCUMENT_ENVIRONMENT", "value": "production", "availability": ["RUNTIME"] },
+    { "variable": "CHECKIN_DOCUMENT_BUCKET", "value": "__DOCUMENT_BUCKET__", "availability": ["RUNTIME"] },
+    { "variable": "CHECKIN_PORTAL_ORIGIN", "value": "__PORTAL_ORIGIN__", "availability": ["RUNTIME"] },
+    { "variable": "CHECKIN_DOCUMENT_INTERNAL_ORIGIN", "value": "__SYSTEM_ORIGIN__", "availability": ["RUNTIME"] }
+  ]
+}
