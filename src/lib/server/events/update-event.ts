@@ -65,6 +65,19 @@ export async function updateEvent(
       "Intervalo operacional só pode ser gerado automaticamente."
     );
   }
+  if (
+    !existing.checkInId &&
+    process.env.CHECKIN_SYSTEM_RECORD_ENABLED === "true" &&
+    process.env.CHECKIN_INTEGRATION_MODE === "enforce" &&
+    validated.event.category === "PRODUTIVO" &&
+    validated.event.loadSourceType !== "BUFFER_CONTAINER" &&
+    (existing.category !== "PRODUTIVO" || existing.loadSourceType === "BUFFER_CONTAINER")
+  ) {
+    throw new HttpError(
+      409,
+      "Não é possível converter este lançamento em descarga de carreta. Exclua o lançamento incorreto e crie um novo selecionando a placa de uma visita chamada."
+    );
+  }
   const clientNameSnapshot = await assertClientIfRequired(
     validated.event.clientId
   );
