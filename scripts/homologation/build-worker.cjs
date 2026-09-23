@@ -5,7 +5,7 @@ const {getGlobalDefaultAccount,setActiveAccount}=require('firebase-tools/lib/aut
 (async()=>{
  const bucket=`${project}-checkin-nf`,region='us-central1',repository='checkin-nf',tag='v1-'+Date.now();
  try {await request('artifactregistry.googleapis.com',`/v1/projects/${project}/locations/${region}/repositories/${repository}`);}catch(e){if(!e.message.includes('404'))throw e;await request('artifactregistry.googleapis.com',`/v1/projects/${project}/locations/${region}/repositories?repositoryId=${repository}`,'POST',{format:'DOCKER',description:'Invoice preview homologation'});}
- const tar='/tmp/checkin-nf-worker.tar.gz';execFileSync('tar',['-czf',tar,'-C','infrastructure/checkin-documents','Dockerfile','main.py','preview.py','requirements.txt']);
+ const tar='/tmp/checkin-nf-worker.tar.gz';execFileSync('tar',['-czf',tar,'-C','infrastructure/checkin-documents','Dockerfile','main.py','preview.py','runtime_config.py','requirements.txt']);
  const options={project,nonInteractive:true};setActiveAccount(options,getGlobalDefaultAccount());await requireAuth(options);
  const api=new Client({urlPrefix:'https://storage.googleapis.com',apiVersion:''});const object=`build-sources/${tag}.tar.gz`;
  await api.request({method:'POST',path:`/upload/storage/v1/b/${bucket}/o?uploadType=media&name=${encodeURIComponent(object)}`,headers:{'Content-Type':'application/gzip'},body:fs.readFileSync(tar)});

@@ -7,6 +7,7 @@ import { HttpError } from "@/lib/domain/errors";
 import { detectDocumentType, DOCUMENT_MAX_BYTES, DOCUMENT_SESSION_MS, type DocumentReceipt, type VisitDocument } from "@/lib/domain/checkin-document";
 import { normalizeIdentityInput } from "./service";
 import { resolvePublicCheckinVersion } from "./public-query";
+import { documentEnvironment } from "./document-environment";
 
 const collection = "_checkinDocumentSessions";
 const capability = z.string().regex(/^[a-f0-9]{64}$/);
@@ -26,15 +27,7 @@ type Session = {
   visitId?:string;
 };
 export function documentRuntime() {
-  if (process.env.CHECKIN_DOCUMENTS_ENABLED !== "true") throw new HttpError(503,"Envio de notas indisponível.");
-  const project = process.env.FIREBASE_PROJECT_ID;
-  // First homologation is deliberately unable to target production.
-  if (project !== "line-transbordo-staging-382612" && !(process.env.FIRESTORE_EMULATOR_HOST && project?.startsWith("demo-")))
-    throw new HttpError(503,"Ambiente documental não habilitado.");
-  const bucket = process.env.CHECKIN_DOCUMENT_BUCKET;
-  const origin = process.env.CHECKIN_PORTAL_ORIGIN;
-  const secret = process.env.CHECKIN_INDEX_HMAC_SECRET;
-  if (!bucket || !origin || !secret || secret.length < 32) throw new HttpError(503,"Configuração documental incompleta.");
+  const { bucket, origin, secret } = documentEnvironment();
   return { bucket:getStorage().bucket(bucket), origin, secret };
 }
 function fingerprint(identity:z.infer<typeof identitySchema>,secret:string) {

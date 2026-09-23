@@ -15,13 +15,9 @@ from google.api_core.exceptions import NotFound, PreconditionFailed
 from google.cloud import firestore, storage
 from google.cloud.firestore_v1.base_query import FieldFilter
 from preview import make_preview
+from runtime_config import document_environment
 
-PROJECT = os.environ['GOOGLE_CLOUD_PROJECT']
-if PROJECT != 'line-transbordo-staging-382612':
-    raise RuntimeError('This worker is restricted to homologation')
-BUCKET = os.environ['CHECKIN_DOCUMENT_BUCKET']
-if BUCKET != f'{PROJECT}-checkin-nf':
-    raise RuntimeError('Unexpected document bucket')
+PROJECT, BUCKET = document_environment(os.environ)
 db = firestore.Client(project=PROJECT)
 bucket = storage.Client(project=PROJECT).bucket(BUCKET)
 LEASE_MS = 300_000
