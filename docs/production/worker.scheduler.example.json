@@ -1,0 +1,14 @@
+{
+  "name": "projects/__PROJECT_ID__/locations/__REGION__/jobs/__DOCUMENT_JOB_ID__",
+  "schedule": "*/5 * * * *",
+  "timeZone": "Etc/UTC",
+  "attemptDeadline": "240s",
+  "httpTarget": {
+    "uri": "__WORKER_SERVICE_URI__/run",
+    "httpMethod": "POST",
+    "oidcToken": {
+      "serviceAccountEmail": "__SCHEDULER_SERVICE_ACCOUNT_EMAIL__",
+      "audience": "__WORKER_SERVICE_URI__"
+    }
+  }
+}

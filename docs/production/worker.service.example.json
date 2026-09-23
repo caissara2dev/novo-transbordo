@@ -1,0 +1,19 @@
+{
+  "ingress": "INGRESS_TRAFFIC_ALL",
+  "invokerIamDisabled": false,
+  "template": {
+    "serviceAccount": "__WORKER_SERVICE_ACCOUNT_EMAIL__",
+    "maxInstanceRequestConcurrency": 1,
+    "timeout": "240s",
+    "scaling": { "minInstanceCount": 0, "maxInstanceCount": 1 },
+    "containers": [{
+      "image": "__WORKER_IMAGE_AT_SHA256_DIGEST__",
+      "resources": { "cpuIdle": true, "limits": { "cpu": "1", "memory": "1Gi" } },
+      "env": [
+        { "name": "GOOGLE_CLOUD_PROJECT", "value": "__PROJECT_ID__" },
+        { "name": "CHECKIN_DOCUMENT_BUCKET", "value": "__DOCUMENT_BUCKET__" },
+        { "name": "CHECKIN_DOCUMENT_ENVIRONMENT", "value": "production" }
+      ]
+    }]
+  }
+}
