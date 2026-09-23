@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { inMemoryAdminDb } from "./in-memory-firestore";
 
 vi.mock("@/lib/firebase/admin", () => ({
@@ -44,6 +44,7 @@ function eventInput(
 }
 
 describe("public event command service", () => {
+  afterEach(() => vi.unstubAllEnvs());
   beforeEach(() => {
     inMemoryAdminDb.reset();
     inMemoryAdminDb.seed("settings", "operations", {
@@ -439,6 +440,8 @@ describe("public event command service", () => {
 
   it("updates a manual event and records an audit revision atomically", async () => {
     const created = await createEvent(eventInput(), actor);
+    vi.stubEnv("CHECKIN_SYSTEM_RECORD_ENABLED", "true");
+    vi.stubEnv("CHECKIN_INTEGRATION_MODE", "enforce");
     const updated = await updateEvent(
       created.id,
       eventInput({ notes: "Preparação concluída" }),
@@ -472,6 +475,90 @@ describe("public event command service", () => {
     expect(inMemoryAdminDb.read("events", created.id)).toMatchObject({
       startTime: "06:00"
     });
+  });
+
+  it.each(["ADMIN", "SUPERVISOR"] as const)(
+    "rejects manual-to-truck conversion for %s before writes in enforce mode",
+    async (role) => {
+      const created = await createEvent(eventInput(), actor);
+      const before = inMemoryAdminDb.read("events", created.id);
+      const lockBefore = inMemoryAdminDb.entries("timelineLocks");
+      vi.stubEnv("CHECKIN_SYSTEM_RECORD_ENABLED", "true");
+      vi.stubEnv("CHECKIN_INTEGRATION_MODE", "enforce");
+
+      await expect(updateEvent(created.id, eventInput({
+        category: "PRODUTIVO", clientId: "client-1", plate: "ABC1234",
+        container: "ABCU1234560", notes: null, revisionReason: "Categoria incorreta"
+      }), { ...actor, role })).rejects.toMatchObject({
+        status: 409,
+        message: expect.stringContaining("Exclua o lançamento incorreto")
+      });
+      expect(inMemoryAdminDb.read("events", created.id)).toEqual(before);
+      expect(inMemoryAdminDb.entries("timelineLocks")).toEqual(lockBefore);
+      expect(inMemoryAdminDb.entries(`events/${created.id}/revisions`)).toHaveLength(0);
+      expect(inMemoryAdminDb.entries("containerStates")).toHaveLength(0);
+    }
+  );
+
+  it("rejects buffer-to-truck conversion without a visit", async () => {
+    const created = await createEvent(eventInput(), actor);
+    inMemoryAdminDb.seed("events", created.id, {
+      ...inMemoryAdminDb.read("events", created.id),
+      category: "PRODUTIVO", productive: true, loadSourceType: "BUFFER_CONTAINER"
+    });
+    const before = inMemoryAdminDb.read("events", created.id);
+    vi.stubEnv("CHECKIN_SYSTEM_RECORD_ENABLED", "true");
+    vi.stubEnv("CHECKIN_INTEGRATION_MODE", "enforce");
+    await expect(updateEvent(created.id, eventInput({
+      category: "PRODUTIVO", loadSourceType: "TRUCK", clientId: "client-1",
+      plate: "ABC1234", container: "ABCU1234560", notes: null,
+      revisionReason: "Origem incorreta"
+    }), { ...actor, role: "ADMIN" })).rejects.toMatchObject({
+      status: 409, message: expect.stringContaining("Exclua o lançamento incorreto")
+    });
+    expect(inMemoryAdminDb.read("events", created.id)).toEqual(before);
+    expect(inMemoryAdminDb.entries(`events/${created.id}/revisions`)).toHaveLength(0);
+  });
+
+  it.each([
+    ["true", "off"], ["true", "observe"], ["false", "enforce"]
+  ])("preserves conversions outside enforced check-in (%s/%s)", async (enabled, mode) => {
+    const created = await createEvent(eventInput(), actor);
+    inMemoryAdminDb.seed("clients", "client-1", { active: true, name: "Cliente 1" });
+    vi.stubEnv("CHECKIN_SYSTEM_RECORD_ENABLED", enabled);
+    vi.stubEnv("CHECKIN_INTEGRATION_MODE", mode);
+    const input = eventInput({
+      category: "PRODUTIVO", clientId: "client-1", plate: "ABC1234",
+      container: "ABCU1234560", expectedContainerStateVersion: 0,
+      notes: null, revisionReason: "Categoria corrigida"
+    });
+    const { previewEventGap } = await import("@/lib/server/gaps");
+    const preview = await previewEventGap({ ...input, eventId: created.id });
+    await expect(updateEvent(created.id, { ...input, gapVersion: preview.gapVersion },
+      { ...actor, role: "ADMIN" })).resolves.toMatchObject({ category: "PRODUTIVO" });
+  });
+
+  it.each(["TRUCK", null])("preserves notes edits for existing unlinked truck events (%s)", async (source) => {
+    inMemoryAdminDb.seed("clients", "client-1", { active: true, name: "Cliente 1" });
+    vi.stubEnv("CHECKIN_SYSTEM_RECORD_ENABLED", "false");
+    vi.stubEnv("CHECKIN_INTEGRATION_MODE", "off");
+    const input = eventInput({
+      category: "PRODUTIVO", clientId: "client-1", plate: "ABC1234",
+      container: "ABCU1234560", expectedContainerStateVersion: 0, notes: null
+    });
+    const { previewEventGap } = await import("@/lib/server/gaps");
+    const preview = await previewEventGap(input);
+    const created = await createEvent({ ...input, gapVersion: preview.gapVersion }, actor);
+    inMemoryAdminDb.seed("events", created.id, {
+      ...inMemoryAdminDb.read("events", created.id), loadSourceType: source
+    });
+    vi.stubEnv("CHECKIN_SYSTEM_RECORD_ENABLED", "true");
+    vi.stubEnv("CHECKIN_INTEGRATION_MODE", "enforce");
+    const edit = { ...input, notes: "Observação corrigida", expectedContainerStateVersion: 1,
+      revisionReason: "Correção de observação" };
+    const editPreview = await previewEventGap({ ...edit, eventId: created.id });
+    await expect(updateEvent(created.id, { ...edit, gapVersion: editPreview.gapVersion },
+      { ...actor, role: "ADMIN" })).resolves.toMatchObject({ notes: "Observação corrigida", category: "PRODUTIVO" });
   });
 
 

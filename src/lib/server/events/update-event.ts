@@ -38,6 +38,19 @@ export async function updateEvent(
     if ((next.checkInId !== undefined && next.checkInId !== existing.checkInId) || next.plate !== existing.plate || next.clientId !== existing.clientId || next.category !== "PRODUTIVO" || next.loadSourceType === "BUFFER_CONTAINER") throw new HttpError(409,"Desfaça o lançamento para alterar o vínculo, a placa ou o cliente da visita.");
     validated.event.checkInId = existing.checkInId;
   } else if (validated.event.checkInId) throw new HttpError(409,"Vincule uma visita ao criar um novo lançamento.");
+  if (
+    !existing.checkInId &&
+    process.env.CHECKIN_SYSTEM_RECORD_ENABLED === "true" &&
+    process.env.CHECKIN_INTEGRATION_MODE === "enforce" &&
+    validated.event.category === "PRODUTIVO" &&
+    validated.event.loadSourceType !== "BUFFER_CONTAINER" &&
+    (existing.category !== "PRODUTIVO" || existing.loadSourceType === "BUFFER_CONTAINER")
+  ) {
+    throw new HttpError(
+      409,
+      "Não é possível converter este lançamento em descarga de carreta. Exclua o lançamento incorreto e crie um novo selecionando a placa de uma visita chamada."
+    );
+  }
   delete validated.event.expectedCheckinVersion;
   const existingOrigin = existing.origin || "MANUAL";
   if (existingOrigin === "AUTO_GAP") {

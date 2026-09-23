@@ -25,6 +25,13 @@ No lançamento produtivo, as visitas chamadas elegíveis aparecem no próprio ca
 
 O servidor confere novamente placa, cliente, versão, etapa, documento e pendências no salvamento. Apenas um lançamento salvo passa a visita para **Em descarga**. Falhas mantêm a visita fora dessa etapa. Transferências entre containers permanecem no mesmo campo; integração `off`, `observe` e `enforce` conserva suas respectivas regras. `enforce` exige vínculo em carga de carreta; `observe` permite origem manual, e `off` não disponibiliza vínculos.
 
+Com a integração em `enforce`, a edição não transforma uma ociosidade/manual ou
+transferência de container sem visita em descarga de carreta. Para corrigir esse
+tipo de erro, Supervisor ou Administrador exclui o lançamento incorreto com motivo
+e cria outro pela placa chamada. A exclusão permanece no histórico. Edições normais
+de um produtivo já existente continuam disponíveis, inclusive registros anteriores
+à integração, respeitando as demais regras de edição. Decisão de 23/09/2026, #52.
+
 ## Roteiro curto — somente dados fictícios
 
 - Digitar um Booking sem salvar; adicionar, resolver, reabrir e excluir uma pendência. Conferir que o Booking continua em edição e as pendências já aparecem após recarregar em outra consulta.
