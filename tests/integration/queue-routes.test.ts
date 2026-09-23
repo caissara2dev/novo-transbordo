@@ -16,6 +16,7 @@ import {
   POST as grantAccess,
 } from "@/app/api/queue-access/route";
 import { GET as listCalled } from "@/app/api/checkins/called/route";
+import { assertCheckinCreation } from "@/lib/server/checkins/event-link";
 import { POST as attachDocument, GET as readDocument } from "@/app/api/checkins/[id]/document/route";
 const req = (path: string, uid: string, body?: unknown) =>
   new NextRequest(`http://localhost${path}`, {
@@ -282,6 +283,22 @@ describe("administrator grants explicit participation", () => {
 
 
 describe("called visits expose only available operations", () => {
+  it("keeps the queue, called selection and required link available during an intake pause", async () => {
+    vi.stubEnv("CHECKIN_INTAKE_PAUSED", "true");
+    vi.stubEnv("CHECKIN_INTEGRATION_MODE", "enforce");
+    db.seed("checkins", "visit", { ...visit, status: "CHAMADO", issues: [] });
+    const internal = await listInternal(req("/api/checkins", "analyst"));
+    expect(internal.status).toBe(200);
+    const called = await listCalled(req("/api/checkins/called", "operator"));
+    expect(called.status).toBe(200);
+    const { data } = await called.json();
+    expect(data.enabled).toBe(true);
+    expect(data.mode).toBe("enforce");
+    expect(data.items).toEqual([expect.objectContaining({ id: "visit" })]);
+    const event = { category: "PRODUTIVO" as const, loadSourceType: "TRUCK" as const, clientId: "allog", plate: "ABC-1D23" };
+    expect(() => assertCheckinCreation(event)).toThrow("Selecione a placa");
+    expect(() => assertCheckinCreation({ ...event, checkInId: "visit" })).not.toThrow();
+  });
   it("omits pending or expired documents and unfinished mutations, preserving integration off", async () => {
     const cases = [
       { document: { status: "pending", current: null, sessionId: "pending" } },

@@ -99,6 +99,75 @@ function dependencies(
 }
 
 describe("versioned check-in integration handler", () => {
+  const intakeCases = [
+    { name: "pre-registration", handler: handleCheckinPreRegistration, path: "/api/integrations/checkins/v1/pre-registrations", body: { source: "CARRIER", form } },
+    { name: "confirmation", handler: handleCheckinConfirmation, path: "/api/integrations/checkins/v1/confirmations", body: { publicCode: "LT-23456789", driverLicense: form.driverLicense, driverPhone: form.driverPhone, plate: form.plate, location } },
+    { name: "walk-in", handler: handleCheckinWalkIn, path: "/api/integrations/checkins/v1/walk-ins", body: { form, location } }
+  ];
+
+  describe.each(["observe", "enforce"])("intake pause in %s mode", (mode) => {
+    it.each(intakeCases)("rejects $name without creating records or reserving the request", async ({ handler, path, body }) => {
+      const createPreRegistration = vi.fn();
+      const confirm = vi.fn();
+      const resolveVersion = vi.fn();
+      const replayStore = createReplayStore();
+      const reserve = vi.spyOn(replayStore, "runTransaction");
+      const response = await handler(signedRequest(path, body), dependencies({
+        environment: { ...environment, CHECKIN_INTEGRATION_MODE: mode, CHECKIN_ENFORCE_ROLLOUT_APPROVED: "true", CHECKIN_INTAKE_PAUSED: "true" },
+        createPreRegistration, confirm, resolveVersion, replayStore
+      }));
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ ok: false, error: {
+        code: "CHECKIN_INTAKE_PAUSED",
+        message: "Novos check-ins estão temporariamente pausados. Aguarde a orientação da Line e tente novamente mais tarde."
+      } });
+      expect(createPreRegistration).not.toHaveBeenCalled();
+      expect(confirm).not.toHaveBeenCalled();
+      expect(resolveVersion).not.toHaveBeenCalled();
+      expect(reserve).not.toHaveBeenCalled();
+    });
+  });
+
+  it("authenticates requests even while intake is paused", async () => {
+    const request = signedRequest("/api/integrations/checkins/v1/pre-registrations", { source: "CARRIER", form });
+    request.headers.set("x-checkin-signature", "invalid");
+    const response = await handleCheckinPreRegistration(request, dependencies({
+      environment: { ...environment, CHECKIN_INTAKE_PAUSED: "true" }
+    }));
+    expect(response.status).toBe(401);
+  });
+
+  it("resumes a rejected request with the same identity and preserves idempotency", async () => {
+    const createPreRegistration = vi.fn().mockResolvedValue({ publicCode: "LT-23456789", status: "PRE_CADASTRO", syncState: null, version: 1, recovered: false });
+    const env = { ...environment, CHECKIN_INTAKE_PAUSED: "true" };
+    const deps = dependencies({ environment: env, createPreRegistration });
+    const path = "/api/integrations/checkins/v1/pre-registrations";
+    const body = { source: "CARRIER", form };
+    expect((await handleCheckinPreRegistration(signedRequest(path, body), deps)).status).toBe(503);
+    env.CHECKIN_INTAKE_PAUSED = "false";
+    const resumed = await handleCheckinPreRegistration(signedRequest(path, body), deps);
+    const replay = await handleCheckinPreRegistration(signedRequest(path, body), deps);
+    expect(resumed.status).toBe(201);
+    expect(await replay.json()).toEqual(await resumed.json());
+    expect(createPreRegistration).toHaveBeenCalledOnce();
+  });
+
+  it("keeps recovery, status and expiration available during an intake pause", async () => {
+    const paused = { ...environment, CHECKIN_INTAKE_PAUSED: "true" };
+    const recover = vi.fn().mockResolvedValue({ publicCode: "LT-23456789", status: "CHAMADO", syncState: "CONFIRMADO", version: 5 });
+    const getStatus = vi.fn().mockResolvedValue({ status: "confirmed" });
+    const expire = vi.fn().mockResolvedValue({ examined: 1, expired: 0, hasMore: false });
+    const recovered = await handleCheckinRecovery(signedRequest("/api/integrations/checkins/v1/recoveries", { driverLicense: form.driverLicense, driverPhone: form.driverPhone, plate: form.plate }), dependencies({ environment: paused, recover }));
+    const status = await handleCheckinStatus(signedRequest("/api/integrations/checkins/v1/status", { publicCode: "LT-23456789", driverPhone: form.driverPhone }), dependencies({ environment: paused, getStatus }));
+    const expired = await handleCheckinExpiration(signedRequest("/api/integrations/checkins/v1/maintenance/expire", { limit: 1 }), dependencies({ environment: paused, expire }));
+    expect(recovered.status).toBe(200);
+    expect(status.status).toBe(200);
+    expect(expired.status).toBe(200);
+    expect(recover).toHaveBeenCalledOnce();
+    expect(getStatus).toHaveBeenCalledOnce();
+    expect(expire).toHaveBeenCalledOnce();
+  });
+
   it("returns the explicit integration-disabled code while mode is off", async () => {
     const path = "/api/integrations/checkins/v1/pre-registrations";
     const response = await handleCheckinPreRegistration(
