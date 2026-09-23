@@ -53,6 +53,7 @@ type OperationContext = {
 
 type OperationDefinition<Input, Data> = {
   name: string;
+  requiresIntakeOpen: boolean;
   schema: z.ZodType<Input>;
   successStatus: number;
   execute(
@@ -174,6 +175,16 @@ async function runOperation<Input, Data>(
       secret: config.integrationSecret,
       nowMs: now.getTime()
     });
+    if (
+      definition.requiresIntakeOpen &&
+      (dependencies.environment ?? process.env).CHECKIN_INTAKE_PAUSED === "true"
+    ) {
+      throw new HttpError(
+        503,
+        "Novos check-ins estão temporariamente pausados. Aguarde a orientação da Line e tente novamente mais tarde.",
+        { code: "CHECKIN_INTAKE_PAUSED" }
+      );
+    }
     replayIdentity = {
       requestId: verified.requestId,
       bodyHash: hashCheckinIntegrationBody(verified.rawBody),
@@ -218,6 +229,7 @@ const preRegistrationDefinition: OperationDefinition<
   PreRegistrationData
 > = {
   name: "pre-registration.create",
+  requiresIntakeOpen: true,
   schema: checkinPreRegistrationSchema,
   successStatus: 201,
   async execute(input, context, dependencies) {
@@ -311,6 +323,7 @@ const confirmationDefinition: OperationDefinition<
   ConfirmationData
 > = {
   name: "check-in.confirm",
+  requiresIntakeOpen: true,
   schema: checkinConfirmationSchema,
   successStatus: 200,
   execute: executeConfirmation,
@@ -322,6 +335,7 @@ const walkInDefinition: OperationDefinition<
   ConfirmationData
 > = {
   name: "walk-in.create-and-confirm",
+  requiresIntakeOpen: true,
   schema: checkinWalkInSchema,
   successStatus: 201,
   async execute(input, context, dependencies) {
@@ -363,6 +377,7 @@ const recoveryDefinition: OperationDefinition<
   RecoveryData
 > = {
   name: "pre-registration.recover",
+  requiresIntakeOpen: false,
   schema: checkinRecoverySchema,
   successStatus: 200,
   async execute(input, context, dependencies) {
@@ -391,6 +406,7 @@ const statusDefinition: OperationDefinition<
   StatusData
 > = {
   name: "check-in.status",
+  requiresIntakeOpen: false,
   schema: checkinStatusQuerySchema,
   successStatus: 200,
   async execute(input, context, dependencies) {
@@ -410,6 +426,7 @@ const expirationDefinition: OperationDefinition<
   ExpirationData
 > = {
   name: "maintenance.expire-pre-registrations",
+  requiresIntakeOpen: false,
   schema: checkinExpirationSchema,
   successStatus: 200,
   execute: async (input, context, dependencies) =>

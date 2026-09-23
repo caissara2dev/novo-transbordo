@@ -61,6 +61,22 @@ describe("HTTP response contract", () => {
     });
   });
 
+  it("exposes the intake pause message without diagnostic details", async () => {
+    const response = fail(new HttpError(503, "Check-ins temporariamente pausados.", {
+      code: "CHECKIN_INTAKE_PAUSED", details: { internal: "private diagnostic" }
+    }));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ ok: false, error: {
+      code: "CHECKIN_INTAKE_PAUSED", message: "Check-ins temporariamente pausados."
+    } });
+  });
+
+  it("does not expose server failures mislabeled with the pause code", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const response = fail(new HttpError(500, "private diagnostic", { code: "CHECKIN_INTAKE_PAUSED" }));
+    expect(await response.json()).toEqual({ ok: false, error: { code: "INTERNAL_ERROR", message: "Erro inesperado." } });
+  });
+
   it("returns validation details for schema errors without echoing submitted values", async () => {
     const schema = z.object({ approved: z.boolean() }).strict();
     const request = new NextRequest("http://localhost/api/users/u1/approve", {
