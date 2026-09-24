@@ -8,6 +8,7 @@ import { detectDocumentType, DOCUMENT_MAX_BYTES, DOCUMENT_SESSION_MS, DOCUMENT_R
 import type { StoredCheckin } from "@/types/checkins";
 import type { UserDoc } from "@/types/domain";
 import { documentRuntime } from "./documents";
+import { internalDocumentOrigin } from "./document-environment";
 import { assertQueueActor, getQueueVisit, type QueueActor } from "./queue-service";
 
 const sessions = "_checkinDocumentSessions";
@@ -64,12 +65,8 @@ function editableVisit(value: StoredCheckin | undefined, expectedVersion: number
   return value;
 }
 function runtime() {
+  const origin = internalDocumentOrigin();
   const config = documentRuntime();
-  const origin = process.env.CHECKIN_DOCUMENT_INTERNAL_ORIGIN;
-  const stagingOrigin = "https://checkin-system-nf--line-transbordo-staging-382612.us-central1.hosted.app";
-  const emulator = process.env.FIRESTORE_EMULATOR_HOST && process.env.FIREBASE_PROJECT_ID?.startsWith("demo-");
-  if (!origin || (!emulator && origin !== stagingOrigin))
-    throw new HttpError(503, "Origem interna do envio documental não configurada.");
   return {...config, origin};
 }
 

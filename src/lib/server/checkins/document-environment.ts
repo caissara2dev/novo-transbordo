@@ -35,3 +35,16 @@ export function documentEnvironment(env: NodeJS.ProcessEnv = process.env) {
     throw new HttpError(503, "Configuração documental não corresponde ao ambiente.");
   return { bucket, origin, secret };
 }
+
+/** Internal uploads share the document boundary but use the staff application's origin. */
+export function internalDocumentOrigin(env: NodeJS.ProcessEnv = process.env) {
+  documentEnvironment(env);
+  const origin = env.CHECKIN_DOCUMENT_INTERNAL_ORIGIN;
+  const demo = env.FIREBASE_PROJECT_ID?.startsWith("demo-") && !!env.FIRESTORE_EMULATOR_HOST;
+  const expected = env.FIREBASE_PROJECT_ID === productionProject
+    ? "https://linebot.com.br"
+    : `https://checkin-system-nf--${stagingProject}.us-central1.hosted.app`;
+  if (!origin || (!demo && origin !== expected))
+    throw new HttpError(503, "Origem interna do envio documental não configurada.");
+  return origin;
+}
