@@ -2,6 +2,8 @@
 
 Tracks #
 
+<!-- Liste as issues e os itens de correção entregues. Uma issue pode agrupar várias correções, desde que todas estejam identificadas. -->
+
 ## Problema e solução
 
 <!-- Explique o problema, a abordagem adotada e o que ficou fora do escopo. -->
@@ -21,6 +23,7 @@ Tracks #
 - [ ] A branch parte da `main` atualizada e o diff está focado.
 - [ ] Commits seguem Conventional Commits.
 - [ ] A issue e o milestone corretos estão vinculados.
+- [ ] Todas as correções estão identificadas em issue(s), com causa, solução, testes e estado de cada item.
 - [ ] Documentação e `CHANGELOG.md` foram atualizados quando necessário.
 - [ ] Não há segredos, dados pessoais ou artefatos gerados no diff.
 

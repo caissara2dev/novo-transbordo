@@ -5,6 +5,33 @@ Todas as alterações relevantes deste projeto serão registradas neste arquivo.
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o projeto usa
 [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## Não publicado — substituição real de nota fiscal
+
+- Substituição pela Line com original atual preservado até a confirmação, controle de versão/identidade documental, repetição segura e auditoria única.
+- Histórico privado de versões anteriores com download por até 90 dias após a troca; limpeza protegida no worker preserva o documento atual e o registro textual.
+- Interface integrada à fila, com escolha e confirmação explícita, rascunhos preservados e consulta paginada do histórico. Tracks #33, PR #35; sem nova versão estável.
+
+## Não publicado — complemento interno de nota fiscal
+
+- Admin, supervisor e analista podem anexar foto/PDF à visita confirmada com nota pendente, preservando original privado, histórico e status operacional.
+- Envio retomável com validação no servidor, controle de concorrência e confirmação idempotente. A classificação em edição permanece preenchida ao receber o documento.
+- Homologação exclusiva do sistema acompanhada na issue #33/PR #35; naquela etapa, substituição, exclusão e retenção ficaram para entregas seguintes. Sem nova versão estável.
+
+## Não publicado — consolidação do check-in V2
+
+- Fila e área do cliente, registro oficial no sistema e documentos por visita versionados para homologação.
+- Portal independente vinculado, protótipos separados, procedimento de mudanças e pendências de produção documentados.
+- Cobertura inclui transações documentais no emulador protegido; preservados os gates de segurança e cobertura.
+- Seleção de visitas usa verde-petróleo com fundo suave e indicador lateral; estados de mouse e teclado mantêm a mesma identidade visual.
+- Sem merge, deploy, migração ou nova release nesta entrega.
+
+## Não publicado — homologação do processador de notas
+
+- Configuração explícita de CPU por requisição para eliminar alocação contínua entre tarefas.
+- Atualização restrita e idempotente do serviço existente, com simulação, controle de concorrência e evidência para rollback.
+- Código e testes do processador versionados separadamente da aplicação de check-in.
+- Pré-release planejada `checkin-nf-staging.2026-09-15.1`; sem alteração da versão estável ou promoção para produção.
+
 ## 2.5.1 - 2026-09-15
 
 ### Corrigido

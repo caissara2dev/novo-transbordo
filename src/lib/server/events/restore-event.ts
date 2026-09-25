@@ -1,3 +1,4 @@
+import { prepareCheckinEventLink } from "@/lib/server/checkins/event-link";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { HttpError } from "@/lib/domain/errors";
 import { adminDb } from "@/lib/firebase/admin";
@@ -179,6 +180,7 @@ export async function restoreEvent(
       deletedByEmail: null,
       deletedReason: null
     };
+    const writeCheckin = await prepareCheckinEventLink(transaction,eventId,existing,actor.uid,"RESTORE");
     const containerEffects = await reconcileEventContainerEffectsInTransaction({
       transaction,
       eventId,
@@ -188,7 +190,7 @@ export async function restoreEvent(
       expectedSourceContainerStateVersion:
         plan.expectedSourceContainerStateVersion,
       reservedWrites:
-        2 +
+        2 + (existing.checkInId ? 2 : 0) +
         (explicitlyReconciled
           ? automaticToRetire.size + regeneratedEvents.length
           : linkedAutomaticSnap.docs.filter(
@@ -202,6 +204,7 @@ export async function restoreEvent(
                 `Recalculado após exclusão do produtivo ${eventId}.`
             ).length || 0))
     });
+    writeCheckin();
     transaction.update(ref, {
       deleted: false,
       deletedAt: null,

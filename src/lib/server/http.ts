@@ -109,18 +109,20 @@ export function fail(error: unknown): NextResponse {
         ? error.status
         : 500;
     const internal = status >= 500;
+    const intakePaused = status === 503 && error.code === "CHECKIN_INTAKE_PAUSED";
+    const safelyExposed = error.code === "INTEGRATION_DISABLED" || intakePaused;
 
-    if (internal) {
+    if (internal && !safelyExposed) {
       console.error("Erro interno tratado pela API.", error);
     }
 
     return errorResponse({
       status,
-      code: internal
+      code: internal && !safelyExposed
         ? "INTERNAL_ERROR"
         : error.code ?? errorCodeForStatus(status),
-      message: internal ? "Erro inesperado." : error.message,
-      details: internal ? undefined : error.details,
+      message: internal && !safelyExposed ? "Erro inesperado." : error.message,
+      details: (internal && !safelyExposed) || intakePaused ? undefined : error.details,
       headers: retryAfterHeader(error)
     });
   }

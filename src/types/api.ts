@@ -56,6 +56,9 @@ export type RestoreEventPreviewResponse = {
 };
 
 export type ClientApiItem = {
+  accessVersion?: number;
+  portalEnabled?: boolean;
+  usesSample?: boolean;
   id: string;
   name: string;
   nameUpper: string;

@@ -1,0 +1,14 @@
+{
+  "runConfig": { "minInstances": 0, "maxInstances": 2, "concurrency": 40, "cpu": 1, "memoryMiB": 1024 },
+  "env": [
+    { "variable": "NEXT_PUBLIC_TURNSTILE_SITE_KEY", "value": "__PUBLIC_TURNSTILE_SITE_KEY__", "availability": ["BUILD", "RUNTIME"] },
+    { "variable": "TURNSTILE_SECRET_KEY", "secret": "__TURNSTILE_SECRET_VERSION__", "availability": ["RUNTIME"] },
+    { "variable": "PUBLIC_APP_HOSTNAME", "value": "__PORTAL_HOSTNAME__", "availability": ["RUNTIME"] },
+    { "variable": "TRANSBORDOLINE_API_BASE_URL", "value": "__SYSTEM_ORIGIN__", "availability": ["RUNTIME"] },
+    { "variable": "TRANSBORDOLINE_CHECKIN_KEY_ID", "value": "__INTEGRATION_KEY_ID__", "availability": ["RUNTIME"] },
+    { "variable": "TRANSBORDOLINE_CHECKIN_HMAC_SECRET", "secret": "__INTEGRATION_SECRET_VERSION__", "availability": ["RUNTIME"] },
+    { "variable": "TRUSTED_PROXY_MODE", "value": "google-lb", "availability": ["RUNTIME"] },
+    { "variable": "NEXT_PUBLIC_CHECKIN_DOCUMENTS_ENABLED", "value": "false", "availability": ["BUILD", "RUNTIME"] },
+    { "variable": "NEXT_PUBLIC_CHECKIN_ENVIRONMENT", "value": "production", "availability": ["BUILD", "RUNTIME"] }
+  ]
+}

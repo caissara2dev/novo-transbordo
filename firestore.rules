@@ -45,6 +45,19 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Queue, customer collaboration, and audit pass through server authorization.
+    match /checkins/{visitId} { allow read, write: if false;
+      match /revisions/{revisionId} { allow read, write: if false; }
+    }
+    match /_checkinUniqueLocks/{id} { allow read, write: if false; }
+    match /_checkinPublicCodes/{id} { allow read, write: if false; }
+    match /_checkinIntegrationRequests/{id} { allow read, write: if false; }
+    match /_checkinTemporaryObjects/{id} { allow read, write: if false; }
+    match /_checkinDocumentSessions/{id} { allow read, write: if false; }
+    match /_checkinDocumentQuotas/{id} { allow read, write: if false; }
+    match /_checkinPreviewJobs/{id} { allow read, write: if false; }
+    match /_queueAccessAudit/{id} { allow read, write: if false; }
+
     match /{document=**} {
       allow read, write: if false;
     }

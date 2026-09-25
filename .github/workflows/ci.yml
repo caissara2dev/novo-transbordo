@@ -4,9 +4,11 @@ on:
   pull_request:
     branches:
       - main
+      - codex/checkin-v2-staging
   push:
     branches:
       - main
+      - codex/checkin-v2-staging
 
 permissions:
   contents: read
@@ -32,18 +34,18 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
 
       - name: Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
 
       - name: Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "21"
@@ -56,3 +58,27 @@ jobs:
 
       - name: Verificação completa
         run: npm run verify
+
+  document-worker:
+    name: Document worker tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: infrastructure/checkin-documents/requirements.txt
+
+      - name: Dependências do worker
+        run: >-
+          python -m pip install --only-binary=:all: -r infrastructure/checkin-documents/requirements.txt
+
+      - name: Testes de prévias, retenção e exclusão
+        run: python -m unittest discover -v -s infrastructure/checkin-documents -p 'test_*.py'

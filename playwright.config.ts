@@ -44,9 +44,10 @@ export default defineConfig({
           timeout: 120_000
         },
         {
-          command: "npm run dev -- --hostname 127.0.0.1",
+          command: process.env.E2E_USE_BUILD === "true" ? "npm run start -- --hostname 127.0.0.1" : "npm run dev -- --webpack --hostname 127.0.0.1",
           env: {
             APP_CHECK_MODE: "off",
+            FIRESTORE_EMULATOR_HOST: "127.0.0.1:8080",
             RATE_LIMIT_MODE: "off",
             FIREBASE_PROJECT_ID: e2eProjectId,
             FIREBASE_AUTH_EMULATOR_HOST: "127.0.0.1:9099",

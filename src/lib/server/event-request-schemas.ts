@@ -29,6 +29,8 @@ const gapJustificationsByEventSchema = z.record(
 
 export const eventMutationBodySchema = z
   .object({
+    checkInId: z.string().min(1).max(128).regex(/^[^/]+$/).nullable().optional(),
+    expectedCheckinVersion: z.number().int().positive().nullable().optional(),
     pump: z.enum(["BOMBA_1", "BOMBA_2", "BOMBA_3"]),
     shiftDate: z.string(),
     shiftType: z.enum(["MANHA", "NOITE"]),
