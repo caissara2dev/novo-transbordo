@@ -140,6 +140,8 @@ export function ContainerTransferFields({
     )
       return;
     const cursor = page.nextCursor;
+    // Keep focus within the combobox when its paging button is disabled/removed.
+    input.current?.focus();
     setLoadingMore(true);
     try {
       const params = new URLSearchParams({
