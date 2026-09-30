@@ -309,10 +309,13 @@ test("waits for the destination version and permits retry after a failed lookup"
   await expect(page.getByText("O horário não pertence ao ciclo de origem selecionado.")).toBeVisible();
 });
 
-test("supports pagination, retry, empty results and ignores a stale response", async ({
+for (const activation of ["mouse", "keyboard"] as const) {
+test(`supports pagination, retry, empty results and ignores a stale response (${activation})`, async ({
   page
 }) => {
   let fail = true;
+  let releaseMore!: () => void;
+  const moreReady = new Promise<void>((resolve) => { releaseMore = resolve; });
   await page.route("**/api/containers?*", async (route) => {
     const params = new URL(route.request().url()).searchParams;
     if (params.get("query") === "MSCU") {
@@ -337,6 +340,7 @@ test("supports pagination, retry, empty results and ignores a stale response", a
       });
       return;
     }
+    if (params.has("cursor")) await moreReady;
     await route.fulfill(
       params.has("cursor")
         ? sourcePage([originFixtures[1]])
@@ -351,7 +355,17 @@ test("supports pagination, retry, empty results and ignores a stale response", a
   await expect(
     form.getByRole("option", { name: /TSTU 250001-9/ })
   ).toBeVisible();
-  await form.getByRole("button", { name: "Carregar mais" }).click();
+  const more = form.getByRole("button", { name: "Carregar mais" });
+  if (activation === "keyboard") {
+    await more.focus();
+    await more.press("Enter");
+  } else {
+    await more.click();
+  }
+  await expect(origin).toHaveAttribute("aria-expanded", "true");
+  await expect(origin).toBeFocused();
+  await expect(form.getByRole("button", { name: "Carregando…", exact: true })).toBeDisabled();
+  releaseMore();
   await expect(
     form.getByRole("option", { name: /TSTU 250003-0/ })
   ).toBeVisible();
@@ -368,6 +382,7 @@ test("supports pagination, retry, empty results and ignores a stale response", a
   await expect(form.getByRole("option", { name: /MSCU/ })).toHaveCount(0);
   await expect(form.getByLabel("Cliente *")).toHaveValue("");
 });
+}
 
 test("shows the source instead of a plate in global and container histories", async ({
   page
