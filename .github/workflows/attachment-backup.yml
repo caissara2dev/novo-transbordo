@@ -23,4 +23,6 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
+      - run: python -m pip install -r infrastructure/attachment-backup/requirements.txt
+      - run: python -c 'from google.cloud import storage; from google.api_core.exceptions import NotFound, PreconditionFailed'
       - run: python -m unittest discover -v -s infrastructure/attachment-backup -p 'test_*.py'
